@@ -54,7 +54,7 @@ Set environment variables in `.env.dev`:
 - `ADVANCED_AZURE_OPENAI_MODEL`
 - `ADVANCED_AZURE_OPENAI_TEMPERATURE`
 
-`system_prompt` is defined in code in `src/pixie_questioner/config.py`.
+`system_prompt` is loaded from `src/pixie_questioner/system_prompt.txt`.
 
 The API expects an LLM wrapper at `src/pixie_questioner/azure_openai_llm.py`
 that exposes a `model` with `ainvoke` and `astream` methods.
