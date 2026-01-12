@@ -54,8 +54,11 @@ Set environment variables in `.env.dev`:
 - `ADVANCED_AZURE_OPENAI_MODEL`
 - `ADVANCED_AZURE_OPENAI_TEMPERATURE`
 - `SYSTEM_PROMPT_PATH`
+- `SUMMARY_TRIGGER_TOKEN`
 
 `system_prompt` is loaded from the file pointed to by `SYSTEM_PROMPT_PATH` (store this file outside the repo).
+When the assistant returns `SUMMARY_TRIGGER_TOKEN` (or `None`), the API generates a final summary.
+Make sure your system prompt instructs the assistant to return `SUMMARY_TRIGGER_TOKEN` when the intake is complete.
 
 The API expects an LLM wrapper at `src/pixie_questioner/azure_openai_llm.py`
 that exposes a `model` with `ainvoke` and `astream` methods.

@@ -9,6 +9,7 @@ from pixie_questioner.azure_openai_llm import AzureOpenAILLM
 from pixie_questioner.chat_service import ChatService
 from pixie_questioner.config import get_settings
 from pixie_questioner.schemas import ChatRequest, ChatResponse
+from pixie_questioner.summarizer import ConversationSummarizer
 
 app = FastAPI(title="Pixie Questioner")
 
@@ -20,7 +21,13 @@ llm = AzureOpenAILLM(
     model_version=settings.advanced_azure_openai_model,
     temperature=settings.advanced_azure_openai_temperature,
 )
-chat_service = ChatService(llm=llm, system_prompt=settings.system_prompt)
+summarizer = ConversationSummarizer(llm=llm)
+chat_service = ChatService(
+    llm=llm,
+    system_prompt=settings.system_prompt,
+    completion_token=settings.summary_trigger_token,
+    summarizer=summarizer,
+)
 
 
 @app.get("/health")
