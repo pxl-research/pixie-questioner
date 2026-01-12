@@ -42,6 +42,11 @@ class FakeSummarizer:
         return "summary"
 
 
+class FakeNullSummarizer:
+    async def generate(self, conversation_history):
+        return None
+
+
 def test_ask_builds_prompt_and_returns_answer():
     llm = FakeLLM()
     service = ChatService(llm=llm, system_prompt="SYSTEM")
@@ -93,3 +98,57 @@ def test_stream_answer_summarizes_on_completion_signal():
 
     chunks = asyncio.run(_collect())
     assert chunks == ["summary"]
+
+
+def test_ask_summarizes_when_token_appended():
+    llm = FakeDoneLLM("Thanks for sharing. PIXIE_SUMMARY_READY")
+    summarizer = FakeSummarizer()
+    service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
+
+    answer = asyncio.run(service.ask("Question", "session-1", ["User: one"]))
+
+    assert answer == "summary"
+    assert summarizer.last_history[-1] == "User: Question"
+
+
+def test_stream_answer_summarizes_when_token_appended():
+    llm = FakeDoneLLM(
+        "Thanks for sharing. PIXIE_SUMMARY_READY",
+        chunks=["Thanks for sharing. ", "PIXIE_SUMMARY_READY"],
+    )
+    summarizer = FakeSummarizer()
+    service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
+
+    async def _collect():
+        chunks = []
+        async for chunk in service.stream_answer("Question", "session-1", []):
+            chunks.append(chunk)
+        return chunks
+
+    chunks = asyncio.run(_collect())
+    assert chunks == ["summary"]
+
+
+def test_ask_hides_completion_signal_when_summary_missing():
+    llm = FakeDoneLLM("PIXIE_SUMMARY_READY")
+    summarizer = FakeNullSummarizer()
+    service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
+
+    answer = asyncio.run(service.ask("Question", "session-1", []))
+
+    assert answer == ""
+
+
+def test_stream_answer_hides_completion_signal_when_summary_missing():
+    llm = FakeDoneLLM("PIXIE_SUMMARY_READY", chunks=["PIXIE_", "SUMMARY_READY"])
+    summarizer = FakeNullSummarizer()
+    service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
+
+    async def _collect():
+        chunks = []
+        async for chunk in service.stream_answer("Question", "session-1", []):
+            chunks.append(chunk)
+        return chunks
+
+    chunks = asyncio.run(_collect())
+    assert chunks == []

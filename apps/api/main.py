@@ -25,7 +25,6 @@ summarizer = ConversationSummarizer(llm=llm)
 chat_service = ChatService(
     llm=llm,
     system_prompt=settings.system_prompt,
-    completion_token=settings.summary_trigger_token,
     summarizer=summarizer,
 )
 

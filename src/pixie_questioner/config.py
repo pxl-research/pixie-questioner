@@ -26,9 +26,6 @@ class Settings(BaseSettings):
     advanced_azure_openai_temperature: float = Field(
         default=0.2, alias="ADVANCED_AZURE_OPENAI_TEMPERATURE"
     )
-    summary_trigger_token: str = Field(
-        default="PIXIE_SUMMARY_READY", alias="SUMMARY_TRIGGER_TOKEN"
-    )
     system_prompt_path: Path = Field(alias="SYSTEM_PROMPT_PATH")
 
     @property
