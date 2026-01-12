@@ -8,17 +8,12 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-SYSTEM_PROMPT_PATH = Path(__file__).with_name("system_prompt.txt")
-
-
-def load_system_prompt(path: Path = SYSTEM_PROMPT_PATH) -> str:
+def load_system_prompt(path: Path) -> str:
     try:
-        return path.read_text(encoding="utf-8")
+        resolved_path = path.expanduser()
+        return resolved_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         raise RuntimeError(f"System prompt file not found: {path}") from exc
-
-
-DEFAULT_SYSTEM_PROMPT = load_system_prompt()
 
 
 class Settings(BaseSettings):
@@ -31,7 +26,11 @@ class Settings(BaseSettings):
     advanced_azure_openai_temperature: float = Field(
         default=0.2, alias="ADVANCED_AZURE_OPENAI_TEMPERATURE"
     )
-    system_prompt: str = DEFAULT_SYSTEM_PROMPT
+    system_prompt_path: Path = Field(alias="SYSTEM_PROMPT_PATH")
+
+    @property
+    def system_prompt(self) -> str:
+        return load_system_prompt(self.system_prompt_path)
 
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.dev"),

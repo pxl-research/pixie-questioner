@@ -24,9 +24,6 @@ where = ["src"]
 include = ["pixie_questioner*"]
 exclude = ["infra"]
 
-[tool.setuptools.package-data]
-"pixie_questioner" = ["system_prompt.txt"]
-
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 
