@@ -51,9 +51,10 @@ def test_ask_builds_prompt_and_returns_answer():
     llm = FakeLLM()
     service = ChatService(llm=llm, system_prompt="SYSTEM")
 
-    answer = asyncio.run(service.ask("Question", "session-1", ["one", "two"]))
+    result = asyncio.run(service.ask("Question", "session-1", ["one", "two"]))
 
-    assert answer == "ok"
+    assert result.text == "ok"
+    assert result.response_type == "answer"
     assert llm.last_messages[0]["role"] == "system"
     assert "Session ID: session-1" in llm.last_messages[0]["content"]
     assert "History:" in llm.last_messages[0]["content"]
@@ -79,9 +80,10 @@ def test_ask_summarizes_on_completion_signal():
     summarizer = FakeSummarizer()
     service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
 
-    answer = asyncio.run(service.ask("Question", "session-1", ["User: one"]))
+    result = asyncio.run(service.ask("Question", "session-1", ["User: one"]))
 
-    assert answer == "summary"
+    assert result.text == "summary"
+    assert result.response_type == "summary"
     assert summarizer.last_history[-1] == "User: Question"
 
 
@@ -105,9 +107,10 @@ def test_ask_summarizes_when_token_appended():
     summarizer = FakeSummarizer()
     service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
 
-    answer = asyncio.run(service.ask("Question", "session-1", ["User: one"]))
+    result = asyncio.run(service.ask("Question", "session-1", ["User: one"]))
 
-    assert answer == "summary"
+    assert result.text == "summary"
+    assert result.response_type == "summary"
     assert summarizer.last_history[-1] == "User: Question"
 
 
@@ -134,9 +137,10 @@ def test_ask_hides_completion_signal_when_summary_missing():
     summarizer = FakeNullSummarizer()
     service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
 
-    answer = asyncio.run(service.ask("Question", "session-1", []))
+    result = asyncio.run(service.ask("Question", "session-1", []))
 
-    assert answer == ""
+    assert result.text == ""
+    assert result.response_type == "answer"
 
 
 def test_stream_answer_hides_completion_signal_when_summary_missing():

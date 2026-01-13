@@ -61,12 +61,16 @@ async def chat(request: ChatRequest, stream: bool = Query(False)):
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
 
-    answer = await chat_service.ask(
+    result = await chat_service.ask(
         question=request.question,
         session_id=request.session_id,
         history=request.history,
     )
-    return ChatResponse(answer=answer)
+    return ChatResponse(
+        type=result.response_type,
+        text=result.text,
+        conversation_id=request.session_id,
+    )
 
 
 @app.post(

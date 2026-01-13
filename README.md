@@ -1,7 +1,7 @@
 # pixie-questioner
 
 Pixie Questioner is a lightweight chat API for guided intake Q&A. The UI sends a
-question, a `session_id`, and optional `history`, and receives a compact answer
+question, a `session_id`, and optional `history`, and receives a typed response
 as JSON or streamed via SSE for realtime rendering.
 
 ## Quickstart
@@ -25,8 +25,9 @@ Open `http://localhost:8000/docs` for the OpenAPI UI.
   - `question` (str)
   - `session_id` (str)
   - `history` (list[str], default empty)
-- Response (non-stream): `{"answer": "..."}`
+- Response (non-stream): `{"type": "answer|summary", "text": "...", "conversation_id": "..."}`
 - Response (stream): `text/event-stream` with `data:` lines and a final `[DONE]`
+The `conversation_id` echoes the request `session_id`.
 
 ### POST /ask
 

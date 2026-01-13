@@ -21,6 +21,12 @@ class LLMClientProtocol(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class ChatResult:
+    text: str
+    response_type: str
+
+
 @dataclass
 class ChatService:
     llm: object
@@ -90,18 +96,21 @@ class ChatService:
 
     async def ask(
         self, question: str, session_id: str, history: Sequence[str] | None
-    ) -> str:
+    ) -> ChatResult:
         messages = self._build_messages(question, session_id, history)
         response = await self._get_client().ainvoke(messages)
         content = self._extract_content(response)
         if self._contains_completion_token(content) or self._is_legacy_none_signal(content):
             summary = await self._summarize(question, history)
             if summary is not None:
-                return summary
+                return ChatResult(text=summary, response_type="summary")
             if self._contains_completion_token(content):
-                return self._strip_completion_token(content)
-            return ""
-        return content
+                return ChatResult(
+                    text=self._strip_completion_token(content),
+                    response_type="answer",
+                )
+            return ChatResult(text="", response_type="answer")
+        return ChatResult(text=content, response_type="answer")
 
     async def stream_answer(
         self, question: str, session_id: str, history: Sequence[str] | None
