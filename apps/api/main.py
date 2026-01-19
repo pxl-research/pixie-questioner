@@ -21,11 +21,19 @@ llm = AzureOpenAILLM(
     model_version=settings.advanced_azure_openai_model,
     temperature=settings.advanced_azure_openai_temperature,
 )
-summarizer = ConversationSummarizer(llm=llm)
+summarizer_prompt = settings.summarizer_prompt
+if summarizer_prompt:
+    summarizer = ConversationSummarizer(
+        llm=llm,
+        system_prompt_template=summarizer_prompt,
+    )
+else:
+    summarizer = ConversationSummarizer(llm=llm)
 chat_service = ChatService(
     llm=llm,
     system_prompt=settings.system_prompt,
     summarizer=summarizer,
+    completion_token=settings.completion_token,
 )
 
 
@@ -51,6 +59,10 @@ async def chat(request: ChatRequest, stream: bool = Query(False)):
                 question=request.question,
                 session_id=request.session_id,
                 history=request.history,
+                questionnaire=request.questionnaire,
+                current_question=request.current_question,
+                summary=request.summary,
+                summarize=request.summarize,
             ):
                 yield _sse_event(chunk)
             yield _sse_event("[DONE]")
@@ -65,6 +77,10 @@ async def chat(request: ChatRequest, stream: bool = Query(False)):
         question=request.question,
         session_id=request.session_id,
         history=request.history,
+        questionnaire=request.questionnaire,
+        current_question=request.current_question,
+        summary=request.summary,
+        summarize=request.summarize,
     )
     return ChatResponse(
         type=result.response_type,

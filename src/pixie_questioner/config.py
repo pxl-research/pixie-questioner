@@ -8,12 +8,13 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-def load_system_prompt(path: Path) -> str:
+
+def load_prompt(path: Path) -> str:
     try:
         resolved_path = path.expanduser()
         return resolved_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
-        raise RuntimeError(f"System prompt file not found: {path}") from exc
+        raise RuntimeError(f"Prompt file not found: {path}") from exc
 
 
 class Settings(BaseSettings):
@@ -27,10 +28,20 @@ class Settings(BaseSettings):
         default=0.2, alias="ADVANCED_AZURE_OPENAI_TEMPERATURE"
     )
     system_prompt_path: Path = Field(alias="SYSTEM_PROMPT_PATH")
+    summarizer_prompt_path: Path | None = Field(
+        default=None, alias="SUMMARIZER_PROMPT_PATH"
+    )
+    completion_token: str = Field(default="", alias="COMPLETION_TOKEN")
 
     @property
     def system_prompt(self) -> str:
-        return load_system_prompt(self.system_prompt_path)
+        return load_prompt(self.system_prompt_path)
+
+    @property
+    def summarizer_prompt(self) -> str | None:
+        if self.summarizer_prompt_path is None:
+            return None
+        return load_prompt(self.summarizer_prompt_path)
 
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.dev"),

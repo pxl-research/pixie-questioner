@@ -25,6 +25,10 @@ Open `http://localhost:8000/docs` for the OpenAPI UI.
   - `question` (str)
   - `session_id` (str)
   - `history` (list[str], default empty)
+  - `questionnaire` (str, optional)
+  - `summary` (str, optional)
+  - `current_question` (str, optional)
+  - `summarize` (bool, default false)
 - Response (non-stream): `{"type": "answer|summary", "text": "...", "conversation_id": "..."}`
 - Response (stream): `text/event-stream` with `data:` lines and a final `[DONE]`
 The `conversation_id` echoes the request `session_id`.
@@ -55,10 +59,13 @@ Set environment variables in `.env.dev`:
 - `ADVANCED_AZURE_OPENAI_MODEL`
 - `ADVANCED_AZURE_OPENAI_TEMPERATURE`
 - `SYSTEM_PROMPT_PATH`
+- `SUMMARIZER_PROMPT_PATH` (optional)
+- `COMPLETION_TOKEN` (optional)
 
 `system_prompt` is loaded from the file pointed to by `SYSTEM_PROMPT_PATH` (store this file outside the repo).
-When the assistant returns `PIXIE_SUMMARY_READY` (or `None`), the API generates a final summary.
-Make sure your system prompt instructs the assistant to return `PIXIE_SUMMARY_READY` when the intake is complete.
+`summarizer_prompt` is loaded from `SUMMARIZER_PROMPT_PATH` when provided.
+`COMPLETION_TOKEN` is stripped from assistant outputs if present, but summary generation is triggered
+by the request payload (`summarize=true`) rather than a model-emitted token.
 
 The API expects an LLM wrapper at `src/pixie_questioner/azure_openai_llm.py`
 that exposes a `model` with `ainvoke` and `astream` methods.

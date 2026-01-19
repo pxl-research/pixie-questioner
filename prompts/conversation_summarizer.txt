@@ -1,0 +1,16 @@
+Given:
+* The current question of an AI
+* The answer of a user
+* The summary of previous information.
+Summarize everything what the user wants in 1 paragraph without losing any information.
+Formulate in a gender-neutral way.
+Internally analyze in which language all this information is. Use this language in the summary.
+
+AI current question:
+{current_question}
+User current answer:
+{current_answer}
+Summary of previous information:
+{summary}
+
+New summary of what user wants (translated to the language of all this information):

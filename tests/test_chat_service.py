@@ -35,27 +35,30 @@ class FakeDoneLLM:
 
 class FakeSummarizer:
     def __init__(self) -> None:
-        self.last_history = None
+        self.last_inputs = None
 
-    async def generate(self, conversation_history):
-        self.last_history = conversation_history
+    async def generate(self, current_question: str, current_answer: str, summary: str):
+        self.last_inputs = (current_question, current_answer, summary)
         return "summary"
-
-
-class FakeNullSummarizer:
-    async def generate(self, conversation_history):
-        return None
 
 
 def test_ask_builds_prompt_and_returns_answer():
     llm = FakeLLM()
-    service = ChatService(llm=llm, system_prompt="SYSTEM")
+    service = ChatService(llm=llm, system_prompt="SYSTEM\n{summary}")
 
-    result = asyncio.run(service.ask("Question", "session-1", ["one", "two"]))
+    result = asyncio.run(
+        service.ask(
+            "Question",
+            "session-1",
+            ["one", "two"],
+            questionnaire="QUESTIONNAIRE",
+        )
+    )
 
     assert result.text == "ok"
     assert result.response_type == "answer"
     assert llm.last_messages[0]["role"] == "system"
+    assert "SYSTEM\nQUESTIONNAIRE" in llm.last_messages[0]["content"]
     assert "Session ID: session-1" in llm.last_messages[0]["content"]
     assert "History:" in llm.last_messages[0]["content"]
     assert llm.last_messages[-1]["content"] == "Question"
@@ -75,56 +78,42 @@ def test_stream_answer_yields_chunks():
     assert chunks == ["o", "k"]
 
 
-def test_ask_summarizes_on_completion_signal():
-    llm = FakeDoneLLM("None")
+def test_ask_returns_summary_when_requested():
+    llm = FakeLLM()
     summarizer = FakeSummarizer()
     service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
 
-    result = asyncio.run(service.ask("Question", "session-1", ["User: one"]))
-
-    assert result.text == "summary"
-    assert result.response_type == "summary"
-    assert summarizer.last_history[-1] == "User: Question"
-
-
-def test_stream_answer_summarizes_on_completion_signal():
-    llm = FakeDoneLLM("None", chunks=["N", "one"])
-    summarizer = FakeSummarizer()
-    service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
-
-    async def _collect():
-        chunks = []
-        async for chunk in service.stream_answer("Question", "session-1", []):
-            chunks.append(chunk)
-        return chunks
-
-    chunks = asyncio.run(_collect())
-    assert chunks == ["summary"]
-
-
-def test_ask_summarizes_when_token_appended():
-    llm = FakeDoneLLM("Thanks for sharing. PIXIE_SUMMARY_READY")
-    summarizer = FakeSummarizer()
-    service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
-
-    result = asyncio.run(service.ask("Question", "session-1", ["User: one"]))
-
-    assert result.text == "summary"
-    assert result.response_type == "summary"
-    assert summarizer.last_history[-1] == "User: Question"
-
-
-def test_stream_answer_summarizes_when_token_appended():
-    llm = FakeDoneLLM(
-        "Thanks for sharing. PIXIE_SUMMARY_READY",
-        chunks=["Thanks for sharing. ", "PIXIE_SUMMARY_READY"],
+    result = asyncio.run(
+        service.ask(
+            "Answer",
+            "session-1",
+            ["User: one"],
+            current_question="AI: Question",
+            summary="prev",
+            summarize=True,
+        )
     )
+
+    assert result.text == "summary"
+    assert result.response_type == "summary"
+    assert summarizer.last_inputs == ("AI: Question", "Answer", "prev")
+
+
+def test_stream_answer_returns_summary_when_requested():
+    llm = FakeLLM()
     summarizer = FakeSummarizer()
     service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
 
     async def _collect():
         chunks = []
-        async for chunk in service.stream_answer("Question", "session-1", []):
+        async for chunk in service.stream_answer(
+            "Answer",
+            "session-1",
+            [],
+            current_question="AI: Question",
+            summary="prev",
+            summarize=True,
+        ):
             chunks.append(chunk)
         return chunks
 
@@ -132,10 +121,13 @@ def test_stream_answer_summarizes_when_token_appended():
     assert chunks == ["summary"]
 
 
-def test_ask_hides_completion_signal_when_summary_missing():
+def test_ask_strips_completion_token():
     llm = FakeDoneLLM("PIXIE_SUMMARY_READY")
-    summarizer = FakeNullSummarizer()
-    service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
+    service = ChatService(
+        llm=llm,
+        system_prompt="SYSTEM",
+        completion_token="PIXIE_SUMMARY_READY",
+    )
 
     result = asyncio.run(service.ask("Question", "session-1", []))
 
@@ -143,10 +135,13 @@ def test_ask_hides_completion_signal_when_summary_missing():
     assert result.response_type == "answer"
 
 
-def test_stream_answer_hides_completion_signal_when_summary_missing():
+def test_stream_answer_strips_completion_token():
     llm = FakeDoneLLM("PIXIE_SUMMARY_READY", chunks=["PIXIE_", "SUMMARY_READY"])
-    summarizer = FakeNullSummarizer()
-    service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
+    service = ChatService(
+        llm=llm,
+        system_prompt="SYSTEM",
+        completion_token="PIXIE_SUMMARY_READY",
+    )
 
     async def _collect():
         chunks = []

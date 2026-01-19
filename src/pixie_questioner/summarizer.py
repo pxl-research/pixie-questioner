@@ -3,20 +3,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, Sequence
+from typing import Protocol
 
 
 DEFAULT_SUMMARY_PROMPT = (
-    "Given the answers of a user and the full conversation history, reformulate what "
-    "the user wants in 1 paragraph without leaving away anything the user says.\n"
-    "Also look into the reference conversation history for missing details and more context.\n"
-    "Then summarize without losing information.\n"
-    "Internally analyze in which language the conversation is. Use this language in the summary.\n\n"
-    "User answers:\n"
-    "{user_answers}\n\n"
-    "Given conversation as a reference:\n"
-    "{conversation_history}\n\n"
-    "Summary (translated to the language of the conversation history):"
+    "Given:\n"
+    "* The current question of an AI\n"
+    "* The answer of a user\n"
+    "* The summary of previous information.\n"
+    "Summarize everything what the user wants in 1 paragraph without losing any information.\n"
+    "Formulate in a gender-neutral way.\n"
+    "Internally analyze in which language all this information is. Use this language in the summary.\n"
+    "\n"
+    "AI current question:\n"
+    "{current_question}\n"
+    "User current answer:\n"
+    "{current_answer}\n"
+    "Summary of previous information:\n"
+    "{summary}\n"
+    "\n"
+    "New summary of what user wants (translated to the language of all this information):"
 )
 
 
@@ -38,20 +44,19 @@ class ConversationSummarizer:
             raise RuntimeError("LLM client is not configured.")
         return model
 
-    def _build_prompt(self, conversation_history: Sequence[str]) -> str:
-        user_answers = "\n".join(
-            item.strip()
-            for item in conversation_history
-            if item.strip().lower().startswith("user:")
-        )
-        conversation_history_str = "\n".join(conversation_history)
+    def _build_prompt(
+        self, current_question: str, current_answer: str, summary: str
+    ) -> str:
         return self.system_prompt_template.format(
-            user_answers=user_answers,
-            conversation_history=conversation_history_str,
+            current_question=current_question,
+            current_answer=current_answer,
+            summary=summary,
         )
 
-    async def generate(self, conversation_history: Sequence[str]) -> str | None:
-        system_prompt = self._build_prompt(conversation_history)
+    async def generate(
+        self, current_question: str, current_answer: str, summary: str
+    ) -> str | None:
+        system_prompt = self._build_prompt(current_question, current_answer, summary)
         try:
             response = await self._get_client().ainvoke(
                 [{"role": "system", "content": system_prompt}]
