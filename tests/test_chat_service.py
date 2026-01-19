@@ -31,12 +31,17 @@ def _make_summarizer(llm):
     )
 
 
-QUESTIONNAIRE_TEMPLATE = "0. Initial user question: []"
+QUESTIONNAIRE_TEMPLATE = (
+    "0. Initial user question: []\n"
+    "1. Occasion, Vibe, Setting: []"
+)
 
 
 def test_ask_updates_state_and_returns_next_question():
     question_llm = FakeLLM(["Next question"])
-    notulist_llm = FakeLLM(["Updated questionnaire []"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Updated answer\n1. Occasion, Vibe, Setting: []"]
+    )
     summarizer_llm = FakeLLM(["Updated summary"])
     service = ChatService(
         llm=question_llm,
@@ -60,10 +65,16 @@ def test_ask_updates_state_and_returns_next_question():
 
     assert result.response_type == "answer"
     assert result.text == "Next question"
-    assert result.state["questionnaire"] == "Updated questionnaire []"
+    assert result.state["questionnaire"] == (
+        "0. Initial user question: Updated answer\n"
+        "1. Occasion, Vibe, Setting: []"
+    )
     assert result.state["summary"] == "Updated summary"
     assert result.state["last_question"] == "Next question"
-    assert "Updated questionnaire []" in question_llm.calls[-1][0]["content"]
+    assert (
+        "0. Initial user question: Updated answer\n1. Occasion, Vibe, Setting: []"
+        in question_llm.calls[-1][0]["content"]
+    )
     assert "AI question" in notulist_llm.calls[0][0]["content"]
     assert "User answer" in notulist_llm.calls[0][0]["content"]
     assert "Prev []" in notulist_llm.calls[0][0]["content"]
@@ -71,7 +82,9 @@ def test_ask_updates_state_and_returns_next_question():
 
 def test_ask_returns_summary_when_questionnaire_complete():
     question_llm = FakeLLM(["Should not be used"])
-    notulist_llm = FakeLLM(["All fields filled"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Filled\n1. Occasion, Vibe, Setting: Filled"]
+    )
     summarizer_llm = FakeLLM(["Final summary"])
     service = ChatService(
         llm=question_llm,
@@ -99,7 +112,9 @@ def test_ask_returns_summary_when_questionnaire_complete():
 
 def test_ask_returns_summary_on_stop_intent():
     question_llm = FakeLLM(["Should not be used"])
-    notulist_llm = FakeLLM(["Still []"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: []\n1. Occasion, Vibe, Setting: []"]
+    )
     summarizer_llm = FakeLLM(["Final summary"])
     service = ChatService(
         llm=question_llm,
@@ -127,7 +142,9 @@ def test_ask_returns_summary_on_stop_intent():
 
 def test_ask_strips_completion_token_from_next_question():
     question_llm = FakeLLM(["Next question TOKEN"])
-    notulist_llm = FakeLLM(["Updated questionnaire []"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Updated answer\n1. Occasion, Vibe, Setting: []"]
+    )
     summarizer_llm = FakeLLM(["Updated summary"])
     service = ChatService(
         llm=question_llm,
@@ -154,7 +171,9 @@ def test_ask_strips_completion_token_from_next_question():
 
 def test_ask_seeds_questionnaire_from_template_when_state_empty():
     question_llm = FakeLLM(["Next question"])
-    notulist_llm = FakeLLM(["Updated questionnaire []"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Updated answer\n1. Occasion, Vibe, Setting: []"]
+    )
     summarizer_llm = FakeLLM(["Updated summary"])
     service = ChatService(
         llm=question_llm,
@@ -173,3 +192,30 @@ def test_ask_seeds_questionnaire_from_template_when_state_empty():
 
     assert result.response_type == "answer"
     assert QUESTIONNAIRE_TEMPLATE in notulist_llm.calls[0][0]["content"]
+
+
+def test_ask_keeps_previous_questionnaire_on_invalid_notulist_output():
+    question_llm = FakeLLM(["Next question"])
+    notulist_llm = FakeLLM(["De gebruiker zoekt een nieuwe broek."])
+    summarizer_llm = FakeLLM(["Updated summary"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek een nieuwe broek",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "AI question",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.state["questionnaire"] == QUESTIONNAIRE_TEMPLATE

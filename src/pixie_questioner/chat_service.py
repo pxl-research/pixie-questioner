@@ -73,6 +73,11 @@ class ChatService:
     def __post_init__(self) -> None:
         if not self.questionnaire_template.strip():
             raise RuntimeError("Questionnaire template is required.")
+        self._questionnaire_indices = self._extract_questionnaire_indices(
+            self.questionnaire_template
+        )
+        if not self._questionnaire_indices:
+            raise RuntimeError("Questionnaire template must contain numbered fields.")
 
     def _get_client(self) -> LLMClientProtocol:
         if hasattr(self.llm, "ainvoke"):
@@ -99,6 +104,18 @@ class ChatService:
     def _strip_completion_token(self, content: str) -> str:
         stripped = re.sub(re.escape(self.completion_token), "", content, flags=re.IGNORECASE)
         return stripped.strip(_COMPLETION_STRIP_CHARS)
+
+    def _extract_questionnaire_indices(self, questionnaire: str) -> list[int]:
+        indices = set()
+        for match in re.finditer(r"(?m)^\s*(\d+)\.", questionnaire):
+            indices.add(int(match.group(1)))
+        return sorted(indices)
+
+    def _is_valid_questionnaire(self, questionnaire: str) -> bool:
+        for index in self._questionnaire_indices:
+            if not re.search(rf"(?m)^\s*{index}\.", questionnaire):
+                return False
+        return True
 
     def _parse_state(self, state: dict[str, str] | None) -> ChatState:
         if not state:
@@ -158,6 +175,8 @@ class ChatService:
         )
         if updated_questionnaire is None:
             raise RuntimeError("Failed to update questionnaire.")
+        if not self._is_valid_questionnaire(updated_questionnaire):
+            updated_questionnaire = current_state.questionnaire
 
         updated_summary = await self.summarizer.generate(
             current_question=current_question,
