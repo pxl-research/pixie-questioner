@@ -1,153 +1,145 @@
 import asyncio
 
 from pixie_questioner.chat_service import ChatService
+from pixie_questioner.notulist import QuestionnaireNotulist
+from pixie_questioner.summarizer import ConversationSummarizer
 
 
 class FakeLLM:
-    def __init__(self) -> None:
-        self.last_messages = None
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
 
     async def ainvoke(self, messages):
-        self.last_messages = messages
-        return "ok"
-
-    async def astream(self, messages):
-        self.last_messages = messages
-        for chunk in ["o", "k"]:
-            yield chunk
+        self.calls.append(messages)
+        if not self.responses:
+            raise AssertionError("No responses left for FakeLLM.")
+        return self.responses.pop(0)
 
 
-class FakeDoneLLM:
-    def __init__(self, response: str, chunks: list[str] | None = None) -> None:
-        self.last_messages = None
-        self.response = response
-        self.chunks = chunks or [response]
-
-    async def ainvoke(self, messages):
-        self.last_messages = messages
-        return self.response
-
-    async def astream(self, messages):
-        self.last_messages = messages
-        for chunk in self.chunks:
-            yield chunk
+def _make_notulist(llm):
+    return QuestionnaireNotulist(
+        llm=llm,
+        system_prompt_template="Q:{current_question}\nA:{current_answer}\nS:{summary}",
+    )
 
 
-class FakeSummarizer:
-    def __init__(self) -> None:
-        self.last_inputs = None
-
-    async def generate(self, current_question: str, current_answer: str, summary: str):
-        self.last_inputs = (current_question, current_answer, summary)
-        return "summary"
+def _make_summarizer(llm):
+    return ConversationSummarizer(
+        llm=llm,
+        system_prompt_template="Q:{current_question}\nA:{current_answer}\nS:{summary}",
+    )
 
 
-def test_ask_builds_prompt_and_returns_answer():
-    llm = FakeLLM()
-    service = ChatService(llm=llm, system_prompt="SYSTEM\n{summary}")
+def test_ask_updates_state_and_returns_next_question():
+    question_llm = FakeLLM(["Next question"])
+    notulist_llm = FakeLLM(["Updated questionnaire []"])
+    summarizer_llm = FakeLLM(["Updated summary"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        completion_token="TOKEN",
+    )
 
     result = asyncio.run(
         service.ask(
-            "Question",
-            "session-1",
-            ["one", "two"],
-            questionnaire="QUESTIONNAIRE",
+            current_answer="User answer",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
         )
     )
 
-    assert result.text == "ok"
     assert result.response_type == "answer"
-    assert llm.last_messages[0]["role"] == "system"
-    assert "SYSTEM\nQUESTIONNAIRE" in llm.last_messages[0]["content"]
-    assert "Session ID: session-1" in llm.last_messages[0]["content"]
-    assert "History:" in llm.last_messages[0]["content"]
-    assert llm.last_messages[-1]["content"] == "Question"
+    assert result.text == "Next question"
+    assert result.state["questionnaire"] == "Updated questionnaire []"
+    assert result.state["summary"] == "Updated summary"
+    assert result.state["last_question"] == "Next question"
+    assert "Updated questionnaire []" in question_llm.calls[-1][0]["content"]
+    assert "AI question" in notulist_llm.calls[0][0]["content"]
+    assert "User answer" in notulist_llm.calls[0][0]["content"]
+    assert "Prev []" in notulist_llm.calls[0][0]["content"]
 
 
-def test_stream_answer_yields_chunks():
-    llm = FakeLLM()
-    service = ChatService(llm=llm, system_prompt="SYSTEM")
-
-    async def _collect():
-        chunks = []
-        async for chunk in service.stream_answer("Question", "session-1", []):
-            chunks.append(chunk)
-        return chunks
-
-    chunks = asyncio.run(_collect())
-    assert chunks == ["o", "k"]
-
-
-def test_ask_returns_summary_when_requested():
-    llm = FakeLLM()
-    summarizer = FakeSummarizer()
-    service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
+def test_ask_returns_summary_when_questionnaire_complete():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["All fields filled"])
+    summarizer_llm = FakeLLM(["Final summary"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+    )
 
     result = asyncio.run(
         service.ask(
-            "Answer",
-            "session-1",
-            ["User: one"],
-            current_question="AI: Question",
-            summary="prev",
-            summarize=True,
+            current_answer="User answer",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
         )
     )
 
-    assert result.text == "summary"
     assert result.response_type == "summary"
-    assert summarizer.last_inputs == ("AI: Question", "Answer", "prev")
+    assert result.text == "Final summary"
+    assert question_llm.calls == []
 
 
-def test_stream_answer_returns_summary_when_requested():
-    llm = FakeLLM()
-    summarizer = FakeSummarizer()
-    service = ChatService(llm=llm, system_prompt="SYSTEM", summarizer=summarizer)
-
-    async def _collect():
-        chunks = []
-        async for chunk in service.stream_answer(
-            "Answer",
-            "session-1",
-            [],
-            current_question="AI: Question",
-            summary="prev",
-            summarize=True,
-        ):
-            chunks.append(chunk)
-        return chunks
-
-    chunks = asyncio.run(_collect())
-    assert chunks == ["summary"]
-
-
-def test_ask_strips_completion_token():
-    llm = FakeDoneLLM("PIXIE_SUMMARY_READY")
+def test_ask_returns_summary_on_stop_intent():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Still []"])
+    summarizer_llm = FakeLLM(["Final summary"])
     service = ChatService(
-        llm=llm,
-        system_prompt="SYSTEM",
-        completion_token="PIXIE_SUMMARY_READY",
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
     )
 
-    result = asyncio.run(service.ask("Question", "session-1", []))
-
-    assert result.text == ""
-    assert result.response_type == "answer"
-
-
-def test_stream_answer_strips_completion_token():
-    llm = FakeDoneLLM("PIXIE_SUMMARY_READY", chunks=["PIXIE_", "SUMMARY_READY"])
-    service = ChatService(
-        llm=llm,
-        system_prompt="SYSTEM",
-        completion_token="PIXIE_SUMMARY_READY",
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik wil stoppen",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
+        )
     )
 
-    async def _collect():
-        chunks = []
-        async for chunk in service.stream_answer("Question", "session-1", []):
-            chunks.append(chunk)
-        return chunks
+    assert result.response_type == "summary"
+    assert result.text == "Final summary"
+    assert question_llm.calls == []
 
-    chunks = asyncio.run(_collect())
-    assert chunks == []
+
+def test_ask_strips_completion_token_from_next_question():
+    question_llm = FakeLLM(["Next question TOKEN"])
+    notulist_llm = FakeLLM(["Updated questionnaire []"])
+    summarizer_llm = FakeLLM(["Updated summary"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        completion_token="TOKEN",
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="User answer",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
+        )
+    )
+
+    assert result.text == "Next question"

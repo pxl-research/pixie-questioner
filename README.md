@@ -1,8 +1,8 @@
 # pixie-questioner
 
 Pixie Questioner is a lightweight chat API for guided intake Q&A. The UI sends a
-question, a `session_id`, and optional `history`, and receives a typed response
-as JSON or streamed via SSE for realtime rendering.
+`current_answer`, an opaque `state` blob, and a `session_id`, and receives a typed
+JSON response with the next question or a final summary.
 
 ## Quickstart
 
@@ -20,34 +20,19 @@ Open `http://localhost:8000/docs` for the OpenAPI UI.
 
 ### POST /chat
 
-- Query: `stream=false|true`
 - Request JSON:
-  - `question` (str)
   - `session_id` (str)
-  - `history` (list[str], default empty)
-  - `questionnaire` (str, optional)
-  - `summary` (str, optional)
-  - `current_question` (str, optional)
-  - `summarize` (bool, default false)
-- Response (non-stream): `{"type": "answer|summary", "text": "...", "conversation_id": "..."}`
-- Response (stream): `text/event-stream` with `data:` lines and a final `[DONE]`
+  - `current_answer` (str)
+  - `state` (object, default empty)
+- Response: `{"type": "answer|summary", "text": "...", "conversation_id": "...", "state": {...}}`.
 The `conversation_id` echoes the request `session_id`.
-
-### POST /ask
-
-Alias for `/chat` to keep backward compatibility.
+Store the returned `state` and send it back on the next turn.
+On the first turn, send an empty object for `state`.
+Treat `state` as opaque; its contents are service-specific.
 
 ### GET /health
 
 Returns `{"status": "ok"}`.
-
-## Streaming example
-
-```bash
-curl -N "http://localhost:8000/chat?stream=true" \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Hello","session_id":"abc","history":[]}'
-```
 
 ## Configuration
 
@@ -60,15 +45,18 @@ Set environment variables in `.env.dev`:
 - `ADVANCED_AZURE_OPENAI_TEMPERATURE`
 - `SYSTEM_PROMPT_PATH`
 - `SUMMARIZER_PROMPT_PATH` (optional)
+- `QUESTIONNAIRE_NOTULIST_PROMPT_PATH`
 - `COMPLETION_TOKEN` (optional)
 
 `system_prompt` is loaded from the file pointed to by `SYSTEM_PROMPT_PATH` (store this file outside the repo).
 `summarizer_prompt` is loaded from `SUMMARIZER_PROMPT_PATH` when provided.
-`COMPLETION_TOKEN` is stripped from assistant outputs if present, but summary generation is triggered
-by the request payload (`summarize=true`) rather than a model-emitted token.
+`questionnaire_notulist_prompt` is loaded from `QUESTIONNAIRE_NOTULIST_PROMPT_PATH`.
+`COMPLETION_TOKEN` is only used to fill/strip the question-asker prompt placeholder; summary generation
+is triggered by the orchestrator logic, not by a model-emitted token.
+`QUESTIONNAIRE_NOTULIST_PROMPT_PATH` must be set for the API to start.
 
 The API expects an LLM wrapper at `src/pixie_questioner/azure_openai_llm.py`
-that exposes a `model` with `ainvoke` and `astream` methods.
+that exposes a `model` with an `ainvoke` method.
 
 ## Docker (dev)
 

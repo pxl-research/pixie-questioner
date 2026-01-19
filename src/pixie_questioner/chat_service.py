@@ -4,19 +4,46 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import AsyncIterator, Protocol, Sequence
+from typing import Protocol
 
+from .notulist import QuestionnaireNotulist
 from .summarizer import ConversationSummarizer
 
-DEFAULT_SUMMARY_TRIGGER_TOKEN = "PIXIE_SUMMARY_READY"
+DEFAULT_COMPLETION_TOKEN = "PIXIE_SUMMARY_READY"
 _COMPLETION_STRIP_CHARS = " \t\n\r\"'`.,:;!?()[]{}<>"
+_INITIAL_QUESTION = "Initial question:"
+_STOP_PHRASES = (
+    "stop",
+    "stoppen",
+    "ik wil stoppen",
+    "ik ben klaar",
+    "klaar",
+    "genoeg",
+    "dat was het",
+    "dat is alles",
+    "dit is alles",
+    "niets meer",
+    "done",
+    "i am done",
+    "finished",
+    "that's all",
+    "that is all",
+    "that's it",
+    "that is it",
+    "no more",
+    "i want to stop",
+    "c'est tout",
+    "cest tout",
+    "j'ai fini",
+    "jai fini",
+    "fini",
+    "arrete",
+    "arreter",
+)
 
 
 class LLMClientProtocol(Protocol):
     async def ainvoke(self, messages: list[dict[str, str]]):
-        ...
-
-    def astream(self, messages: list[dict[str, str]]) -> AsyncIterator[object]:
         ...
 
 
@@ -24,48 +51,39 @@ class LLMClientProtocol(Protocol):
 class ChatResult:
     text: str
     response_type: str
+    state: dict[str, str]
+
+
+@dataclass
+class ChatState:
+    questionnaire: str = ""
+    summary: str = ""
+    last_question: str = _INITIAL_QUESTION
 
 
 @dataclass
 class ChatService:
     llm: object
-    system_prompt: str
-    completion_token: str = DEFAULT_SUMMARY_TRIGGER_TOKEN
-    summarizer: ConversationSummarizer | None = None
+    question_asker_prompt: str
+    notulist: QuestionnaireNotulist
+    summarizer: ConversationSummarizer
+    completion_token: str = DEFAULT_COMPLETION_TOKEN
 
     def _get_client(self) -> LLMClientProtocol:
-        if hasattr(self.llm, "ainvoke") and hasattr(self.llm, "astream"):
+        if hasattr(self.llm, "ainvoke"):
             return self.llm  # type: ignore[return-value]
         model = getattr(self.llm, "model", None)
         if model is None:
             raise RuntimeError("LLM client is not configured.")
         return model
 
-    def _render_system_prompt(self, questionnaire: str | None) -> str:
-        prompt = self.system_prompt
+    def _render_question_asker_prompt(self, questionnaire: str) -> str:
+        prompt = self.question_asker_prompt
         if "{summary}" in prompt:
-            prompt = prompt.replace("{summary}", questionnaire or "")
+            prompt = prompt.replace("{summary}", questionnaire)
         if "{completion_token}" in prompt:
-            prompt = prompt.replace("{completion_token}", self.completion_token or "")
+            prompt = prompt.replace("{completion_token}", self.completion_token)
         return prompt
-
-    def _build_messages(
-        self,
-        question: str,
-        session_id: str,
-        history: Sequence[str] | None,
-        questionnaire: str | None,
-    ) -> list[dict[str, str]]:
-        system_prompt = self._render_system_prompt(questionnaire)
-        system_content = f"{system_prompt}\n\nSession ID: {session_id}"
-        if history:
-            history_block = "\n".join(f"- {item}" for item in history)
-            system_content = f"{system_content}\n\nHistory:\n{history_block}"
-
-        return [
-            {"role": "system", "content": system_content},
-            {"role": "user", "content": question},
-        ]
 
     def _extract_content(self, response: object) -> str:
         content = getattr(response, "content", None)
@@ -73,93 +91,97 @@ class ChatService:
             content = str(response)
         return content
 
-    def _contains_completion_token(self, content: str) -> bool:
-        if not self.completion_token:
-            return False
-        return re.search(re.escape(self.completion_token), content, re.IGNORECASE) is not None
-
     def _strip_completion_token(self, content: str) -> str:
-        if not self.completion_token:
-            return content
         stripped = re.sub(re.escape(self.completion_token), "", content, flags=re.IGNORECASE)
         return stripped.strip(_COMPLETION_STRIP_CHARS)
 
-    async def _summarize(
-        self, current_question: str | None, current_answer: str, summary: str | None
-    ) -> str | None:
-        if self.summarizer is None:
-            return None
-        return await self.summarizer.generate(
-            current_question=current_question or "",
-            current_answer=current_answer,
-            summary=summary or "",
+    def _parse_state(self, state: dict[str, str] | None) -> ChatState:
+        if not state:
+            return ChatState()
+        questionnaire = state.get("questionnaire", "")
+        summary = state.get("summary", "")
+        last_question = state.get("last_question", _INITIAL_QUESTION)
+        if not isinstance(questionnaire, str):
+            raise RuntimeError("State field 'questionnaire' must be a string.")
+        if not isinstance(summary, str):
+            raise RuntimeError("State field 'summary' must be a string.")
+        if not isinstance(last_question, str):
+            raise RuntimeError("State field 'last_question' must be a string.")
+        return ChatState(
+            questionnaire=questionnaire,
+            summary=summary,
+            last_question=last_question,
         )
+
+    def _serialize_state(self, state: ChatState) -> dict[str, str]:
+        return {
+            "questionnaire": state.questionnaire,
+            "summary": state.summary,
+            "last_question": state.last_question,
+        }
+
+    def _user_requested_stop(self, current_answer: str) -> bool:
+        normalized = " ".join(current_answer.casefold().split())
+        return any(phrase in normalized for phrase in _STOP_PHRASES)
+
+    def _questionnaire_complete(self, questionnaire: str) -> bool:
+        return "[]" not in questionnaire
+
+    async def _ask_next_question(self, questionnaire: str) -> str:
+        system_prompt = self._render_question_asker_prompt(questionnaire)
+        response = await self._get_client().ainvoke(
+            [{"role": "system", "content": system_prompt}]
+        )
+        content = self._extract_content(response)
+        if self.completion_token and self.completion_token.casefold() in content.casefold():
+            content = self._strip_completion_token(content)
+        return content
 
     async def ask(
         self,
-        question: str,
-        session_id: str,
-        history: Sequence[str] | None,
-        questionnaire: str | None = None,
-        current_question: str | None = None,
-        summary: str | None = None,
-        summarize: bool = False,
+        current_answer: str,
+        state: dict[str, str] | None,
     ) -> ChatResult:
-        if summarize:
-            summary_text = await self._summarize(current_question, question, summary)
-            return ChatResult(text=summary_text or "", response_type="summary")
+        current_state = self._parse_state(state)
+        current_question = current_state.last_question
+        updated_questionnaire = await self.notulist.generate(
+            current_question=current_question,
+            current_answer=current_answer,
+            summary=current_state.questionnaire,
+        )
+        if updated_questionnaire is None:
+            raise RuntimeError("Failed to update questionnaire.")
 
-        messages = self._build_messages(question, session_id, history, questionnaire)
-        response = await self._get_client().ainvoke(messages)
-        content = self._extract_content(response)
-        if self._contains_completion_token(content):
-            content = self._strip_completion_token(content)
-        return ChatResult(text=content, response_type="answer")
+        updated_summary = await self.summarizer.generate(
+            current_question=current_question,
+            current_answer=current_answer,
+            summary=current_state.summary,
+        )
+        if updated_summary is None:
+            raise RuntimeError("Failed to summarize conversation.")
 
-    async def stream_answer(
-        self,
-        question: str,
-        session_id: str,
-        history: Sequence[str] | None,
-        questionnaire: str | None = None,
-        current_question: str | None = None,
-        summary: str | None = None,
-        summarize: bool = False,
-    ) -> AsyncIterator[str]:
-        if summarize:
-            summary_text = await self._summarize(current_question, question, summary)
-            if summary_text:
-                yield summary_text
-            return
+        if self._questionnaire_complete(updated_questionnaire) or self._user_requested_stop(
+            current_answer
+        ):
+            final_state = ChatState(
+                questionnaire=updated_questionnaire,
+                summary=updated_summary,
+                last_question=current_question,
+            )
+            return ChatResult(
+                text=updated_summary,
+                response_type="summary",
+                state=self._serialize_state(final_state),
+            )
 
-        messages = self._build_messages(question, session_id, history, questionnaire)
-        if not self.completion_token:
-            async for chunk in self._get_client().astream(messages):
-                text = getattr(chunk, "content", None)
-                if text is None:
-                    text = str(chunk)
-                if text:
-                    yield text
-            return
-
-        chunks: list[str] = []
-        async for chunk in self._get_client().astream(messages):
-            text = getattr(chunk, "content", None)
-            if text is None:
-                text = str(chunk)
-            if not text:
-                continue
-            chunks.append(text)
-
-        if not chunks:
-            return
-
-        full_text = "".join(chunks)
-        if self._contains_completion_token(full_text):
-            cleaned = self._strip_completion_token(full_text)
-            if cleaned:
-                yield cleaned
-            return
-
-        for chunk in chunks:
-            yield chunk
+        next_question = await self._ask_next_question(updated_questionnaire)
+        next_state = ChatState(
+            questionnaire=updated_questionnaire,
+            summary=updated_summary,
+            last_question=next_question,
+        )
+        return ChatResult(
+            text=next_question,
+            response_type="answer",
+            state=self._serialize_state(next_state),
+        )

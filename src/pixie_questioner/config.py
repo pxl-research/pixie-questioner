@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     summarizer_prompt_path: Path | None = Field(
         default=None, alias="SUMMARIZER_PROMPT_PATH"
     )
+    questionnaire_notulist_prompt_path: Path | None = Field(
+        default=None, alias="QUESTIONNAIRE_NOTULIST_PROMPT_PATH"
+    )
     completion_token: str = Field(default="", alias="COMPLETION_TOKEN")
 
     @property
@@ -42,6 +45,12 @@ class Settings(BaseSettings):
         if self.summarizer_prompt_path is None:
             return None
         return load_prompt(self.summarizer_prompt_path)
+
+    @property
+    def questionnaire_notulist_prompt(self) -> str | None:
+        if self.questionnaire_notulist_prompt_path is None:
+            return None
+        return load_prompt(self.questionnaire_notulist_prompt_path)
 
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.dev"),

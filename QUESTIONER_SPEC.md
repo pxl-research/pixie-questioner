@@ -16,6 +16,14 @@ It is a working spec meant to be refined before implementation.
 - Current question: the latest question asked by the system.
 - User answer: the latest user reply.
 
+## Runtime state (API)
+- The API uses an opaque `state` blob that the client stores and sends back verbatim.
+- For the questioner service, the state contains:
+  - `questionnaire`
+  - `summary`
+  - `last_question` (the AI question the user just answered)
+- On the first turn, `last_question` defaults to `Initial question:`.
+
 ## Field list (fixed)
 Field labels must be translated to the current conversation language.
 Do not add new fields.
