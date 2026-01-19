@@ -31,6 +31,9 @@ def _make_summarizer(llm):
     )
 
 
+QUESTIONNAIRE_TEMPLATE = "0. Initial user question: []"
+
+
 def test_ask_updates_state_and_returns_next_question():
     question_llm = FakeLLM(["Next question"])
     notulist_llm = FakeLLM(["Updated questionnaire []"])
@@ -40,6 +43,7 @@ def test_ask_updates_state_and_returns_next_question():
         question_asker_prompt="PROMPT {summary} {completion_token}",
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
         completion_token="TOKEN",
     )
 
@@ -74,6 +78,7 @@ def test_ask_returns_summary_when_questionnaire_complete():
         question_asker_prompt="PROMPT {summary} {completion_token}",
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
     )
 
     result = asyncio.run(
@@ -101,6 +106,7 @@ def test_ask_returns_summary_on_stop_intent():
         question_asker_prompt="PROMPT {summary} {completion_token}",
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
     )
 
     result = asyncio.run(
@@ -128,6 +134,7 @@ def test_ask_strips_completion_token_from_next_question():
         question_asker_prompt="PROMPT {summary} {completion_token}",
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
         completion_token="TOKEN",
     )
 
@@ -143,3 +150,26 @@ def test_ask_strips_completion_token_from_next_question():
     )
 
     assert result.text == "Next question"
+
+
+def test_ask_seeds_questionnaire_from_template_when_state_empty():
+    question_llm = FakeLLM(["Next question"])
+    notulist_llm = FakeLLM(["Updated questionnaire []"])
+    summarizer_llm = FakeLLM(["Updated summary"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="User answer",
+            state={},
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert QUESTIONNAIRE_TEMPLATE in notulist_llm.calls[0][0]["content"]

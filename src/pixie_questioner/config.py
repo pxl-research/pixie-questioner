@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     questionnaire_notulist_prompt_path: Path | None = Field(
         default=None, alias="QUESTIONNAIRE_NOTULIST_PROMPT_PATH"
     )
+    questionnaire_template_path: Path = Field(alias="QUESTIONNAIRE_TEMPLATE_PATH")
     completion_token: str = Field(default="", alias="COMPLETION_TOKEN")
 
     @property
@@ -51,6 +52,10 @@ class Settings(BaseSettings):
         if self.questionnaire_notulist_prompt_path is None:
             return None
         return load_prompt(self.questionnaire_notulist_prompt_path)
+
+    @property
+    def questionnaire_template(self) -> str:
+        return load_prompt(self.questionnaire_template_path)
 
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.dev"),

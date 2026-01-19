@@ -23,6 +23,7 @@ It is a working spec meant to be refined before implementation.
   - `summary`
   - `last_question` (the AI question the user just answered)
 - On the first turn, `last_question` defaults to `Initial question:`.
+- On the first turn, the server seeds `questionnaire` from a questionnaire template file.
 
 ## Field list (fixed)
 Field labels must be translated to the current conversation language.

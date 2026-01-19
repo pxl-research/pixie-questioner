@@ -46,11 +46,13 @@ Set environment variables in `.env.dev`:
 - `SYSTEM_PROMPT_PATH`
 - `SUMMARIZER_PROMPT_PATH` (optional)
 - `QUESTIONNAIRE_NOTULIST_PROMPT_PATH`
+- `QUESTIONNAIRE_TEMPLATE_PATH`
 - `COMPLETION_TOKEN` (optional)
 
 `system_prompt` is loaded from the file pointed to by `SYSTEM_PROMPT_PATH` (store this file outside the repo).
 `summarizer_prompt` is loaded from `SUMMARIZER_PROMPT_PATH` when provided.
 `questionnaire_notulist_prompt` is loaded from `QUESTIONNAIRE_NOTULIST_PROMPT_PATH`.
+`questionnaire_template` is loaded from `QUESTIONNAIRE_TEMPLATE_PATH` and used to seed the first turn.
 `COMPLETION_TOKEN` is only used to fill/strip the question-asker prompt placeholder; summary generation
 is triggered by the orchestrator logic, not by a model-emitted token.
 `QUESTIONNAIRE_NOTULIST_PROMPT_PATH` must be set for the API to start.

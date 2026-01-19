@@ -41,6 +41,7 @@ chat_service = ChatService(
     question_asker_prompt=settings.system_prompt,
     notulist=notulist,
     summarizer=summarizer,
+    questionnaire_template=settings.questionnaire_template,
     completion_token=settings.completion_token,
 )
 

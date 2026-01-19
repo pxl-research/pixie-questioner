@@ -67,7 +67,12 @@ class ChatService:
     question_asker_prompt: str
     notulist: QuestionnaireNotulist
     summarizer: ConversationSummarizer
+    questionnaire_template: str
     completion_token: str = DEFAULT_COMPLETION_TOKEN
+
+    def __post_init__(self) -> None:
+        if not self.questionnaire_template.strip():
+            raise RuntimeError("Questionnaire template is required.")
 
     def _get_client(self) -> LLMClientProtocol:
         if hasattr(self.llm, "ainvoke"):
@@ -97,7 +102,7 @@ class ChatService:
 
     def _parse_state(self, state: dict[str, str] | None) -> ChatState:
         if not state:
-            return ChatState()
+            return ChatState(questionnaire=self.questionnaire_template)
         questionnaire = state.get("questionnaire", "")
         summary = state.get("summary", "")
         last_question = state.get("last_question", _INITIAL_QUESTION)
@@ -107,6 +112,8 @@ class ChatService:
             raise RuntimeError("State field 'summary' must be a string.")
         if not isinstance(last_question, str):
             raise RuntimeError("State field 'last_question' must be a string.")
+        if not questionnaire.strip():
+            questionnaire = self.questionnaire_template
         return ChatState(
             questionnaire=questionnaire,
             summary=summary,
