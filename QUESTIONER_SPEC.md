@@ -83,6 +83,12 @@ Inputs needed:
 - Stop asking if the user explicitly requests to stop or indicates they are finished.
 - A completion token is not required anymore; termination is handled by the orchestrator.
 
+## Completion response
+- When the flow ends, return:
+  - A handoff message as the assistant text (must mention switching to a human colleague and
+    suggest sharing the summary).
+  - The summary in a separate `summary` field for a dedicated summary bubble.
+
 ## Prompt fidelity
 - The prompt templates in `experiments.py` are the source of truth.
 - Keep the wording as literal as possible; only change if we explicitly decide to.

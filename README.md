@@ -24,11 +24,12 @@ Open `http://localhost:8000/docs` for the OpenAPI UI.
   - `session_id` (str)
   - `current_answer` (str)
   - `state` (object, default empty)
-- Response: `{"type": "answer|summary", "text": "...", "conversation_id": "...", "state": {...}}`.
+- Response: `{"type": "answer|summary", "text": "...", "conversation_id": "...", "state": {...}, "summary": "..."}`.
 The `conversation_id` echoes the request `session_id`.
 Store the returned `state` and send it back on the next turn.
 On the first turn, send an empty object for `state`.
 Treat `state` as opaque; its contents are service-specific.
+When `type` is `summary`, `text` is the handoff message and `summary` contains the actual summary.
 
 ### GET /health
 

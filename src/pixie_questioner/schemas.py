@@ -18,3 +18,4 @@ class ChatResponse(BaseModel):
     text: str
     conversation_id: str
     state: dict[str, str]
+    summary: str | None = Field(default=None)

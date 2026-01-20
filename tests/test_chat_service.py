@@ -1,6 +1,6 @@
 import asyncio
 
-from pixie_questioner.chat_service import ChatService
+from pixie_questioner.chat_service import HANDOFF_NL, ChatService
 from pixie_questioner.notulist import QuestionnaireNotulist
 from pixie_questioner.summarizer import ConversationSummarizer
 
@@ -71,6 +71,7 @@ def test_ask_updates_state_and_returns_next_question():
     )
     assert result.state["summary"] == "Updated summary"
     assert result.state["last_question"] == "Next question"
+    assert result.summary is None
     assert (
         "0. Initial user question: Updated answer\n1. Occasion, Vibe, Setting: []"
         in question_llm.calls[-1][0]["content"]
@@ -85,7 +86,7 @@ def test_ask_returns_summary_when_questionnaire_complete():
     notulist_llm = FakeLLM(
         ["0. Initial user question: Filled\n1. Occasion, Vibe, Setting: Filled"]
     )
-    summarizer_llm = FakeLLM(["Final summary"])
+    summarizer_llm = FakeLLM(["Eind samenvatting"])
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -106,7 +107,8 @@ def test_ask_returns_summary_when_questionnaire_complete():
     )
 
     assert result.response_type == "summary"
-    assert result.text == "Final summary"
+    assert result.text in HANDOFF_NL
+    assert result.summary == "Eind samenvatting"
     assert question_llm.calls == []
 
 
@@ -115,7 +117,7 @@ def test_ask_returns_summary_on_stop_intent():
     notulist_llm = FakeLLM(
         ["0. Initial user question: []\n1. Occasion, Vibe, Setting: []"]
     )
-    summarizer_llm = FakeLLM(["Final summary"])
+    summarizer_llm = FakeLLM(["Eind samenvatting"])
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -136,7 +138,8 @@ def test_ask_returns_summary_on_stop_intent():
     )
 
     assert result.response_type == "summary"
-    assert result.text == "Final summary"
+    assert result.text in HANDOFF_NL
+    assert result.summary == "Eind samenvatting"
     assert question_llm.calls == []
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 import re
 from dataclasses import dataclass
 from typing import Protocol
@@ -12,6 +13,77 @@ from .summarizer import ConversationSummarizer
 DEFAULT_COMPLETION_TOKEN = "PIXIE_SUMMARY_READY"
 _COMPLETION_STRIP_CHARS = " \t\n\r\"'`.,:;!?()[]{}<>"
 _INITIAL_QUESTION = "Initial question:"
+HANDOFF_NL = [
+    "Helder. Tijd om over te schakelen naar een collega met menselijke ogen. Je mag onderstaande samenvatting gerust aan hen laten zien.",
+    "Duidelijk. Dit is het moment om een menselijke collega te betrekken. Laat gerust de samenvatting hieronder zien.",
+    "Prima. We schakelen nu over naar een menselijke collega. Laat gerust de samenvatting hieronder zien.",
+    "Top, ik geef het over aan een collega. Toon hen gerust de samenvatting hieronder.",
+    "Oké. Tijd om een menselijke collega in te schakelen. Je kan de samenvatting hieronder aan hen tonen.",
+]
+HANDOFF_EN = [
+    "Got it. Time to hand over to a human colleague. Feel free to show them the summary below.",
+    "Understood. Switching to a human colleague now. You can show them the summary below.",
+    "All set. Handing this off to a human colleague. Please share the summary below.",
+    "Thanks. I will pass this to a human colleague. Feel free to show them the summary below.",
+]
+HANDOFF_FR = [
+    "D'accord. Il est temps de passer a un collegue humain. Vous pouvez leur montrer le resume ci-dessous.",
+    "Compris. Nous passons a un collegue humain. Vous pouvez leur montrer le resume ci-dessous.",
+    "Tres bien. Je passe le relais a un collegue humain. Montrez-leur le resume ci-dessous.",
+    "Parfait. Passage a un collegue humain. Vous pouvez leur montrer le resume ci-dessous.",
+]
+_LANGUAGE_HINTS = {
+    "nl": {
+        "de",
+        "het",
+        "een",
+        "ik",
+        "je",
+        "jij",
+        "mijn",
+        "broek",
+        "spijkerbroek",
+        "samenvatting",
+        "kleur",
+        "wassing",
+        "maat",
+        "pasvorm",
+        "stof",
+        "lengte",
+        "zoeken",
+        "liefst",
+    },
+    "en": {
+        "the",
+        "and",
+        "with",
+        "fit",
+        "size",
+        "color",
+        "wash",
+        "fabric",
+        "length",
+        "looking",
+        "want",
+        "prefer",
+        "summary",
+    },
+    "fr": {
+        "le",
+        "la",
+        "les",
+        "un",
+        "une",
+        "taille",
+        "couleur",
+        "lavage",
+        "tissu",
+        "longueur",
+        "resume",
+        "veux",
+        "cherche",
+    },
+}
 _STOP_PHRASES = (
     "stop",
     "stoppen",
@@ -52,6 +124,7 @@ class ChatResult:
     text: str
     response_type: str
     state: dict[str, str]
+    summary: str | None
 
 
 @dataclass
@@ -104,6 +177,30 @@ class ChatService:
     def _strip_completion_token(self, content: str) -> str:
         stripped = re.sub(re.escape(self.completion_token), "", content, flags=re.IGNORECASE)
         return stripped.strip(_COMPLETION_STRIP_CHARS)
+
+    def _detect_language(self, text: str) -> str:
+        words = re.findall(r"[a-zA-Z']+", text.casefold())
+        if not words:
+            return "nl"
+        scores = {lang: 0 for lang in _LANGUAGE_HINTS}
+        for word in words:
+            for lang, hints in _LANGUAGE_HINTS.items():
+                if word in hints:
+                    scores[lang] += 1
+        max_score = max(scores.values())
+        if max_score == 0:
+            return "nl"
+        for lang in ("nl", "en", "fr"):
+            if scores[lang] == max_score:
+                return lang
+        return "nl"
+
+    def _build_handoff_line(self, language: str) -> str:
+        if language.startswith("nl"):
+            return random.choice(HANDOFF_NL)
+        if language.startswith("fr"):
+            return random.choice(HANDOFF_FR)
+        return random.choice(HANDOFF_EN)
 
     def _extract_questionnaire_indices(self, questionnaire: str) -> list[int]:
         indices = set()
@@ -189,15 +286,18 @@ class ChatService:
         if self._questionnaire_complete(updated_questionnaire) or self._user_requested_stop(
             current_answer
         ):
+            language = self._detect_language(updated_summary)
+            handoff_line = self._build_handoff_line(language)
             final_state = ChatState(
                 questionnaire=updated_questionnaire,
                 summary=updated_summary,
                 last_question=current_question,
             )
             return ChatResult(
-                text=updated_summary,
+                text=handoff_line,
                 response_type="summary",
                 state=self._serialize_state(final_state),
+                summary=updated_summary,
             )
 
         next_question = await self._ask_next_question(updated_questionnaire)
@@ -210,4 +310,5 @@ class ChatService:
             text=next_question,
             response_type="answer",
             state=self._serialize_state(next_state),
+            summary=None,
         )

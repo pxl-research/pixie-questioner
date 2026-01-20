@@ -65,4 +65,5 @@ async def chat(request: ChatRequest):
         text=result.text,
         conversation_id=request.session_id,
         state=result.state,
+        summary=result.summary,
     )
