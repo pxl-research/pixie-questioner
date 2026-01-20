@@ -65,12 +65,18 @@ if settings.audit_api_url:
     )
 
 
-def _build_audit_messages(user_text: str, assistant_text: str) -> list[dict[str, str]]:
+def _build_audit_messages(
+    user_text: str,
+    assistant_text: str,
+    summary_text: str | None = None,
+) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = []
     if user_text.strip():
         messages.append({"role": "user", "content": user_text})
     if assistant_text.strip():
         messages.append({"role": "assistant", "content": assistant_text})
+    if summary_text is not None and summary_text.strip():
+        messages.append({"role": "summary", "content": summary_text})
     return messages
 
 
@@ -101,6 +107,7 @@ async def chat(request: ChatRequest):
             "messages": _build_audit_messages(
                 request.current_answer,
                 result.text,
+                result.summary,
             ),
         }
         if result.response_type == "summary" and result.summary is not None:
