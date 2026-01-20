@@ -8,7 +8,12 @@ from pixie_questioner.azure_openai_llm import AzureOpenAILLM
 from pixie_questioner.chat_service import ChatService
 from pixie_questioner.config import get_settings
 from pixie_questioner.notulist import QuestionnaireNotulist
-from pixie_questioner.schemas import ChatRequest, ChatResponse
+from pixie_questioner.schemas import (
+    ChatAnswerResponse,
+    ChatRequest,
+    ChatResponse,
+    ChatSummaryResponse,
+)
 from pixie_questioner.summarizer import ConversationSummarizer
 
 app = FastAPI(title="Pixie Questioner")
@@ -60,10 +65,19 @@ async def chat(request: ChatRequest):
         current_answer=request.current_answer,
         state=request.state,
     )
-    return ChatResponse(
-        type=result.response_type,
+    if result.response_type == "summary":
+        if result.summary is None:
+            raise RuntimeError("Summary response requires a summary payload.")
+        return ChatSummaryResponse(
+            type="summary",
+            text=result.text,
+            summary=result.summary,
+            conversation_id=request.session_id,
+            state=result.state,
+        )
+    return ChatAnswerResponse(
+        type="answer",
         text=result.text,
         conversation_id=request.session_id,
         state=result.state,
-        summary=result.summary,
     )

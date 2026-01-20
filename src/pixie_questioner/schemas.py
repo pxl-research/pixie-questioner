@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -13,9 +13,21 @@ class ChatRequest(BaseModel):
     state: dict[str, str] = Field(default_factory=dict)
 
 
-class ChatResponse(BaseModel):
-    type: Literal["answer", "summary"]
+class ChatAnswerResponse(BaseModel):
+    type: Literal["answer"]
     text: str
     conversation_id: str
     state: dict[str, str]
-    summary: str | None = Field(default=None)
+
+
+class ChatSummaryResponse(BaseModel):
+    type: Literal["summary"]
+    text: str
+    summary: str
+    conversation_id: str
+    state: dict[str, str]
+
+
+ChatResponse = Annotated[
+    ChatAnswerResponse | ChatSummaryResponse, Field(discriminator="type")
+]

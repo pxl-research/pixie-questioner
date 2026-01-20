@@ -24,7 +24,8 @@ Open `http://localhost:8000/docs` for the OpenAPI UI.
   - `session_id` (str)
   - `current_answer` (str)
   - `state` (object, default empty)
-- Response: `{"type": "answer|summary", "text": "...", "conversation_id": "...", "state": {...}, "summary": "..."}`.
+- Response (next question): `{"type": "answer", "text": "...", "conversation_id": "...", "state": {...}}`.
+- Response (summary): `{"type": "summary", "text": "...", "summary": "...", "conversation_id": "...", "state": {...}}`.
 The `conversation_id` echoes the request `session_id`.
 Store the returned `state` and send it back on the next turn.
 On the first turn, send an empty object for `state`.
