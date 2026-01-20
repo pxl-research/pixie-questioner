@@ -50,6 +50,10 @@ Set environment variables in `.env.dev`:
 - `QUESTIONNAIRE_NOTULIST_PROMPT_PATH`
 - `QUESTIONNAIRE_TEMPLATE_PATH`
 - `COMPLETION_TOKEN` (optional)
+- `AUDIT_API_URL` (optional)
+- `AUDIT_API_KEY` (optional)
+- `AUDIT_PROFILE` (optional)
+- `AUDIT_TIMEOUT_SECONDS` (optional, default 5)
 
 `system_prompt` is loaded from the file pointed to by `SYSTEM_PROMPT_PATH` (store this file outside the repo).
 `summarizer_prompt` is loaded from `SUMMARIZER_PROMPT_PATH` when provided.
@@ -58,6 +62,8 @@ Set environment variables in `.env.dev`:
 `COMPLETION_TOKEN` is only used to fill/strip the question-asker prompt placeholder; summary generation
 is triggered by the orchestrator logic, not by a model-emitted token.
 `QUESTIONNAIRE_NOTULIST_PROMPT_PATH` must be set for the API to start.
+If `AUDIT_API_URL` is set, the service posts interaction events to `/events` using `AUDIT_PROFILE`
+as the required profile value and `AUDIT_API_KEY` for the `X-API-Key` header when provided.
 
 The API expects an LLM wrapper at `src/pixie_questioner/azure_openai_llm.py`
 that exposes a `model` with an `ainvoke` method.

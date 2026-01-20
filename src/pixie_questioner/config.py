@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     )
     questionnaire_template_path: Path = Field(alias="QUESTIONNAIRE_TEMPLATE_PATH")
     completion_token: str = Field(default="", alias="COMPLETION_TOKEN")
+    audit_api_url: str | None = Field(default=None, alias="AUDIT_API_URL")
+    audit_api_key: str | None = Field(default=None, alias="AUDIT_API_KEY")
+    audit_profile: str | None = Field(default=None, alias="AUDIT_PROFILE")
+    audit_timeout_seconds: float = Field(
+        default=5.0, alias="AUDIT_TIMEOUT_SECONDS"
+    )
 
     @property
     def system_prompt(self) -> str:
