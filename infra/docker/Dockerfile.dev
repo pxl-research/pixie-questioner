@@ -4,16 +4,20 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/src
+    PYTHONPATH=/app/src \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:/root/.local/bin:$PATH"
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml README.md /app/
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && uv venv "$VIRTUAL_ENV"
+
+COPY pyproject.toml uv.lock README.md /app/
 COPY src /app/src
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+RUN uv sync --frozen --extra dev --active
 
 COPY . /app
 

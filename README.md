@@ -7,11 +7,8 @@ JSON response with the next question or a final summary.
 ## Quickstart
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
 cp .env.example .env.dev
-uvicorn apps.api.main:app --reload
+docker compose -f docker-compose.dev.yml up --build
 ```
 
 Open `http://localhost:8000/docs` for the OpenAPI UI.
@@ -77,5 +74,17 @@ docker compose -f docker-compose.dev.yml up --build
 ## Tests
 
 ```bash
-pytest
+docker compose -f docker-compose.dev.yml run --rm api pytest
+```
+
+## Format
+
+```bash
+docker compose -f docker-compose.dev.yml run --rm api black .
+```
+
+## Lint
+
+```bash
+docker compose -f docker-compose.dev.yml run --rm api ruff check .
 ```
