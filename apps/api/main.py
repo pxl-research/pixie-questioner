@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from pixie_questioner.audit_client import AuditClient
@@ -19,7 +21,6 @@ from pixie_questioner.schemas import (
 )
 from pixie_questioner.summarizer import ConversationSummarizer
 
-app = FastAPI(title="Pixie Questioner")
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
@@ -67,6 +68,16 @@ if settings.audit_api_url:
     )
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    yield
+    if audit_client is not None:
+        await audit_client.aclose()
+
+
+app = FastAPI(title="Pixie Questioner", lifespan=lifespan)
+
+
 def _build_audit_messages(
     user_text: str,
     assistant_text: str,
@@ -85,12 +96,6 @@ def _build_audit_messages(
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    if audit_client is not None:
-        await audit_client.aclose()
 
 
 @app.post(

@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 from pixie_questioner.chat_service import HANDOFF_NL, ChatService
 from pixie_questioner.notulist import QuestionnaireNotulist
 from pixie_questioner.summarizer import ConversationSummarizer
@@ -220,3 +222,30 @@ def test_ask_keeps_previous_questionnaire_on_invalid_notulist_output():
 
     assert result.response_type == "answer"
     assert result.state["questionnaire"] == QUESTIONNAIRE_TEMPLATE
+
+
+def test_ask_raises_on_invalid_state_types():
+    question_llm = FakeLLM(["Next question"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Updated answer\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["Updated summary"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    with pytest.raises(RuntimeError, match="summary"):
+        asyncio.run(
+            service.ask(
+                current_answer="User answer",
+                state={
+                    "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                    "summary": 123,
+                    "last_question": "AI question",
+                },
+            )
+        )
