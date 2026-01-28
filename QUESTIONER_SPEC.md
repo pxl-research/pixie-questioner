@@ -4,6 +4,7 @@ This file describes the desired behavior for the questioner flow (as explored in
 It is a working spec meant to be refined before implementation.
 
 ## Scope
+
 - We collect denim/jeans preferences via a guided Q&A.
 - The system consists of three logical roles:
   1) Question Asker (asks the next question)
@@ -11,12 +12,14 @@ It is a working spec meant to be refined before implementation.
   3) Conversation Summarizer (creates a narrative summary)
 
 ## Core concepts
+
 - Questionnaire: a structured list of numbered fields. Empty fields are marked with `[]`.
 - Empty field: any field that still has `[]` in its value.
 - Current question: the latest question asked by the system.
 - User answer: the latest user reply.
 
 ## Runtime state (API)
+
 - The API uses an opaque `state` blob that the client stores and sends back verbatim.
 - For the questioner service, the state contains:
   - `questionnaire`
@@ -26,6 +29,7 @@ It is a working spec meant to be refined before implementation.
 - On the first turn, the server seeds `questionnaire` from a questionnaire template file.
 
 ## Field list (fixed)
+
 Field labels must be translated to the current conversation language.
 Do not add new fields.
 
@@ -40,6 +44,7 @@ Do not add new fields.
 8. Length (e.g. full length, shorts, 7/8th): []
 
 ## Language policy
+
 - Assume the conversation stays in a single language.
 - If the language is unclear or mixed, pick in this order:
   1) Dutch
@@ -50,6 +55,7 @@ Do not add new fields.
 ## Role behavior
 
 ### 1) Question Asker
+
 - Ask questions only about empty fields in the questionnaire.
 - Ask one field at a time.
 - Do not invent new fields.
@@ -59,11 +65,13 @@ Do not add new fields.
 - No fixed order: pick the next question based on priority and missing info.
 
 Inputs needed:
+
 - Current questionnaire
 - Last filled field (or last question + last user answer) to enable acknowledgment
 - Optional: user stop intent (see Stop criteria)
 
 ### 2) Questionnaire Notulist
+
 - Update the structured questionnaire based on the current question and user answer.
 - Keep the numbered format and `[]` markers for empty fields.
 - Translate field labels and content to the conversation language.
@@ -73,23 +81,27 @@ Inputs needed:
 - Do not create new fields.
 
 ### 3) Conversation Summarizer
+
 - Produce a single paragraph summary capturing all user preferences.
 - Do not lose information.
 - Use gender-neutral phrasing.
 - Use the conversation language.
 
 ## Stop criteria
+
 - Stop asking when all fields are filled (no `[]` left).
 - Stop asking if the user explicitly requests to stop or indicates they are finished.
 - A completion token is not required anymore; termination is handled by the orchestrator.
 
 ## Completion response
+
 - When the flow ends, return:
   - A handoff message as the assistant text (must mention switching to a human colleague and
     suggest sharing the summary).
   - The summary in a separate `summary` field for a dedicated summary bubble.
 
 ## Prompt fidelity
+
 - The prompt templates in `experiments.py` are the source of truth.
 - Keep the wording as literal as possible; only change if we explicitly decide to.
 - Whitespace/indentation can be normalized as needed for readability.
@@ -98,7 +110,8 @@ Inputs needed:
 ## Prompt templates (verbatim, from `experiments.py`)
 
 ### Question Asker system prompt
-```
+
+```text
 You are a seasoned denim specialist at a high-end jeans boutique.
 You are sophisticated, observant and your tone is effortlessly cool, but to the point.
 
@@ -132,7 +145,8 @@ New message:
 ```
 
 ### Questionnaire Notulist system prompt
-```
+
+```text
 Extract and update the user's denim preferences into a structured summary.
 If the user does not know a field, declines or gives a partial answer: still write it in.
 Formulate in a gender-neutral way.
@@ -167,7 +181,8 @@ Updated Structured Summary (in the language of current answer):
 ```
 
 ### Conversation Summarizer system prompt
-```
+
+```text
 Given:
 * The current question of an AI
 * The answer of a user
@@ -187,12 +202,14 @@ New summary of what user wants (translated to the language of all this informati
 ```
 
 ## Optional prompt externalization
+
 - Consider storing the three prompts in plain text files (e.g., `prompts/question_asker.txt`,
   `prompts/notulist.txt`, `prompts/summarizer.txt`) so they can be edited without code changes.
 - Keep the template variables as-is when externalized.
 - External prompt loading should mirror the existing `SYSTEM_PROMPT_PATH` approach in config.
 
 ## Notes for future implementation
+
 - The Question Asker needs context about the last filled field to fulfill "acknowledge & elevate".
 - Stop-intent detection should be explicit (e.g., keyword list per language or a classifier).
 - The current README mentions a completion token; update it after the new stop mechanism is implemented.

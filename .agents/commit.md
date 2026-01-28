@@ -13,7 +13,7 @@ Use this agent to commit changes after they have been reviewed and approved. Can
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-```
+```text
 <type>(<scope>): <description>
 
 [optional body]
@@ -22,6 +22,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 ```
 
 **Types:**
+
 - `feat`: new feature
 - `fix`: bug fix
 - `docs`: documentation only
@@ -31,6 +32,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 - `chore`: maintenance tasks
 
 **Rules:**
+
 - No emojis in commit messages
 - Subject line max 72 characters
 - Use imperative mood ("add" not "added")
@@ -40,11 +42,13 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 ## Splitting Commits
 
 Split into multiple commits when:
+
 - Changes affect different logical areas (e.g., API + tests)
 - Unrelated fixes are bundled together
 - Refactoring is mixed with new features
 
 Keep in single commit when:
+
 - Changes are tightly coupled
 - Splitting would break the build
 
@@ -70,6 +74,7 @@ git add -A && git commit -m "type(scope): description"
 ## Auto-commit Trigger
 
 After successful test run, the agent may auto-commit if:
+
 - All tests pass (`pytest` exits 0)
 - Linting passes (`ruff check .` exits 0)
 - Formatting is clean (`black --check .` exits 0)
