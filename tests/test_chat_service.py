@@ -32,8 +32,7 @@ def _make_summarizer(llm):
 
 
 QUESTIONNAIRE_TEMPLATE = (
-    "0. Initial user question: []\n"
-    "1. Occasion, Vibe, Setting: []"
+    "0. Initial user question: []\n" "1. Occasion, Vibe, Setting: []"
 )
 
 
@@ -66,8 +65,7 @@ def test_ask_updates_state_and_returns_next_question():
     assert result.response_type == "answer"
     assert result.text == "Next question"
     assert result.state["questionnaire"] == (
-        "0. Initial user question: Updated answer\n"
-        "1. Occasion, Vibe, Setting: []"
+        "0. Initial user question: Updated answer\n" "1. Occasion, Vibe, Setting: []"
     )
     assert result.state["summary"] == "Updated summary"
     assert result.state["last_question"] == "Next question"

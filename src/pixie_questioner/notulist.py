@@ -7,8 +7,7 @@ from typing import Protocol
 
 
 class LLMClientProtocol(Protocol):
-    async def ainvoke(self, messages: list[dict[str, str]]):
-        ...
+    async def ainvoke(self, messages: list[dict[str, str]]): ...
 
 
 @dataclass
@@ -24,7 +23,9 @@ class QuestionnaireNotulist:
             raise RuntimeError("LLM client is not configured.")
         return model
 
-    def _build_prompt(self, current_question: str, current_answer: str, summary: str) -> str:
+    def _build_prompt(
+        self, current_question: str, current_answer: str, summary: str
+    ) -> str:
         return self.system_prompt_template.format(
             summary=summary,
             current_question=current_question,

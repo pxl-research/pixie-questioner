@@ -56,7 +56,9 @@ chat_service = ChatService(
 audit_client: AuditClient | None = None
 if settings.audit_api_url:
     if not settings.audit_profile:
-        raise RuntimeError("AUDIT_PROFILE must be set when AUDIT_API_URL is configured.")
+        raise RuntimeError(
+            "AUDIT_PROFILE must be set when AUDIT_API_URL is configured."
+        )
     audit_client = AuditClient(
         base_url=settings.audit_api_url,
         profile=settings.audit_profile,

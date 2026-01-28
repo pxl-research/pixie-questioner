@@ -27,8 +27,7 @@ DEFAULT_SUMMARY_PROMPT = (
 
 
 class LLMClientProtocol(Protocol):
-    async def ainvoke(self, messages: list[dict[str, str]]):
-        ...
+    async def ainvoke(self, messages: list[dict[str, str]]): ...
 
 
 @dataclass

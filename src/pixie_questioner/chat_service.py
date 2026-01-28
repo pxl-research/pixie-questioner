@@ -115,8 +115,7 @@ _STOP_PHRASES = (
 
 
 class LLMClientProtocol(Protocol):
-    async def ainvoke(self, messages: list[dict[str, str]]):
-        ...
+    async def ainvoke(self, messages: list[dict[str, str]]): ...
 
 
 @dataclass(frozen=True)
@@ -175,7 +174,9 @@ class ChatService:
         return content
 
     def _strip_completion_token(self, content: str) -> str:
-        stripped = re.sub(re.escape(self.completion_token), "", content, flags=re.IGNORECASE)
+        stripped = re.sub(
+            re.escape(self.completion_token), "", content, flags=re.IGNORECASE
+        )
         return stripped.strip(_COMPLETION_STRIP_CHARS)
 
     def _detect_language(self, text: str) -> str:
@@ -254,7 +255,10 @@ class ChatService:
             [{"role": "system", "content": system_prompt}]
         )
         content = self._extract_content(response)
-        if self.completion_token and self.completion_token.casefold() in content.casefold():
+        if (
+            self.completion_token
+            and self.completion_token.casefold() in content.casefold()
+        ):
             content = self._strip_completion_token(content)
         return content
 
@@ -283,9 +287,9 @@ class ChatService:
         if updated_summary is None:
             raise RuntimeError("Failed to summarize conversation.")
 
-        if self._questionnaire_complete(updated_questionnaire) or self._user_requested_stop(
-            current_answer
-        ):
+        if self._questionnaire_complete(
+            updated_questionnaire
+        ) or self._user_requested_stop(current_answer):
             language = self._detect_language(updated_summary)
             handoff_line = self._build_handoff_line(language)
             final_state = ChatState(
