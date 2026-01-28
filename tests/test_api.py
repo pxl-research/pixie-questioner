@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -58,6 +59,7 @@ class StubChatService:
         self.calls: list[tuple[str, dict[str, str]]] = []
 
     async def ask(self, current_answer: str, state: dict[str, str]) -> ChatResult:
+        await asyncio.sleep(0)
         self.calls.append((current_answer, state))
         return self.result
 
@@ -68,6 +70,7 @@ class StubAuditClient:
         self.calls: list[dict[str, object]] = []
 
     async def post_event(self, payload: dict[str, object]) -> None:
+        await asyncio.sleep(0)
         self.calls.append(payload)
 
 
