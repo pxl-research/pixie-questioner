@@ -79,6 +79,15 @@ docker compose -f docker-compose.dev.yml run --rm api black .
 
 # Lint
 docker compose -f docker-compose.dev.yml run --rm api ruff check .
+
+# Security (ruff ruleset)
+docker compose -f docker-compose.dev.yml run --rm api ruff check . --select S
+
+# Security (code patterns)
+docker compose -f docker-compose.dev.yml run --rm api uv tool run bandit -r src
+
+# Security (dependency vulnerabilities)
+docker compose -f docker-compose.dev.yml run --rm api uv tool run pip-audit
 ```
 
 ---
@@ -148,13 +157,26 @@ Bad:
 
 - API schemas remain backward compatible
 - `state` structure is stable
+- State mutations are explicit
 - Questionnaire fields exactly match spec and template
+- Question order is deterministic
+- Do not infer missing answers
 - Prompts: **no stylistic rewrites**
 - Conversation behavior:
   - exactly one question per turn
   - only ask for missing fields
+  - do not skip questions unless stop-condition applies
   - stop when complete or when user stops
   - language consistency (NL → EN → FR)
+
+---
+
+## Layer Boundaries
+
+- `apps/api/*` is transport-only.
+- No business logic, state manipulation, or prompt logic in `apps/api/*`.
+- API layer is limited to request/response wiring, dependency injection, auth/middleware wiring, and calling ChatService.
+- Do not modify conversation rules or questionnaire semantics in `apps/api/*`.
 
 ---
 
@@ -216,6 +238,7 @@ prompts/
 
 - Keep diffs small
 - Add regression tests for bug fixes
+- Any behavior change in core questionnaire flow requires at least one regression test
 - If unsure: stop and ask first
 
 ---
