@@ -1,4 +1,5 @@
 import asyncio
+from typing import cast
 
 import pytest
 
@@ -668,10 +669,13 @@ def test_ask_raises_on_invalid_state_types():
         asyncio.run(
             service.ask(
                 current_answer="User answer",
-                state={
-                    "questionnaire": QUESTIONNAIRE_TEMPLATE,
-                    "summary": 123,
-                    "last_question": "AI question",
-                },
+                state=cast(
+                    dict[str, str],
+                    {
+                        "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                        "summary": 123,
+                        "last_question": "AI question",
+                    },
+                ),
             )
         )

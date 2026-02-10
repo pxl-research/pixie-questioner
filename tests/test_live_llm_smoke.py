@@ -63,8 +63,8 @@ def _build_live_service() -> ChatService:
 
 
 @pytest.mark.skipif(
-    os.environ.get("RUN_LIVE_LLM_TESTS") != "1",
-    reason="Set RUN_LIVE_LLM_TESTS=1 to run live Azure OpenAI smoke tests.",
+    os.environ.get("RUN_LIVE_LLM_TESTS", "1") != "1",
+    reason="Set RUN_LIVE_LLM_TESTS=0 to skip live Azure OpenAI smoke tests.",
 )
 def test_live_llm_post_summary_feedback_flow() -> None:
     missing = [key for key in _REQUIRED_ENV_VARS if not os.environ.get(key)]

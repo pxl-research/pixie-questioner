@@ -80,6 +80,9 @@ docker compose -f docker-compose.dev.yml run --rm api black .
 # Lint
 docker compose -f docker-compose.dev.yml run --rm api ruff check .
 
+# Type check
+docker compose -f docker-compose.dev.yml run --rm api uv tool run ty check
+
 # Security (ruff ruleset)
 docker compose -f docker-compose.dev.yml run --rm api ruff check . --select S
 
@@ -88,6 +91,9 @@ docker compose -f docker-compose.dev.yml run --rm api uv tool run bandit -r src
 
 # Security (dependency vulnerabilities)
 docker compose -f docker-compose.dev.yml run --rm api uv tool run pip-audit
+
+# Security (filesystem: vuln, misconfig, secrets)
+docker compose -f docker-compose.dev.yml run --rm api trivy fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --exit-code 1 .
 ```
 
 ---

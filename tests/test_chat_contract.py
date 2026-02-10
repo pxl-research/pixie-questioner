@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import cast
+
 from pydantic import TypeAdapter
 
 from pixie_questioner.schemas import (
@@ -15,11 +17,14 @@ def _is_nullable_string(schema: dict[str, object]) -> bool:
     any_of = schema.get("anyOf")
     if not isinstance(any_of, list):
         return False
-    types = {
-        item.get("type")
-        for item in any_of
-        if isinstance(item, dict) and isinstance(item.get("type"), str)
-    }
+    types: set[str] = set()
+    for item in any_of:
+        if not isinstance(item, dict):
+            continue
+        item_dict = cast(dict[str, object], item)
+        item_type = item_dict.get("type")
+        if isinstance(item_type, str):
+            types.add(item_type)
     return types == {"string", "null"}
 
 
