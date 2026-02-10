@@ -95,6 +95,7 @@ def test_chat_returns_summary_and_audits(monkeypatch, tmp_path: Path) -> None:
         response_type="summary",
         state=state,
         summary="Final summary",
+        follow_up_question="Would you use this assistant again? (yes/no)",
     )
     chat_stub = StubChatService(result)
     audit_stub = StubAuditClient()
@@ -115,6 +116,9 @@ def test_chat_returns_summary_and_audits(monkeypatch, tmp_path: Path) -> None:
     payload = response.json()
     assert payload["type"] == "summary"
     assert payload["summary"] == "Final summary"
+    assert (
+        payload["follow_up_question"] == "Would you use this assistant again? (yes/no)"
+    )
     assert payload["conversation_id"] == "session-1"
     assert chat_stub.calls == [("stop", {})]
 
@@ -158,3 +162,4 @@ def test_chat_returns_answer(monkeypatch, tmp_path: Path) -> None:
     assert payload["text"] == "Next question"
     assert payload["conversation_id"] == "session-2"
     assert "summary" not in payload
+    assert "follow_up_question" not in payload

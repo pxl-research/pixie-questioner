@@ -24,6 +24,7 @@ class ChatSummaryResponse(BaseModel):
     type: Literal["summary"]
     text: str
     summary: str
+    follow_up_question: str | None = None
     conversation_id: str
     state: dict[str, str]
 

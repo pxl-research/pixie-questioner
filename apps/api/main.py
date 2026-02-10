@@ -130,6 +130,7 @@ async def chat(request: ChatRequest):
             type="summary",
             text=result.text,
             summary=result.summary,
+            follow_up_question=result.follow_up_question,
             conversation_id=request.session_id,
             state=result.state,
         )

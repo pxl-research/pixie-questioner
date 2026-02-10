@@ -96,6 +96,7 @@ class ChatResult:
     response_type: str
     state: dict[str, str]
     summary: str | None
+    follow_up_question: str | None = None
 
 
 @dataclass
@@ -415,10 +416,12 @@ class ChatService:
             handoff_line = self._build_handoff_line(language)
             if current_state.feedback_response:
                 summary_text = handoff_line
+                follow_up_question = None
                 feedback_requested = "false"
             else:
                 feedback_question = self._build_feedback_question(language)
-                summary_text = f"{handoff_line.rstrip()} {feedback_question}"
+                summary_text = handoff_line
+                follow_up_question = feedback_question
                 feedback_requested = "true"
             final_state = ChatState(
                 questionnaire=updated_questionnaire,
@@ -432,6 +435,7 @@ class ChatService:
                 response_type="summary",
                 state=self._serialize_state(final_state),
                 summary=updated_summary,
+                follow_up_question=follow_up_question,
             )
 
         preferred_language = self._detect_preferred_language(
