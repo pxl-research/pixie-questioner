@@ -101,6 +101,7 @@ async def health() -> dict[str, str]:
 @app.post(
     "/chat",
     response_model=ChatResponse,
+    response_model_exclude_none=True,
 )
 async def chat(request: ChatRequest):
     result = await chat_service.ask(
@@ -137,6 +138,8 @@ async def chat(request: ChatRequest):
     return ChatAnswerResponse(
         type="answer",
         text=result.text,
+        summary=result.summary,
+        follow_up_question=result.follow_up_question,
         conversation_id=request.session_id,
         state=result.state,
     )

@@ -386,7 +386,7 @@ class ChatService:
             language = self._detect_language(current_state.summary)
             return ChatResult(
                 text=self._build_feedback_question(language),
-                response_type="summary",
+                response_type="answer",
                 state=self._serialize_state(current_state),
                 summary=current_state.summary,
             )
@@ -418,11 +418,13 @@ class ChatService:
                 summary_text = handoff_line
                 follow_up_question = None
                 feedback_requested = "false"
+                response_type = "summary"
             else:
                 feedback_question = self._build_feedback_question(language)
                 summary_text = handoff_line
                 follow_up_question = feedback_question
                 feedback_requested = "true"
+                response_type = "answer"
             final_state = ChatState(
                 questionnaire=updated_questionnaire,
                 summary=updated_summary,
@@ -432,7 +434,7 @@ class ChatService:
             )
             return ChatResult(
                 text=summary_text,
-                response_type="summary",
+                response_type=response_type,
                 state=self._serialize_state(final_state),
                 summary=updated_summary,
                 follow_up_question=follow_up_question,

@@ -16,6 +16,8 @@ class ChatRequest(BaseModel):
 class ChatAnswerResponse(BaseModel):
     type: Literal["answer"]
     text: str
+    summary: str | None = None
+    follow_up_question: str | None = None
     conversation_id: str
     state: dict[str, str]
 
