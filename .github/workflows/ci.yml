@@ -16,6 +16,9 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Prepare CI env file
+        run: cp .env.example .env.dev
+
       - name: Build and run format check
         run: docker compose -f docker-compose.dev.yml run --rm api black --check .
 
