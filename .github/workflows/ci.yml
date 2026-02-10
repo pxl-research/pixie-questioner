@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build and run format check
+        run: docker compose -f docker-compose.dev.yml run --rm api black --check .
+
+      - name: Run lint checks
+        run: docker compose -f docker-compose.dev.yml run --rm api ruff check .
+
+      - name: Run test suite
+        run: docker compose -f docker-compose.dev.yml run --rm api pytest
