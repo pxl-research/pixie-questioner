@@ -19,23 +19,13 @@ _INITIAL_QUESTION = "Initial question:"
 _SUPPORTED_LANGUAGE_CODES = {"nl", "en", "fr"}
 DetectorFactory.seed = 0
 HANDOFF_NL = [
-    "Helder. Tijd om over te schakelen naar een collega met menselijke ogen. Je mag onderstaande samenvatting gerust aan hen laten zien.",
-    "Duidelijk. Dit is het moment om een menselijke collega te betrekken. Laat gerust de samenvatting hieronder zien.",
-    "Prima. We schakelen nu over naar een menselijke collega. Laat gerust de samenvatting hieronder zien.",
-    "Top, ik geef het over aan een collega. Toon hen gerust de samenvatting hieronder.",
-    "Oké. Tijd om een menselijke collega in te schakelen. Je kan de samenvatting hieronder aan hen tonen.",
+    "Dank je wel, dit geeft al een duidelijk beeld naar wat je op zoek bent:",
 ]
 HANDOFF_EN = [
-    "Got it. Time to hand over to a human colleague. Feel free to show them the summary below.",
-    "Understood. Switching to a human colleague now. You can show them the summary below.",
-    "All set. Handing this off to a human colleague. Please share the summary below.",
-    "Thanks. I will pass this to a human colleague. Feel free to show them the summary below.",
+    "Thanks. This gives a clear picture of what you're looking for: ",
 ]
 HANDOFF_FR = [
-    "D'accord. Il est temps de passer a un collegue humain. Vous pouvez leur montrer le resume ci-dessous.",
-    "Compris. Nous passons a un collegue humain. Vous pouvez leur montrer le resume ci-dessous.",
-    "Tres bien. Je passe le relais a un collegue humain. Montrez-leur le resume ci-dessous.",
-    "Parfait. Passage a un collegue humain. Vous pouvez leur montrer le resume ci-dessous.",
+    "Merci. Cela donne une idée claire de ce que vous recherchez: ",
 ]
 _STOP_PHRASES = (
     "stop",
