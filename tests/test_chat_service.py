@@ -133,6 +133,37 @@ def test_ask_prefers_dutch_for_hallo_greeting():
     assert "Respond in Dutch." in question_llm.calls[-1][0]["content"]
 
 
+def test_ask_prefers_german_for_clear_german_sentence():
+    question_llm = FakeLLM(["Naechste Frage"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Initial user question: Hallo, ich suche eine neue Jeans.\n1. Occasion, Vibe, Setting: []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Hallo, ich suche eine neue Jeans."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Hallo, ich suche eine neue Jeans.",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Initial question:",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert "ISO code 'de'" in question_llm.calls[-1][0]["content"]
+
+
 def test_detect_preferred_language_prefers_supported_on_small_score_gap(monkeypatch):
     service = _make_service_for_language_detection()
 
