@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 CHAT_CONTRACT_VERSION = "chat-v1.0.0"
+AUDIT_EVENT_CONTRACT_VERSION = "audit-event-v1.0.0"
 
 
 class ChatRequest(BaseModel):
@@ -36,3 +37,25 @@ class ChatSummaryResponse(BaseModel):
 ChatResponse = Annotated[
     ChatAnswerResponse | ChatSummaryResponse, Field(discriminator="type")
 ]
+
+
+class AuditEventMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    location: str = Field(..., min_length=1)
+
+
+class AuditEventMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant", "summary"]
+    content: str = Field(..., min_length=1)
+
+
+class AuditEventPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    conversation_id: str = Field(..., min_length=1)
+    profile: str = Field(..., min_length=1)
+    messages: list[AuditEventMessage] = Field(..., min_length=1)
+    metadata: AuditEventMetadata | None = None

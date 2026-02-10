@@ -33,6 +33,19 @@ When `type` is `summary`, `text` is the handoff message and `summary` contains t
 
 Returns `{"status": "ok"}`.
 
+## Audit Event Contract
+
+When `AUDIT_API_URL` is configured, this service posts events to `POST /events`
+on pixie-audit using a strict outbound payload contract:
+
+- `conversation_id` (str)
+- `profile` (str)
+- `messages` (non-empty list of `{role, content}` with roles limited to `user`, `assistant`, `summary`)
+- `metadata` (optional object with only `location`)
+
+No additional top-level fields are sent to pixie-audit.
+The source-of-truth contract lives in `pixie-contracts/contracts/audit/v1/openapi.yaml`.
+
 ## Configuration
 
 Set environment variables in `.env.dev`:

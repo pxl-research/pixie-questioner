@@ -5,7 +5,9 @@ from typing import cast
 from pydantic import TypeAdapter
 
 from pixie_questioner.schemas import (
+    AUDIT_EVENT_CONTRACT_VERSION,
     CHAT_CONTRACT_VERSION,
+    AuditEventPayload,
     ChatAnswerResponse,
     ChatRequest,
     ChatResponse,
@@ -30,6 +32,10 @@ def _is_nullable_string(schema: dict[str, object]) -> bool:
 
 def test_chat_contract_version_is_pinned() -> None:
     assert CHAT_CONTRACT_VERSION == "chat-v1.0.0"
+
+
+def test_audit_event_contract_version_is_pinned() -> None:
+    assert AUDIT_EVENT_CONTRACT_VERSION == "audit-event-v1.0.0"
 
 
 def test_chat_request_matches_contract_shape() -> None:
@@ -93,3 +99,40 @@ def test_chat_response_discriminator_is_stable() -> None:
         {"$ref": "#/$defs/ChatAnswerResponse"},
         {"$ref": "#/$defs/ChatSummaryResponse"},
     ]
+
+
+def test_audit_event_payload_matches_contract_shape() -> None:
+    schema = AuditEventPayload.model_json_schema()
+
+    assert schema["additionalProperties"] is False
+    assert set(schema.get("required", [])) == {
+        "conversation_id",
+        "profile",
+        "messages",
+    }
+    assert schema["properties"]["conversation_id"]["type"] == "string"
+    assert schema["properties"]["conversation_id"]["minLength"] == 1
+    assert schema["properties"]["profile"]["type"] == "string"
+    assert schema["properties"]["profile"]["minLength"] == 1
+    assert schema["properties"]["messages"]["type"] == "array"
+    assert schema["properties"]["messages"]["minItems"] == 1
+    assert schema["properties"]["messages"]["items"] == {
+        "$ref": "#/$defs/AuditEventMessage"
+    }
+
+    message_schema = schema["$defs"]["AuditEventMessage"]
+    assert message_schema["additionalProperties"] is False
+    assert set(message_schema.get("required", [])) == {"role", "content"}
+    assert message_schema["properties"]["role"]["enum"] == [
+        "user",
+        "assistant",
+        "summary",
+    ]
+    assert message_schema["properties"]["content"]["type"] == "string"
+    assert message_schema["properties"]["content"]["minLength"] == 1
+
+    metadata_schema = schema["$defs"]["AuditEventMetadata"]
+    assert metadata_schema["additionalProperties"] is False
+    assert set(metadata_schema.get("required", [])) == {"location"}
+    assert metadata_schema["properties"]["location"]["type"] == "string"
+    assert metadata_schema["properties"]["location"]["minLength"] == 1

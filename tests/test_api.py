@@ -127,9 +127,14 @@ def test_chat_returns_summary_and_audits(monkeypatch, tmp_path: Path) -> None:
 
     assert audit_stub.calls
     audit_payload = audit_stub.calls[0]
+    assert set(audit_payload) == {"conversation_id", "profile", "messages", "metadata"}
     assert audit_payload["conversation_id"] == "session-1"
     assert audit_payload["profile"] == "test-profile"
-    assert audit_payload["summary"] == "Final summary"
+    assert audit_payload["messages"] == [
+        {"role": "user", "content": "stop"},
+        {"role": "assistant", "content": "handoff"},
+        {"role": "summary", "content": "Final summary"},
+    ]
     assert audit_payload["metadata"] == {"location": "Antwerpen"}
 
 
@@ -162,6 +167,11 @@ def test_chat_audit_omits_blank_location_metadata(monkeypatch, tmp_path: Path) -
     assert audit_stub.calls
     audit_payload = audit_stub.calls[0]
     assert audit_payload["conversation_id"] == "session-blank-location"
+    assert set(audit_payload) == {"conversation_id", "profile", "messages"}
+    assert audit_payload["messages"] == [
+        {"role": "user", "content": "answer"},
+        {"role": "assistant", "content": "Next question"},
+    ]
     assert "metadata" not in audit_payload
 
 

@@ -7,6 +7,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response
+from pydantic import ValidationError
 
 from pixie_questioner.audit_client import AuditClient
 from pixie_questioner.azure_openai_llm import AzureOpenAILLM
@@ -14,7 +15,11 @@ from pixie_questioner.chat_service import ChatService
 from pixie_questioner.config import get_settings
 from pixie_questioner.notulist import QuestionnaireNotulist
 from pixie_questioner.schemas import (
+    AUDIT_EVENT_CONTRACT_VERSION,
     CHAT_CONTRACT_VERSION,
+    AuditEventMessage,
+    AuditEventMetadata,
+    AuditEventPayload,
     ChatAnswerResponse,
     ChatRequest,
     ChatResponse,
@@ -83,14 +88,19 @@ def _build_audit_messages(
     user_text: str,
     assistant_text: str,
     summary_text: str | None = None,
-) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = []
-    if user_text.strip():
-        messages.append({"role": "user", "content": user_text})
-    if assistant_text.strip():
-        messages.append({"role": "assistant", "content": assistant_text})
-    if summary_text is not None and summary_text.strip():
-        messages.append({"role": "summary", "content": summary_text})
+) -> list[AuditEventMessage]:
+    messages: list[AuditEventMessage] = []
+    normalized_user = user_text.strip()
+    normalized_assistant = assistant_text.strip()
+    normalized_summary = summary_text.strip() if summary_text is not None else None
+    if normalized_user:
+        messages.append(AuditEventMessage(role="user", content=normalized_user))
+    if normalized_assistant:
+        messages.append(
+            AuditEventMessage(role="assistant", content=normalized_assistant)
+        )
+    if normalized_summary:
+        messages.append(AuditEventMessage(role="summary", content=normalized_summary))
     return messages
 
 
@@ -121,24 +131,35 @@ async def chat(request: ChatRequest, response: Response):
     )
     response.headers["X-Pixie-Chat-Contract"] = CHAT_CONTRACT_VERSION
     if audit_client is not None:
-        payload: dict[str, object] = {
-            "conversation_id": request.session_id,
-            "profile": audit_client.profile,
-            "messages": _build_audit_messages(
-                request.current_answer,
-                result.text,
-                result.summary,
-            ),
-        }
-        audit_location = _extract_audit_location(request.state)
-        if audit_location is not None:
-            payload["metadata"] = {"location": audit_location}
-        if result.response_type == "summary" and result.summary is not None:
-            payload["summary"] = result.summary
         try:
-            await audit_client.post_event(payload)
+            metadata: AuditEventMetadata | None = None
+            audit_location = _extract_audit_location(request.state)
+            if audit_location is not None:
+                metadata = AuditEventMetadata(location=audit_location)
+
+            payload = AuditEventPayload(
+                conversation_id=request.session_id,
+                profile=audit_client.profile,
+                messages=_build_audit_messages(
+                    request.current_answer,
+                    result.text,
+                    result.summary,
+                ),
+                metadata=metadata,
+            )
+            await audit_client.post_event(payload.model_dump(exclude_none=True))
+        except ValidationError as exc:
+            logger.warning(
+                "Skipped audit event due to invalid payload (%s): %s",
+                AUDIT_EVENT_CONTRACT_VERSION,
+                exc,
+            )
         except Exception as exc:
-            logger.warning("Failed to post audit event: %s", exc)
+            logger.warning(
+                "Failed to post audit event (%s): %s",
+                AUDIT_EVENT_CONTRACT_VERSION,
+                exc,
+            )
     if result.response_type == "summary":
         if result.summary is None:
             raise RuntimeError("Summary response requires a summary payload.")
