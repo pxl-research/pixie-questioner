@@ -6,6 +6,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+CHAT_CONTRACT_VERSION = "chat-v1.0.0"
+
 
 class ChatRequest(BaseModel):
     session_id: str = Field(..., min_length=1)

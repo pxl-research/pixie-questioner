@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from pixie_questioner import config as config_module
 from pixie_questioner.chat_service import ChatResult
+from pixie_questioner.schemas import CHAT_CONTRACT_VERSION
 
 
 def _write_prompt(path: Path, content: str) -> Path:
@@ -120,6 +121,7 @@ def test_chat_returns_summary_and_audits(monkeypatch, tmp_path: Path) -> None:
         payload["follow_up_question"] == "Would you use this assistant again? (yes/no)"
     )
     assert payload["conversation_id"] == "session-1"
+    assert response.headers["X-Pixie-Chat-Contract"] == CHAT_CONTRACT_VERSION
     assert chat_stub.calls == [("stop", {})]
 
     assert audit_stub.calls
@@ -161,5 +163,6 @@ def test_chat_returns_answer(monkeypatch, tmp_path: Path) -> None:
     assert payload["type"] == "answer"
     assert payload["text"] == "Next question"
     assert payload["conversation_id"] == "session-2"
+    assert response.headers["X-Pixie-Chat-Contract"] == CHAT_CONTRACT_VERSION
     assert "summary" not in payload
     assert "follow_up_question" not in payload

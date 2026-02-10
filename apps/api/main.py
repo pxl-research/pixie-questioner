@@ -6,7 +6,7 @@ import logging
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
 from pixie_questioner.audit_client import AuditClient
 from pixie_questioner.azure_openai_llm import AzureOpenAILLM
@@ -14,6 +14,7 @@ from pixie_questioner.chat_service import ChatService
 from pixie_questioner.config import get_settings
 from pixie_questioner.notulist import QuestionnaireNotulist
 from pixie_questioner.schemas import (
+    CHAT_CONTRACT_VERSION,
     ChatAnswerResponse,
     ChatRequest,
     ChatResponse,
@@ -103,11 +104,12 @@ async def health() -> dict[str, str]:
     response_model=ChatResponse,
     response_model_exclude_none=True,
 )
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, response: Response):
     result = await chat_service.ask(
         current_answer=request.current_answer,
         state=request.state,
     )
+    response.headers["X-Pixie-Chat-Contract"] = CHAT_CONTRACT_VERSION
     if audit_client is not None:
         payload: dict[str, object] = {
             "conversation_id": request.session_id,
@@ -127,7 +129,7 @@ async def chat(request: ChatRequest):
     if result.response_type == "summary":
         if result.summary is None:
             raise RuntimeError("Summary response requires a summary payload.")
-        return ChatSummaryResponse(
+        summary_response = ChatSummaryResponse(
             type="summary",
             text=result.text,
             summary=result.summary,
@@ -135,7 +137,8 @@ async def chat(request: ChatRequest):
             conversation_id=request.session_id,
             state=result.state,
         )
-    return ChatAnswerResponse(
+        return summary_response
+    answer_response = ChatAnswerResponse(
         type="answer",
         text=result.text,
         summary=result.summary,
@@ -143,3 +146,4 @@ async def chat(request: ChatRequest):
         conversation_id=request.session_id,
         state=result.state,
     )
+    return answer_response
