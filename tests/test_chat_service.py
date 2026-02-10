@@ -96,6 +96,10 @@ def test_ask_updates_state_and_returns_next_question():
     )
     assert result.state["summary"] == "Updated summary"
     assert result.state["last_question"] == "Next question"
+    assert result.state["phase"] == "intake"
+    assert result.state["feedback_status"] == "pending"
+    assert result.state["final_summary"] == ""
+    assert result.state["post_summary_language"] == ""
     assert result.summary is None
     assert (
         "0. Initial user question: Updated answer\n1. Occasion, Vibe, Setting: []"
@@ -240,8 +244,10 @@ def test_ask_returns_summary_when_questionnaire_complete():
     assert any(result.text.startswith(line) for line in HANDOFF_NL)
     assert result.follow_up_question in FEEDBACK_QUESTION_NL
     assert result.summary == "Eind samenvatting"
-    assert result.state["feedback_requested"] == "true"
-    assert result.state["feedback_response"] == ""
+    assert result.state["phase"] == "awaiting_feedback"
+    assert result.state["feedback_status"] == "pending"
+    assert result.state["final_summary"] == "Eind samenvatting"
+    assert result.state["post_summary_language"] == "nl"
     assert question_llm.calls == []
 
 
@@ -274,8 +280,10 @@ def test_ask_returns_summary_on_stop_intent():
     assert any(result.text.startswith(line) for line in HANDOFF_NL)
     assert result.follow_up_question in FEEDBACK_QUESTION_NL
     assert result.summary == "Eind samenvatting"
-    assert result.state["feedback_requested"] == "true"
-    assert result.state["feedback_response"] == ""
+    assert result.state["phase"] == "awaiting_feedback"
+    assert result.state["feedback_status"] == "pending"
+    assert result.state["final_summary"] == "Eind samenvatting"
+    assert result.state["post_summary_language"] == "nl"
     assert question_llm.calls == []
 
 
@@ -298,8 +306,10 @@ def test_ask_stores_feedback_response_in_state():
                 "questionnaire": QUESTIONNAIRE_TEMPLATE,
                 "summary": "Eind samenvatting",
                 "last_question": "AI question",
-                "feedback_requested": "true",
-                "feedback_response": "",
+                "phase": "awaiting_feedback",
+                "feedback_status": "pending",
+                "final_summary": "Eind samenvatting",
+                "post_summary_language": "nl",
             },
         )
     )
@@ -307,8 +317,10 @@ def test_ask_stores_feedback_response_in_state():
     assert result.response_type == "summary"
     assert result.text in FEEDBACK_THANKS_NL
     assert result.follow_up_question is None
-    assert result.state["feedback_requested"] == "false"
-    assert result.state["feedback_response"] == "yes"
+    assert result.state["phase"] == "completed"
+    assert result.state["feedback_status"] == "yes"
+    assert result.state["final_summary"] == "Eind samenvatting"
+    assert result.state["post_summary_language"] == "nl"
     assert result.summary == "Eind samenvatting"
     assert question_llm.calls == []
     assert notulist_llm.calls == []
@@ -334,8 +346,10 @@ def test_ask_repeats_feedback_question_for_unclear_feedback_response():
                 "questionnaire": QUESTIONNAIRE_TEMPLATE,
                 "summary": "Eind samenvatting",
                 "last_question": "AI question",
-                "feedback_requested": "true",
-                "feedback_response": "",
+                "phase": "awaiting_feedback",
+                "feedback_status": "pending",
+                "final_summary": "Eind samenvatting",
+                "post_summary_language": "nl",
             },
         )
     )
@@ -343,9 +357,117 @@ def test_ask_repeats_feedback_question_for_unclear_feedback_response():
     assert result.response_type == "answer"
     assert result.text in FEEDBACK_QUESTION_NL
     assert result.follow_up_question is None
-    assert result.state["feedback_requested"] == "true"
-    assert result.state["feedback_response"] == ""
+    assert result.state["phase"] == "awaiting_feedback"
+    assert result.state["feedback_status"] == "pending"
+    assert result.state["final_summary"] == "Eind samenvatting"
+    assert result.state["post_summary_language"] == "nl"
     assert result.summary == "Eind samenvatting"
+    assert question_llm.calls == []
+    assert notulist_llm.calls == []
+    assert summarizer_llm.calls == []
+
+
+def test_ask_keeps_final_summary_immutable_while_feedback_pending():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+    pending_state = {
+        "questionnaire": QUESTIONNAIRE_TEMPLATE,
+        "summary": "Deze mag niet gebruikt worden",
+        "last_question": "AI question",
+        "phase": "awaiting_feedback",
+        "feedback_status": "pending",
+        "final_summary": "Vastgepinde samenvatting",
+        "post_summary_language": "nl",
+    }
+
+    first = asyncio.run(service.ask(current_answer="Misschien", state=pending_state))
+    second = asyncio.run(service.ask(current_answer="Onduidelijk", state=first.state))
+
+    assert first.response_type == "answer"
+    assert first.summary == "Vastgepinde samenvatting"
+    assert second.response_type == "answer"
+    assert second.summary == "Vastgepinde samenvatting"
+    assert question_llm.calls == []
+    assert notulist_llm.calls == []
+    assert summarizer_llm.calls == []
+
+
+def test_ask_uses_locked_post_summary_language_for_feedback_retry():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Maybe",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "English summary should not change language lock.",
+                "last_question": "AI question",
+                "phase": "awaiting_feedback",
+                "feedback_status": "pending",
+                "final_summary": "English summary should not change language lock.",
+                "post_summary_language": "fr",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text in FEEDBACK_QUESTION_FR
+    assert result.state["post_summary_language"] == "fr"
+    assert question_llm.calls == []
+    assert notulist_llm.calls == []
+    assert summarizer_llm.calls == []
+
+
+def test_ask_returns_completed_feedback_ack_when_phase_completed():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="extra bericht",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "Samenvatting",
+                "last_question": "AI question",
+                "phase": "completed",
+                "feedback_status": "yes",
+                "final_summary": "Samenvatting",
+                "post_summary_language": "nl",
+            },
+        )
+    )
+
+    assert result.response_type == "summary"
+    assert result.text in FEEDBACK_THANKS_NL
+    assert result.summary == "Samenvatting"
+    assert result.follow_up_question is None
+    assert result.state["phase"] == "completed"
+    assert result.state["feedback_status"] == "yes"
     assert question_llm.calls == []
     assert notulist_llm.calls == []
     assert summarizer_llm.calls == []
@@ -379,6 +501,7 @@ def test_ask_returns_english_handoff_for_english_summary():
     assert result.response_type == "answer"
     assert any(result.text.startswith(line) for line in HANDOFF_EN)
     assert result.follow_up_question in FEEDBACK_QUESTION_EN
+    assert result.state["post_summary_language"] == "en"
     assert question_llm.calls == []
 
 
@@ -410,6 +533,7 @@ def test_ask_returns_french_handoff_for_french_summary():
     assert result.response_type == "answer"
     assert any(result.text.startswith(line) for line in HANDOFF_FR)
     assert result.follow_up_question in FEEDBACK_QUESTION_FR
+    assert result.state["post_summary_language"] == "fr"
     assert question_llm.calls == []
 
 
@@ -441,6 +565,7 @@ def test_ask_falls_back_to_dutch_handoff_when_language_is_undetectable():
     assert result.response_type == "answer"
     assert any(result.text.startswith(line) for line in HANDOFF_NL)
     assert result.follow_up_question in FEEDBACK_QUESTION_NL
+    assert result.state["post_summary_language"] == "nl"
     assert question_llm.calls == []
 
 

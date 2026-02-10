@@ -79,11 +79,14 @@ def test_live_llm_post_summary_feedback_flow() -> None:
     assert first.response_type == "answer"
     assert first.summary is not None
     assert first.follow_up_question is not None
-    assert first.state.get("feedback_requested") == "true"
-    assert first.state.get("feedback_response") == ""
+    assert first.state.get("phase") == "awaiting_feedback"
+    assert first.state.get("feedback_status") == "pending"
+    assert first.state.get("final_summary") == first.summary
+    assert first.state.get("post_summary_language")
 
     second = asyncio.run(service.ask(current_answer="ja", state=first.state))
     assert second.response_type == "summary"
     assert second.summary is not None
-    assert second.state.get("feedback_requested") == "false"
-    assert second.state.get("feedback_response") == "yes"
+    assert second.state.get("phase") == "completed"
+    assert second.state.get("feedback_status") == "yes"
+    assert second.state.get("final_summary") == second.summary

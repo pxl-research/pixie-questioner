@@ -26,6 +26,14 @@ _SUPPORTED_LANGUAGE_NAMES = {
 _SUPPORTED_LANGUAGE_CLOSE_MARGIN = 0.15
 _OTHER_LANGUAGE_STRONG_PROBABILITY = 0.85
 _OTHER_LANGUAGE_MIN_WORDS = 4
+_PHASE_INTAKE = "intake"
+_PHASE_AWAITING_FEEDBACK = "awaiting_feedback"
+_PHASE_COMPLETED = "completed"
+_VALID_PHASES = {_PHASE_INTAKE, _PHASE_AWAITING_FEEDBACK, _PHASE_COMPLETED}
+_FEEDBACK_PENDING = "pending"
+_FEEDBACK_YES = "yes"
+_FEEDBACK_NO = "no"
+_VALID_FEEDBACK_STATUSES = {_FEEDBACK_PENDING, _FEEDBACK_YES, _FEEDBACK_NO}
 DetectorFactory.seed = 0
 HANDOFF_NL = [
     "Dank je wel, dit geeft al een duidelijk beeld naar wat je op zoek bent:",
@@ -104,8 +112,10 @@ class ChatState:
     questionnaire: str = ""
     summary: str = ""
     last_question: str = _INITIAL_QUESTION
-    feedback_requested: str = "false"
-    feedback_response: str = ""
+    phase: str = _PHASE_INTAKE
+    feedback_status: str = _FEEDBACK_PENDING
+    final_summary: str = ""
+    post_summary_language: str = ""
 
 
 @dataclass
@@ -283,9 +293,9 @@ class ChatService:
         has_yes = bool(tokens & _FEEDBACK_YES_TOKENS)
         has_no = bool(tokens & _FEEDBACK_NO_TOKENS)
         if has_yes and not has_no:
-            return "yes"
+            return _FEEDBACK_YES
         if has_no and not has_yes:
-            return "no"
+            return _FEEDBACK_NO
         return None
 
     def _extract_questionnaire_indices(self, questionnaire: str) -> list[int]:
@@ -306,26 +316,52 @@ class ChatService:
         questionnaire = state.get("questionnaire", "")
         summary = state.get("summary", "")
         last_question = state.get("last_question", _INITIAL_QUESTION)
-        feedback_requested = state.get("feedback_requested", "false")
-        feedback_response = state.get("feedback_response", "")
+        phase = state.get("phase", _PHASE_INTAKE)
+        feedback_status = state.get("feedback_status", _FEEDBACK_PENDING)
+        final_summary = state.get("final_summary", "")
+        post_summary_language = state.get("post_summary_language", "")
         if not isinstance(questionnaire, str):
             raise RuntimeError("State field 'questionnaire' must be a string.")
         if not isinstance(summary, str):
             raise RuntimeError("State field 'summary' must be a string.")
         if not isinstance(last_question, str):
             raise RuntimeError("State field 'last_question' must be a string.")
-        if not isinstance(feedback_requested, str):
-            raise RuntimeError("State field 'feedback_requested' must be a string.")
-        if not isinstance(feedback_response, str):
-            raise RuntimeError("State field 'feedback_response' must be a string.")
+        if not isinstance(phase, str):
+            raise RuntimeError("State field 'phase' must be a string.")
+        if not isinstance(feedback_status, str):
+            raise RuntimeError("State field 'feedback_status' must be a string.")
+        if not isinstance(final_summary, str):
+            raise RuntimeError("State field 'final_summary' must be a string.")
+        if not isinstance(post_summary_language, str):
+            raise RuntimeError("State field 'post_summary_language' must be a string.")
         if not questionnaire.strip():
             questionnaire = self.questionnaire_template
+        if phase not in _VALID_PHASES:
+            phase = _PHASE_INTAKE
+        if feedback_status not in _VALID_FEEDBACK_STATUSES:
+            feedback_status = _FEEDBACK_PENDING
+        if phase == _PHASE_INTAKE:
+            feedback_status = _FEEDBACK_PENDING
+            final_summary = ""
+            post_summary_language = ""
+        else:
+            if not final_summary.strip():
+                final_summary = summary
+            if not post_summary_language.strip():
+                post_summary_language = self._detect_language(final_summary)
+            if (
+                phase == _PHASE_AWAITING_FEEDBACK
+                and feedback_status != _FEEDBACK_PENDING
+            ):
+                phase = _PHASE_COMPLETED
         return ChatState(
             questionnaire=questionnaire,
             summary=summary,
             last_question=last_question,
-            feedback_requested=feedback_requested,
-            feedback_response=feedback_response,
+            phase=phase,
+            feedback_status=feedback_status,
+            final_summary=final_summary,
+            post_summary_language=post_summary_language,
         )
 
     def _serialize_state(self, state: ChatState) -> dict[str, str]:
@@ -333,8 +369,10 @@ class ChatService:
             "questionnaire": state.questionnaire,
             "summary": state.summary,
             "last_question": state.last_question,
-            "feedback_requested": state.feedback_requested,
-            "feedback_response": state.feedback_response,
+            "phase": state.phase,
+            "feedback_status": state.feedback_status,
+            "final_summary": state.final_summary,
+            "post_summary_language": state.post_summary_language,
         }
 
     def _user_requested_stop(self, current_answer: str) -> bool:
@@ -368,27 +406,46 @@ class ChatService:
         state: dict[str, str] | None,
     ) -> ChatResult:
         current_state = self._parse_state(state)
-        if (
-            current_state.feedback_requested == "true"
-            and current_state.feedback_response == ""
-        ):
+        if current_state.phase == _PHASE_AWAITING_FEEDBACK:
+            summary_text = current_state.final_summary
+            if not summary_text.strip():
+                summary_text = current_state.summary
+                current_state.final_summary = summary_text
+            language = current_state.post_summary_language
+            if not language:
+                language = self._detect_language(summary_text)
+                current_state.post_summary_language = language
             feedback_response = self._normalize_feedback_response(current_answer)
             if feedback_response is not None:
-                current_state.feedback_response = feedback_response
-                current_state.feedback_requested = "false"
-                language = self._detect_language(current_state.summary)
+                current_state.phase = _PHASE_COMPLETED
+                current_state.feedback_status = feedback_response
                 return ChatResult(
                     text=self._build_feedback_thanks(language),
                     response_type="summary",
                     state=self._serialize_state(current_state),
-                    summary=current_state.summary,
+                    summary=summary_text,
                 )
-            language = self._detect_language(current_state.summary)
+            current_state.feedback_status = _FEEDBACK_PENDING
             return ChatResult(
                 text=self._build_feedback_question(language),
                 response_type="answer",
                 state=self._serialize_state(current_state),
-                summary=current_state.summary,
+                summary=summary_text,
+            )
+        if current_state.phase == _PHASE_COMPLETED:
+            summary_text = current_state.final_summary
+            if not summary_text.strip():
+                summary_text = current_state.summary
+                current_state.final_summary = summary_text
+            language = current_state.post_summary_language
+            if not language:
+                language = self._detect_language(summary_text)
+                current_state.post_summary_language = language
+            return ChatResult(
+                text=self._build_feedback_thanks(language),
+                response_type="summary",
+                state=self._serialize_state(current_state),
+                summary=summary_text,
             )
         current_question = current_state.last_question
         updated_questionnaire = await self.notulist.generate(
@@ -414,30 +471,22 @@ class ChatService:
         ) or self._user_requested_stop(current_answer):
             language = self._detect_language(updated_summary)
             handoff_line = self._build_handoff_line(language)
-            if current_state.feedback_response:
-                summary_text = handoff_line
-                follow_up_question = None
-                feedback_requested = "false"
-                response_type = "summary"
-            else:
-                feedback_question = self._build_feedback_question(language)
-                summary_text = handoff_line
-                follow_up_question = feedback_question
-                feedback_requested = "true"
-                response_type = "answer"
+            feedback_question = self._build_feedback_question(language)
             final_state = ChatState(
                 questionnaire=updated_questionnaire,
                 summary=updated_summary,
                 last_question=current_question,
-                feedback_requested=feedback_requested,
-                feedback_response=current_state.feedback_response,
+                phase=_PHASE_AWAITING_FEEDBACK,
+                feedback_status=_FEEDBACK_PENDING,
+                final_summary=updated_summary,
+                post_summary_language=language,
             )
             return ChatResult(
-                text=summary_text,
-                response_type=response_type,
+                text=handoff_line,
+                response_type="answer",
                 state=self._serialize_state(final_state),
                 summary=updated_summary,
-                follow_up_question=follow_up_question,
+                follow_up_question=feedback_question,
             )
 
         preferred_language = self._detect_preferred_language(
@@ -451,6 +500,8 @@ class ChatService:
             questionnaire=updated_questionnaire,
             summary=updated_summary,
             last_question=next_question,
+            phase=_PHASE_INTAKE,
+            feedback_status=_FEEDBACK_PENDING,
         )
         return ChatResult(
             text=next_question,
