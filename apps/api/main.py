@@ -94,6 +94,16 @@ def _build_audit_messages(
     return messages
 
 
+def _extract_audit_location(state: dict[str, str]) -> str | None:
+    location = state.get("location")
+    if location is None:
+        return None
+    normalized = location.strip()
+    if not normalized:
+        return None
+    return normalized
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -120,6 +130,9 @@ async def chat(request: ChatRequest, response: Response):
                 result.summary,
             ),
         }
+        audit_location = _extract_audit_location(request.state)
+        if audit_location is not None:
+            payload["metadata"] = {"location": audit_location}
         if result.response_type == "summary" and result.summary is not None:
             payload["summary"] = result.summary
         try:

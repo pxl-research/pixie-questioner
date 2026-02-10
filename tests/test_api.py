@@ -102,6 +102,7 @@ def test_chat_returns_summary_and_audits(monkeypatch, tmp_path: Path) -> None:
     audit_stub = StubAuditClient()
     main.chat_service = chat_stub
     main.audit_client = audit_stub
+    request_state = {"location": "Antwerpen"}
 
     client = TestClient(main.app)
     response = client.post(
@@ -109,7 +110,7 @@ def test_chat_returns_summary_and_audits(monkeypatch, tmp_path: Path) -> None:
         json={
             "session_id": "session-1",
             "current_answer": "stop",
-            "state": {},
+            "state": request_state,
         },
     )
 
@@ -122,13 +123,46 @@ def test_chat_returns_summary_and_audits(monkeypatch, tmp_path: Path) -> None:
     )
     assert payload["conversation_id"] == "session-1"
     assert response.headers["X-Pixie-Chat-Contract"] == CHAT_CONTRACT_VERSION
-    assert chat_stub.calls == [("stop", {})]
+    assert chat_stub.calls == [("stop", request_state)]
 
     assert audit_stub.calls
     audit_payload = audit_stub.calls[0]
     assert audit_payload["conversation_id"] == "session-1"
     assert audit_payload["profile"] == "test-profile"
     assert audit_payload["summary"] == "Final summary"
+    assert audit_payload["metadata"] == {"location": "Antwerpen"}
+
+
+def test_chat_audit_omits_blank_location_metadata(monkeypatch, tmp_path: Path) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    result = ChatResult(
+        text="Next question",
+        response_type="answer",
+        state={},
+        summary=None,
+    )
+    chat_stub = StubChatService(result)
+    audit_stub = StubAuditClient()
+    main.chat_service = chat_stub
+    main.audit_client = audit_stub
+    request_state = {"location": "   "}
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "session-blank-location",
+            "current_answer": "answer",
+            "state": request_state,
+        },
+    )
+
+    assert response.status_code == 200
+    assert chat_stub.calls == [("answer", request_state)]
+    assert audit_stub.calls
+    audit_payload = audit_stub.calls[0]
+    assert audit_payload["conversation_id"] == "session-blank-location"
+    assert "metadata" not in audit_payload
 
 
 def test_chat_returns_answer(monkeypatch, tmp_path: Path) -> None:
