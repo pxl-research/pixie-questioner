@@ -7,12 +7,17 @@ import re
 from dataclasses import dataclass
 from typing import Protocol
 
+from langdetect import DetectorFactory, detect_langs
+from langdetect.lang_detect_exception import LangDetectException
+
 from .notulist import QuestionnaireNotulist
 from .summarizer import ConversationSummarizer
 
 DEFAULT_COMPLETION_TOKEN = "PIXIE_SUMMARY_READY"
 _COMPLETION_STRIP_CHARS = " \t\n\r\"'`.,:;!?()[]{}<>"
 _INITIAL_QUESTION = "Initial question:"
+_SUPPORTED_LANGUAGE_CODES = {"nl", "en", "fr"}
+DetectorFactory.seed = 0
 HANDOFF_NL = [
     "Helder. Tijd om over te schakelen naar een collega met menselijke ogen. Je mag onderstaande samenvatting gerust aan hen laten zien.",
     "Duidelijk. Dit is het moment om een menselijke collega te betrekken. Laat gerust de samenvatting hieronder zien.",
@@ -32,58 +37,6 @@ HANDOFF_FR = [
     "Tres bien. Je passe le relais a un collegue humain. Montrez-leur le resume ci-dessous.",
     "Parfait. Passage a un collegue humain. Vous pouvez leur montrer le resume ci-dessous.",
 ]
-_LANGUAGE_HINTS = {
-    "nl": {
-        "de",
-        "het",
-        "een",
-        "ik",
-        "je",
-        "jij",
-        "mijn",
-        "broek",
-        "spijkerbroek",
-        "samenvatting",
-        "kleur",
-        "wassing",
-        "maat",
-        "pasvorm",
-        "stof",
-        "lengte",
-        "zoeken",
-        "liefst",
-    },
-    "en": {
-        "the",
-        "and",
-        "with",
-        "fit",
-        "size",
-        "color",
-        "wash",
-        "fabric",
-        "length",
-        "looking",
-        "want",
-        "prefer",
-        "summary",
-    },
-    "fr": {
-        "le",
-        "la",
-        "les",
-        "un",
-        "une",
-        "taille",
-        "couleur",
-        "lavage",
-        "tissu",
-        "longueur",
-        "resume",
-        "veux",
-        "cherche",
-    },
-}
 _STOP_PHRASES = (
     "stop",
     "stoppen",
@@ -180,20 +133,15 @@ class ChatService:
         return stripped.strip(_COMPLETION_STRIP_CHARS)
 
     def _detect_language(self, text: str) -> str:
-        words = re.findall(r"[a-zA-Z']+", text.casefold())
-        if not words:
+        if not text.strip():
             return "nl"
-        scores = {lang: 0 for lang in _LANGUAGE_HINTS}
-        for word in words:
-            for lang, hints in _LANGUAGE_HINTS.items():
-                if word in hints:
-                    scores[lang] += 1
-        max_score = max(scores.values())
-        if max_score == 0:
+        try:
+            candidates = detect_langs(text)
+        except LangDetectException:
             return "nl"
-        for lang in ("nl", "en", "fr"):
-            if scores[lang] == max_score:
-                return lang
+        for candidate in candidates:
+            if candidate.lang in _SUPPORTED_LANGUAGE_CODES:
+                return candidate.lang
         return "nl"
 
     def _build_handoff_line(self, language: str) -> str:

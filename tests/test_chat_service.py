@@ -2,7 +2,12 @@ import asyncio
 
 import pytest
 
-from pixie_questioner.chat_service import HANDOFF_NL, ChatService
+from pixie_questioner.chat_service import (
+    HANDOFF_EN,
+    HANDOFF_FR,
+    HANDOFF_NL,
+    ChatService,
+)
 from pixie_questioner.notulist import QuestionnaireNotulist
 from pixie_questioner.summarizer import ConversationSummarizer
 
@@ -140,6 +145,96 @@ def test_ask_returns_summary_on_stop_intent():
     assert result.response_type == "summary"
     assert result.text in HANDOFF_NL
     assert result.summary == "Eind samenvatting"
+    assert question_llm.calls == []
+
+
+def test_ask_returns_english_handoff_for_english_summary():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: []\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["I am looking for blue jeans with a straight fit."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="done",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
+        )
+    )
+
+    assert result.response_type == "summary"
+    assert result.text in HANDOFF_EN
+    assert question_llm.calls == []
+
+
+def test_ask_returns_french_handoff_for_french_summary():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: []\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["Je cherche un jean bleu avec une coupe droite."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="c'est tout",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
+        )
+    )
+
+    assert result.response_type == "summary"
+    assert result.text in HANDOFF_FR
+    assert question_llm.calls == []
+
+
+def test_ask_falls_back_to_dutch_handoff_when_language_is_undetectable():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: []\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["12345 !!!"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="done",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
+        )
+    )
+
+    assert result.response_type == "summary"
+    assert result.text in HANDOFF_NL
     assert question_llm.calls == []
 
 
