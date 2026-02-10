@@ -24,6 +24,12 @@ class FakeLLM:
         return self.responses.pop(0)
 
 
+class FakeLangCandidate:
+    def __init__(self, lang: str, prob: float):
+        self.lang = lang
+        self.prob = prob
+
+
 def _make_notulist(llm):
     return QuestionnaireNotulist(
         llm=llm,
@@ -41,6 +47,16 @@ def _make_summarizer(llm):
 QUESTIONNAIRE_TEMPLATE = (
     "0. Initial user question: []\n" "1. Occasion, Vibe, Setting: []"
 )
+
+
+def _make_service_for_language_detection() -> ChatService:
+    return ChatService(
+        llm=FakeLLM([]),
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(FakeLLM([])),
+        summarizer=_make_summarizer(FakeLLM([])),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
 
 
 def test_ask_updates_state_and_returns_next_question():
@@ -84,6 +100,80 @@ def test_ask_updates_state_and_returns_next_question():
     assert "AI question" in notulist_llm.calls[0][0]["content"]
     assert "User answer" in notulist_llm.calls[0][0]["content"]
     assert "Prev []" in notulist_llm.calls[0][0]["content"]
+    assert "Language policy:" in question_llm.calls[-1][0]["content"]
+    assert "If uncertain, default to Dutch." in question_llm.calls[-1][0]["content"]
+
+
+def test_ask_prefers_dutch_for_hallo_greeting():
+    question_llm = FakeLLM(["Volgende vraag"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Hallo\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["Hallo"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Hallo",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Initial question:",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert "Respond in Dutch." in question_llm.calls[-1][0]["content"]
+
+
+def test_detect_preferred_language_prefers_supported_on_small_score_gap(monkeypatch):
+    service = _make_service_for_language_detection()
+
+    def fake_detect_langs(_: str):
+        return [FakeLangCandidate("de", 0.56), FakeLangCandidate("nl", 0.49)]
+
+    monkeypatch.setattr("pixie_questioner.chat_service.detect_langs", fake_detect_langs)
+
+    preferred_language = service._detect_preferred_language("kurzer text", "")
+
+    assert preferred_language == "nl"
+
+
+def test_detect_preferred_language_allows_other_language_on_strong_signal(monkeypatch):
+    service = _make_service_for_language_detection()
+
+    def fake_detect_langs(_: str):
+        return [FakeLangCandidate("de", 0.96), FakeLangCandidate("nl", 0.02)]
+
+    monkeypatch.setattr("pixie_questioner.chat_service.detect_langs", fake_detect_langs)
+
+    preferred_language = service._detect_preferred_language(
+        "guten tag ich suche eine jeans", ""
+    )
+
+    assert preferred_language == "de"
+
+
+def test_detect_preferred_language_falls_back_to_dutch_for_short_unsupported_text(
+    monkeypatch,
+):
+    service = _make_service_for_language_detection()
+
+    def fake_detect_langs(_: str):
+        return [FakeLangCandidate("fi", 0.99)]
+
+    monkeypatch.setattr("pixie_questioner.chat_service.detect_langs", fake_detect_langs)
+
+    preferred_language = service._detect_preferred_language("Hallo", "")
+
+    assert preferred_language == "nl"
 
 
 def test_ask_returns_summary_when_questionnaire_complete():

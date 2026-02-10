@@ -17,6 +17,15 @@ DEFAULT_COMPLETION_TOKEN = "PIXIE_SUMMARY_READY"
 _COMPLETION_STRIP_CHARS = " \t\n\r\"'`.,:;!?()[]{}<>"
 _INITIAL_QUESTION = "Initial question:"
 _SUPPORTED_LANGUAGE_CODES = {"nl", "en", "fr"}
+_SUPPORTED_LANGUAGE_PRIORITY = {"nl": 0, "en": 1, "fr": 2}
+_SUPPORTED_LANGUAGE_NAMES = {
+    "nl": "Dutch",
+    "en": "English",
+    "fr": "French",
+}
+_SUPPORTED_LANGUAGE_CLOSE_MARGIN = 0.15
+_OTHER_LANGUAGE_STRONG_PROBABILITY = 0.9
+_OTHER_LANGUAGE_MIN_WORDS = 4
 DetectorFactory.seed = 0
 HANDOFF_NL = [
     "Dank je wel, dit geeft al een duidelijk beeld naar wat je op zoek bent:",
@@ -123,16 +132,107 @@ class ChatService:
         return stripped.strip(_COMPLETION_STRIP_CHARS)
 
     def _detect_language(self, text: str) -> str:
-        if not text.strip():
+        candidates = self._detect_language_candidates(text)
+        if not candidates:
             return "nl"
-        try:
-            candidates = detect_langs(text)
-        except LangDetectException:
-            return "nl"
-        for candidate in candidates:
-            if candidate.lang in _SUPPORTED_LANGUAGE_CODES:
-                return candidate.lang
+
+        for language_code, _ in candidates:
+            if language_code in _SUPPORTED_LANGUAGE_CODES:
+                return language_code
         return "nl"
+
+    def _detect_language_candidates(self, text: str) -> list[tuple[str, float]]:
+        if not text.strip():
+            return []
+        try:
+            detected = detect_langs(text)
+        except LangDetectException:
+            return []
+        return [(candidate.lang, candidate.prob) for candidate in detected]
+
+    def _select_best_supported_language(
+        self, candidates: list[tuple[str, float]]
+    ) -> tuple[str, float] | None:
+        supported_candidates = [
+            (language_code, probability)
+            for language_code, probability in candidates
+            if language_code in _SUPPORTED_LANGUAGE_CODES
+        ]
+        if not supported_candidates:
+            return None
+        return min(
+            supported_candidates,
+            key=lambda item: (
+                -item[1],
+                _SUPPORTED_LANGUAGE_PRIORITY[item[0]],
+            ),
+        )
+
+    def _select_preferred_language_from_text(self, text: str) -> tuple[str, bool]:
+        candidates = self._detect_language_candidates(text)
+        if not candidates:
+            return "nl", True
+
+        top_language, top_probability = candidates[0]
+        best_supported = self._select_best_supported_language(candidates)
+        word_count = len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", text))
+
+        if top_language in _SUPPORTED_LANGUAGE_CODES:
+            return top_language, False
+
+        if best_supported is not None:
+            best_supported_language, best_supported_probability = best_supported
+            score_gap = top_probability - best_supported_probability
+            if score_gap <= _SUPPORTED_LANGUAGE_CLOSE_MARGIN:
+                return best_supported_language, True
+            if (
+                top_probability >= _OTHER_LANGUAGE_STRONG_PROBABILITY
+                and word_count >= _OTHER_LANGUAGE_MIN_WORDS
+            ):
+                return top_language, False
+            return best_supported_language, True
+
+        if (
+            top_probability >= _OTHER_LANGUAGE_STRONG_PROBABILITY
+            and word_count >= _OTHER_LANGUAGE_MIN_WORDS
+        ):
+            return top_language, False
+        return "nl", True
+
+    def _detect_preferred_language(
+        self, current_answer: str, previous_summary: str
+    ) -> str:
+        answer_language, answer_is_uncertain = (
+            self._select_preferred_language_from_text(current_answer)
+        )
+        if not answer_is_uncertain:
+            return answer_language
+
+        summary_language, summary_is_uncertain = (
+            self._select_preferred_language_from_text(previous_summary)
+        )
+        if not summary_is_uncertain:
+            return summary_language
+
+        if answer_language in _SUPPORTED_LANGUAGE_CODES:
+            return answer_language
+        if summary_language in _SUPPORTED_LANGUAGE_CODES:
+            return summary_language
+        return "nl"
+
+    def _build_language_instruction(self, language_code: str) -> str:
+        if language_code in _SUPPORTED_LANGUAGE_NAMES:
+            language_target = _SUPPORTED_LANGUAGE_NAMES[language_code]
+            default_hint = "- If uncertain, default to Dutch."
+        else:
+            language_target = f"the language with ISO code '{language_code}'"
+            default_hint = "- If uncertain, default to Dutch, English, or French."
+        return (
+            "\n\nLanguage policy:\n"
+            f"- Respond in {language_target}.\n"
+            f"{default_hint}\n"
+            "- Prefer Dutch when there is no strong language signal."
+        )
 
     def _build_handoff_line(self, language: str) -> str:
         if language.startswith("nl"):
@@ -187,8 +287,13 @@ class ChatService:
     def _questionnaire_complete(self, questionnaire: str) -> bool:
         return "[]" not in questionnaire
 
-    async def _ask_next_question(self, questionnaire: str) -> str:
+    async def _ask_next_question(
+        self, questionnaire: str, preferred_language: str
+    ) -> str:
         system_prompt = self._render_question_asker_prompt(questionnaire)
+        system_prompt = (
+            f"{system_prompt}{self._build_language_instruction(preferred_language)}"
+        )
         response = await self._get_client().ainvoke(
             [{"role": "system", "content": system_prompt}]
         )
@@ -242,7 +347,13 @@ class ChatService:
                 summary=updated_summary,
             )
 
-        next_question = await self._ask_next_question(updated_questionnaire)
+        preferred_language = self._detect_preferred_language(
+            current_answer=current_answer,
+            previous_summary=current_state.summary,
+        )
+        next_question = await self._ask_next_question(
+            updated_questionnaire, preferred_language
+        )
         next_state = ChatState(
             questionnaire=updated_questionnaire,
             summary=updated_summary,
