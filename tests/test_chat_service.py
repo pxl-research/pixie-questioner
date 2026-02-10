@@ -3,6 +3,10 @@ import asyncio
 import pytest
 
 from pixie_questioner.chat_service import (
+    FEEDBACK_QUESTION_EN,
+    FEEDBACK_QUESTION_FR,
+    FEEDBACK_QUESTION_NL,
+    FEEDBACK_THANKS_NL,
     HANDOFF_EN,
     HANDOFF_FR,
     HANDOFF_NL,
@@ -233,8 +237,11 @@ def test_ask_returns_summary_when_questionnaire_complete():
     )
 
     assert result.response_type == "summary"
-    assert result.text in HANDOFF_NL
+    assert any(result.text.startswith(line) for line in HANDOFF_NL)
+    assert any(question in result.text for question in FEEDBACK_QUESTION_NL)
     assert result.summary == "Eind samenvatting"
+    assert result.state["feedback_requested"] == "true"
+    assert result.state["feedback_response"] == ""
     assert question_llm.calls == []
 
 
@@ -264,9 +271,82 @@ def test_ask_returns_summary_on_stop_intent():
     )
 
     assert result.response_type == "summary"
-    assert result.text in HANDOFF_NL
+    assert any(result.text.startswith(line) for line in HANDOFF_NL)
+    assert any(question in result.text for question in FEEDBACK_QUESTION_NL)
+    assert result.summary == "Eind samenvatting"
+    assert result.state["feedback_requested"] == "true"
+    assert result.state["feedback_response"] == ""
+    assert question_llm.calls == []
+
+
+def test_ask_stores_feedback_response_in_state():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ja, zeker",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "Eind samenvatting",
+                "last_question": "AI question",
+                "feedback_requested": "true",
+                "feedback_response": "",
+            },
+        )
+    )
+
+    assert result.response_type == "summary"
+    assert result.text in FEEDBACK_THANKS_NL
+    assert result.state["feedback_requested"] == "false"
+    assert result.state["feedback_response"] == "yes"
     assert result.summary == "Eind samenvatting"
     assert question_llm.calls == []
+    assert notulist_llm.calls == []
+    assert summarizer_llm.calls == []
+
+
+def test_ask_repeats_feedback_question_for_unclear_feedback_response():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Misschien",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "Eind samenvatting",
+                "last_question": "AI question",
+                "feedback_requested": "true",
+                "feedback_response": "",
+            },
+        )
+    )
+
+    assert result.response_type == "summary"
+    assert result.text in FEEDBACK_QUESTION_NL
+    assert result.state["feedback_requested"] == "true"
+    assert result.state["feedback_response"] == ""
+    assert result.summary == "Eind samenvatting"
+    assert question_llm.calls == []
+    assert notulist_llm.calls == []
+    assert summarizer_llm.calls == []
 
 
 def test_ask_returns_english_handoff_for_english_summary():
@@ -295,7 +375,8 @@ def test_ask_returns_english_handoff_for_english_summary():
     )
 
     assert result.response_type == "summary"
-    assert result.text in HANDOFF_EN
+    assert any(result.text.startswith(line.strip()) for line in HANDOFF_EN)
+    assert any(question in result.text for question in FEEDBACK_QUESTION_EN)
     assert question_llm.calls == []
 
 
@@ -325,7 +406,8 @@ def test_ask_returns_french_handoff_for_french_summary():
     )
 
     assert result.response_type == "summary"
-    assert result.text in HANDOFF_FR
+    assert any(result.text.startswith(line) for line in HANDOFF_FR)
+    assert any(question in result.text for question in FEEDBACK_QUESTION_FR)
     assert question_llm.calls == []
 
 
@@ -355,7 +437,8 @@ def test_ask_falls_back_to_dutch_handoff_when_language_is_undetectable():
     )
 
     assert result.response_type == "summary"
-    assert result.text in HANDOFF_NL
+    assert any(result.text.startswith(line) for line in HANDOFF_NL)
+    assert any(question in result.text for question in FEEDBACK_QUESTION_NL)
     assert question_llm.calls == []
 
 

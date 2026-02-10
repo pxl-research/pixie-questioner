@@ -36,6 +36,26 @@ HANDOFF_EN = [
 HANDOFF_FR = [
     "Merci. Cela donne une idée claire de ce que vous recherchez: ",
 ]
+FEEDBACK_QUESTION_NL = [
+    "Zou je deze assistent bij een volgend winkelbezoek opnieuw gebruiken? (ja/nee)",
+]
+FEEDBACK_QUESTION_EN = [
+    "Would you use this assistant again on a future store visit? (yes/no)",
+]
+FEEDBACK_QUESTION_FR = [
+    "Utiliseriez-vous a nouveau cet assistant lors d'une prochaine visite en magasin ? (oui/non)",
+]
+FEEDBACK_THANKS_NL = [
+    "Bedankt voor je feedback.",
+]
+FEEDBACK_THANKS_EN = [
+    "Thanks for your feedback.",
+]
+FEEDBACK_THANKS_FR = [
+    "Merci pour votre retour.",
+]
+_FEEDBACK_YES_TOKENS = {"ja", "yes", "oui", "zeker", "absoluut", "y", "si", "jaa"}
+_FEEDBACK_NO_TOKENS = {"nee", "no", "non", "n", "nein"}
 _STOP_PHRASES = (
     "stop",
     "stoppen",
@@ -83,6 +103,8 @@ class ChatState:
     questionnaire: str = ""
     summary: str = ""
     last_question: str = _INITIAL_QUESTION
+    feedback_requested: str = "false"
+    feedback_response: str = ""
 
 
 @dataclass
@@ -241,6 +263,30 @@ class ChatService:
             return random.choice(HANDOFF_FR)
         return random.choice(HANDOFF_EN)
 
+    def _build_feedback_question(self, language: str) -> str:
+        if language.startswith("nl"):
+            return random.choice(FEEDBACK_QUESTION_NL)
+        if language.startswith("fr"):
+            return random.choice(FEEDBACK_QUESTION_FR)
+        return random.choice(FEEDBACK_QUESTION_EN)
+
+    def _build_feedback_thanks(self, language: str) -> str:
+        if language.startswith("nl"):
+            return random.choice(FEEDBACK_THANKS_NL)
+        if language.startswith("fr"):
+            return random.choice(FEEDBACK_THANKS_FR)
+        return random.choice(FEEDBACK_THANKS_EN)
+
+    def _normalize_feedback_response(self, current_answer: str) -> str | None:
+        tokens = set(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", current_answer.casefold()))
+        has_yes = bool(tokens & _FEEDBACK_YES_TOKENS)
+        has_no = bool(tokens & _FEEDBACK_NO_TOKENS)
+        if has_yes and not has_no:
+            return "yes"
+        if has_no and not has_yes:
+            return "no"
+        return None
+
     def _extract_questionnaire_indices(self, questionnaire: str) -> list[int]:
         indices = set()
         for match in re.finditer(r"(?m)^\s*(\d+)\.", questionnaire):
@@ -259,18 +305,26 @@ class ChatService:
         questionnaire = state.get("questionnaire", "")
         summary = state.get("summary", "")
         last_question = state.get("last_question", _INITIAL_QUESTION)
+        feedback_requested = state.get("feedback_requested", "false")
+        feedback_response = state.get("feedback_response", "")
         if not isinstance(questionnaire, str):
             raise RuntimeError("State field 'questionnaire' must be a string.")
         if not isinstance(summary, str):
             raise RuntimeError("State field 'summary' must be a string.")
         if not isinstance(last_question, str):
             raise RuntimeError("State field 'last_question' must be a string.")
+        if not isinstance(feedback_requested, str):
+            raise RuntimeError("State field 'feedback_requested' must be a string.")
+        if not isinstance(feedback_response, str):
+            raise RuntimeError("State field 'feedback_response' must be a string.")
         if not questionnaire.strip():
             questionnaire = self.questionnaire_template
         return ChatState(
             questionnaire=questionnaire,
             summary=summary,
             last_question=last_question,
+            feedback_requested=feedback_requested,
+            feedback_response=feedback_response,
         )
 
     def _serialize_state(self, state: ChatState) -> dict[str, str]:
@@ -278,6 +332,8 @@ class ChatService:
             "questionnaire": state.questionnaire,
             "summary": state.summary,
             "last_question": state.last_question,
+            "feedback_requested": state.feedback_requested,
+            "feedback_response": state.feedback_response,
         }
 
     def _user_requested_stop(self, current_answer: str) -> bool:
@@ -311,6 +367,28 @@ class ChatService:
         state: dict[str, str] | None,
     ) -> ChatResult:
         current_state = self._parse_state(state)
+        if (
+            current_state.feedback_requested == "true"
+            and current_state.feedback_response == ""
+        ):
+            feedback_response = self._normalize_feedback_response(current_answer)
+            if feedback_response is not None:
+                current_state.feedback_response = feedback_response
+                current_state.feedback_requested = "false"
+                language = self._detect_language(current_state.summary)
+                return ChatResult(
+                    text=self._build_feedback_thanks(language),
+                    response_type="summary",
+                    state=self._serialize_state(current_state),
+                    summary=current_state.summary,
+                )
+            language = self._detect_language(current_state.summary)
+            return ChatResult(
+                text=self._build_feedback_question(language),
+                response_type="summary",
+                state=self._serialize_state(current_state),
+                summary=current_state.summary,
+            )
         current_question = current_state.last_question
         updated_questionnaire = await self.notulist.generate(
             current_question=current_question,
@@ -335,13 +413,22 @@ class ChatService:
         ) or self._user_requested_stop(current_answer):
             language = self._detect_language(updated_summary)
             handoff_line = self._build_handoff_line(language)
+            if current_state.feedback_response:
+                summary_text = handoff_line
+                feedback_requested = "false"
+            else:
+                feedback_question = self._build_feedback_question(language)
+                summary_text = f"{handoff_line.rstrip()} {feedback_question}"
+                feedback_requested = "true"
             final_state = ChatState(
                 questionnaire=updated_questionnaire,
                 summary=updated_summary,
                 last_question=current_question,
+                feedback_requested=feedback_requested,
+                feedback_response=current_state.feedback_response,
             )
             return ChatResult(
-                text=handoff_line,
+                text=summary_text,
                 response_type="summary",
                 state=self._serialize_state(final_state),
                 summary=updated_summary,
