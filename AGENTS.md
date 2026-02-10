@@ -98,6 +98,15 @@ docker compose -f docker-compose.dev.yml run --rm api trivy fs --scanners vuln,m
 
 ---
 
+## Validation Closure Policy
+
+- Run relevant `Run & Validate` checks for every implementation task.
+- If a check fails, fix the underlying issue and re-run the failed check(s) until they pass.
+- Do not stop at reporting failures; resolve them unless blocked by missing credentials/external service availability or explicit user constraints.
+- If blocked, report exactly what is blocking completion and what needs user action.
+
+---
+
 ## Dependencies
 
 - Use **uv** only.
@@ -211,7 +220,7 @@ If a request is ambiguous or underspecified:
 
 A task is complete only if:
 
-- All relevant tests pass via Docker Compose
+- All relevant `Run & Validate` checks pass via Docker Compose with no unresolved issues
 - No invariants are violated
 - No forbidden changes were made
 - Changes are minimal and justified
