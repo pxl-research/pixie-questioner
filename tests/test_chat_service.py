@@ -757,6 +757,35 @@ def test_ask_strips_completion_token_from_next_question():
     assert result.text == "Next question"
 
 
+def test_ask_simplifies_dutch_technical_terms_in_next_question():
+    question_llm = FakeLLM(["Welke Snit en silhouet zoek je in indigo?"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Updated answer\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["Updated summary"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek een jeans",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Welke Pasvorm en vorm zoek je in donkerblauw?"
+
+
 def test_ask_seeds_questionnaire_from_template_when_state_empty():
     question_llm = FakeLLM(["Next question"])
     notulist_llm = FakeLLM(

@@ -126,6 +126,11 @@ _STOP_PHRASES = (
     "arrete",
     "arreter",
 )
+_NL_TECHNICAL_TERM_REPLACEMENTS = (
+    ("snit", "pasvorm"),
+    ("silhouet", "vorm"),
+    ("indigo", "donkerblauw"),
+)
 DEFAULT_RELEVANCE_CLASSIFIER_PROMPT = (
     "You are a strict relevance classifier for a jeans-store assistant.\n"
     "Decide if the customer's latest answer is a reasonable attempt to answer the assistant's latest question.\n"
@@ -441,6 +446,22 @@ class ChatService:
             return _FEEDBACK_NO
         return None
 
+    def _simplify_technical_terms(self, text: str, language: str) -> str:
+        if not language.startswith("nl"):
+            return text
+
+        simplified = text
+        for source, target in _NL_TECHNICAL_TERM_REPLACEMENTS:
+            simplified = re.sub(
+                rf"\b{re.escape(source)}\b",
+                lambda match: (
+                    target.capitalize() if match.group(0)[0].isupper() else target
+                ),
+                simplified,
+                flags=re.IGNORECASE,
+            )
+        return simplified
+
     async def _is_on_topic_answer(
         self,
         current_question: str,
@@ -573,7 +594,7 @@ class ChatService:
             and self.completion_token.casefold() in content.casefold()
         ):
             content = self._strip_completion_token(content)
-        return content
+        return self._simplify_technical_terms(content, preferred_language)
 
     async def ask(
         self,
