@@ -93,28 +93,18 @@ def _build_live_service() -> ChatService:
     os.environ.get("RUN_LIVE_LLM_TESTS", "1") != "1",
     reason="Set RUN_LIVE_LLM_TESTS=0 to skip live Azure OpenAI smoke tests.",
 )
-def test_live_llm_post_summary_feedback_flow() -> None:
+def test_live_llm_stop_terminates_without_summary() -> None:
     issues = _collect_live_env_issues(os.environ)
     if issues:
         pytest.fail("Live LLM configuration issues:\n- " + "\n- ".join(issues))
 
     service = _build_live_service()
 
-    first = asyncio.run(service.ask(current_answer="stop", state={}))
-    assert first.response_type == "answer"
-    assert first.summary is not None
-    assert first.follow_up_question is not None
-    assert first.state.get("phase") == "awaiting_feedback"
-    assert first.state.get("feedback_status") == "pending"
-    assert first.state.get("final_summary") == first.summary
-    assert first.state.get("post_summary_language")
-
-    second = asyncio.run(service.ask(current_answer="ja", state=first.state))
-    assert second.response_type == "summary"
-    assert second.summary is not None
-    assert second.state.get("phase") == "completed"
-    assert second.state.get("feedback_status") == "yes"
-    assert second.state.get("final_summary") == second.summary
+    result = asyncio.run(service.ask(current_answer="stop", state={}))
+    assert result.response_type == "answer"
+    assert result.summary is None
+    assert result.follow_up_question is None
+    assert result.state.get("phase") == "terminated"
 
 
 def test_collect_live_env_issues_reports_missing_and_placeholder_values() -> None:
