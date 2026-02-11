@@ -14,6 +14,9 @@ from pixie_questioner.chat_service import (
     HANDOFF_EN,
     HANDOFF_FR,
     HANDOFF_NL,
+    OFF_TOPIC_INITIAL_QUESTION_EN,
+    OFF_TOPIC_INITIAL_QUESTION_FR,
+    OFF_TOPIC_INITIAL_QUESTION_NL,
     ChatService,
     LLMAnswerRelevanceClassifier,
 )
@@ -360,7 +363,11 @@ def test_ask_terminates_after_repeated_boundary_violations():
     )
 
     assert first.response_type == "answer"
-    assert "Initial question:" in first.text
+    assert first.text in [
+        *OFF_TOPIC_INITIAL_QUESTION_NL,
+        *OFF_TOPIC_INITIAL_QUESTION_EN,
+        *OFF_TOPIC_INITIAL_QUESTION_FR,
+    ]
     assert first.state["boundary_violation_count"] == "1"
     assert first.state["phase"] == "intake"
     assert first.summary is None

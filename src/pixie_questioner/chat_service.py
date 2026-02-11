@@ -86,6 +86,15 @@ OFF_TOPIC_REDIRECT_EN = [
 OFF_TOPIC_REDIRECT_FR = [
     "Je peux seulement vous aider avec des jeans. Pouvez-vous repondre a cette question: {question}",
 ]
+OFF_TOPIC_INITIAL_QUESTION_NL = [
+    "Kan ik je helpen bij het uitzoeken welk type jeansbroek bij je past?",
+]
+OFF_TOPIC_INITIAL_QUESTION_EN = [
+    "Can I help you find which type of jeans fits you best?",
+]
+OFF_TOPIC_INITIAL_QUESTION_FR = [
+    "Puis-je vous aider a trouver le type de jean qui vous convient le mieux ?",
+]
 _FEEDBACK_YES_TOKENS = {"ja", "yes", "oui", "zeker", "absoluut", "y", "si", "jaa"}
 _FEEDBACK_NO_TOKENS = {"nee", "no", "non", "n", "nein"}
 _OFF_TOPIC_TERMINATION_THRESHOLD = 2
@@ -406,6 +415,12 @@ class ChatService:
         return random.choice(GOODBYE_EN)
 
     def _build_off_topic_redirect(self, language: str, current_question: str) -> str:
+        if current_question.strip() == _INITIAL_QUESTION:
+            if language.startswith("nl"):
+                return random.choice(OFF_TOPIC_INITIAL_QUESTION_NL)
+            if language.startswith("fr"):
+                return random.choice(OFF_TOPIC_INITIAL_QUESTION_FR)
+            return random.choice(OFF_TOPIC_INITIAL_QUESTION_EN)
         if language.startswith("nl"):
             return random.choice(OFF_TOPIC_REDIRECT_NL).format(
                 question=current_question
