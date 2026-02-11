@@ -77,92 +77,18 @@ GOODBYE_EN = [
 GOODBYE_FR = [
     "Merci. Je vais cloturer la conversation ici. Bonne chance pour votre choix.",
 ]
+OFF_TOPIC_REDIRECT_NL = [
+    "Ik kan je alleen helpen met jeansbroeken. Kun je deze vraag beantwoorden: {question}",
+]
+OFF_TOPIC_REDIRECT_EN = [
+    "I can only help with jeans. Could you answer this question: {question}",
+]
+OFF_TOPIC_REDIRECT_FR = [
+    "Je peux seulement vous aider avec des jeans. Pouvez-vous repondre a cette question: {question}",
+]
 _FEEDBACK_YES_TOKENS = {"ja", "yes", "oui", "zeker", "absoluut", "y", "si", "jaa"}
 _FEEDBACK_NO_TOKENS = {"nee", "no", "non", "n", "nein"}
-_BOUNDARY_VIOLATION_THRESHOLD = 3
-_ON_SCOPE_TOKENS = {
-    "broek",
-    "broeken",
-    "jean",
-    "jeans",
-    "denim",
-    "pants",
-    "trousers",
-    "pantalon",
-    "pantalons",
-}
-_OUT_OF_SCOPE_GARMENT_TOKENS = {
-    "shirt",
-    "blouse",
-    "trui",
-    "sweater",
-    "hoodie",
-    "jas",
-    "jacket",
-    "coat",
-    "vest",
-    "rok",
-    "skirt",
-    "jurk",
-    "dress",
-    "short",
-    "shorts",
-    "schoen",
-    "schoenen",
-    "shoe",
-    "shoes",
-    "sneaker",
-    "sneakers",
-    "laars",
-    "laarzen",
-    "boots",
-    "hoed",
-    "hat",
-    "pet",
-    "cap",
-    "riem",
-    "belt",
-    "sok",
-    "sokken",
-    "sock",
-    "socks",
-    "ondergoed",
-    "underwear",
-    "bh",
-    "bra",
-}
-_PROMPT_INJECTION_PHRASES = (
-    "ignore previous instructions",
-    "ignore all instructions",
-    "negeer vorige instructies",
-    "negeer alle instructies",
-    "geef je system prompt",
-    "show me your system prompt",
-    "show your prompt",
-    "developer message",
-    "jailbreak",
-    "do anything now",
-    "repeat exactly",
-    "zeg exact",
-)
-_RUDE_TOKENS = {
-    "idioot",
-    "stom",
-    "sukkel",
-    "klootzak",
-    "lul",
-    "shit",
-    "fuck",
-    "fucking",
-    "asshole",
-    "bitch",
-    "moron",
-    "dumb",
-    "stupid",
-    "connard",
-    "con",
-    "merde",
-}
+_OFF_TOPIC_TERMINATION_THRESHOLD = 2
 _STOP_PHRASES = (
     "stop",
     "stoppen",
@@ -191,10 +117,76 @@ _STOP_PHRASES = (
     "arrete",
     "arreter",
 )
+DEFAULT_RELEVANCE_CLASSIFIER_PROMPT = (
+    "You are a strict relevance classifier for a jeans-store assistant.\n"
+    "Decide if the customer's latest answer is a reasonable attempt to answer the assistant's latest question.\n"
+    "Use this context:\n"
+    "- The store only helps customers choose jeans.\n"
+    "- The assistant asks targeted intake questions to narrow down the right jeans.\n"
+    "- If the customer answer is clearly about unrelated topics, mark OFF_TOPIC.\n"
+    "- If the answer is a reasonable attempt, even if short or imperfect, mark ON_TOPIC.\n"
+    "- If unsure, mark ON_TOPIC.\n\n"
+    "Questionnaire context:\n"
+    "{questionnaire}\n\n"
+    "Assistant question:\n"
+    "{current_question}\n\n"
+    "Customer answer:\n"
+    "{current_answer}\n\n"
+    "Return exactly one label: ON_TOPIC or OFF_TOPIC."
+)
 
 
 class LLMClientProtocol(Protocol):
     async def ainvoke(self, messages: list[dict[str, str]]): ...
+
+
+class AnswerRelevanceClassifierProtocol(Protocol):
+    async def is_on_topic(
+        self,
+        current_question: str,
+        current_answer: str,
+        questionnaire: str,
+    ) -> bool: ...
+
+
+@dataclass
+class LLMAnswerRelevanceClassifier:
+    llm: object
+    system_prompt_template: str = DEFAULT_RELEVANCE_CLASSIFIER_PROMPT
+
+    def _get_client(self) -> LLMClientProtocol:
+        if hasattr(self.llm, "ainvoke"):
+            return self.llm  # type: ignore[return-value]
+        model = getattr(self.llm, "model", None)
+        if model is None:
+            raise RuntimeError("LLM client is not configured.")
+        return model
+
+    def _extract_content(self, response: object) -> str:
+        content = getattr(response, "content", None)
+        if content is None:
+            content = str(response)
+        return content
+
+    async def is_on_topic(
+        self,
+        current_question: str,
+        current_answer: str,
+        questionnaire: str,
+    ) -> bool:
+        system_prompt = self.system_prompt_template.format(
+            questionnaire=questionnaire,
+            current_question=current_question,
+            current_answer=current_answer,
+        )
+        response = await self._get_client().ainvoke(
+            [{"role": "system", "content": system_prompt}]
+        )
+        content = self._extract_content(response)
+        match = re.search(r"\b(ON_TOPIC|OFF_TOPIC)\b", content.upper())
+        if match is None:
+            return True
+        return match.group(1) == "ON_TOPIC"
 
 
 @dataclass(frozen=True)
@@ -227,6 +219,7 @@ class ChatService:
     summarizer: ConversationSummarizer
     questionnaire_template: str
     completion_token: str = DEFAULT_COMPLETION_TOKEN
+    answer_relevance_classifier: AnswerRelevanceClassifierProtocol | None = None
 
     def __post_init__(self) -> None:
         if not self.questionnaire_template.strip():
@@ -412,6 +405,17 @@ class ChatService:
             return random.choice(GOODBYE_FR)
         return random.choice(GOODBYE_EN)
 
+    def _build_off_topic_redirect(self, language: str, current_question: str) -> str:
+        if language.startswith("nl"):
+            return random.choice(OFF_TOPIC_REDIRECT_NL).format(
+                question=current_question
+            )
+        if language.startswith("fr"):
+            return random.choice(OFF_TOPIC_REDIRECT_FR).format(
+                question=current_question
+            )
+        return random.choice(OFF_TOPIC_REDIRECT_EN).format(question=current_question)
+
     def _normalize_feedback_response(self, current_answer: str) -> str | None:
         tokens = set(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", current_answer.casefold()))
         has_yes = bool(tokens & _FEEDBACK_YES_TOKENS)
@@ -422,18 +426,22 @@ class ChatService:
             return _FEEDBACK_NO
         return None
 
-    def _is_boundary_violation(self, current_answer: str) -> bool:
-        normalized = " ".join(current_answer.casefold().split())
-        tokens = set(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", normalized))
-
-        asks_other_garment = bool(tokens & _OUT_OF_SCOPE_GARMENT_TOKENS) and not bool(
-            tokens & _ON_SCOPE_TOKENS
-        )
-        has_prompt_injection = any(
-            phrase in normalized for phrase in _PROMPT_INJECTION_PHRASES
-        )
-        has_rude_language = bool(tokens & _RUDE_TOKENS)
-        return asks_other_garment or has_prompt_injection or has_rude_language
+    async def _is_on_topic_answer(
+        self,
+        current_question: str,
+        current_answer: str,
+        questionnaire: str,
+    ) -> bool:
+        if self.answer_relevance_classifier is None:
+            return True
+        try:
+            return await self.answer_relevance_classifier.is_on_topic(
+                current_question=current_question,
+                current_answer=current_answer,
+                questionnaire=questionnaire,
+            )
+        except Exception:
+            return True
 
     def _extract_questionnaire_indices(self, questionnaire: str) -> list[int]:
         indices = set()
@@ -635,9 +643,21 @@ class ChatService:
                 state=self._serialize_state(current_state),
                 summary=summary_text,
             )
-        if self._is_boundary_violation(current_answer):
+        is_on_topic = await self._is_on_topic_answer(
+            current_question=current_state.last_question,
+            current_answer=current_answer,
+            questionnaire=current_state.questionnaire,
+        )
+        if not is_on_topic:
             current_state.boundary_violation_count += 1
-            if current_state.boundary_violation_count >= _BOUNDARY_VIOLATION_THRESHOLD:
+            language = self._detect_preferred_language(
+                current_answer=current_answer,
+                previous_summary=current_state.summary,
+            )
+            if (
+                current_state.boundary_violation_count
+                >= _OFF_TOPIC_TERMINATION_THRESHOLD
+            ):
                 language = self._detect_preferred_language(
                     current_answer=current_answer,
                     previous_summary=current_state.summary,
@@ -658,6 +678,25 @@ class ChatService:
                     state=self._serialize_state(terminated_state),
                     summary=None,
                 )
+            redirected_state = ChatState(
+                questionnaire=current_state.questionnaire,
+                summary=current_state.summary,
+                last_question=current_state.last_question,
+                phase=_PHASE_INTAKE,
+                feedback_status=_FEEDBACK_PENDING,
+                final_summary="",
+                post_summary_language="",
+                boundary_violation_count=current_state.boundary_violation_count,
+            )
+            return ChatResult(
+                text=self._build_off_topic_redirect(
+                    language=language,
+                    current_question=current_state.last_question,
+                ),
+                response_type="answer",
+                state=self._serialize_state(redirected_state),
+                summary=None,
+            )
         else:
             current_state.boundary_violation_count = 0
         current_question = current_state.last_question

@@ -11,7 +11,10 @@ from pydantic import ValidationError
 
 from pixie_questioner.audit_client import AuditClient
 from pixie_questioner.azure_openai_llm import AzureOpenAILLM
-from pixie_questioner.chat_service import ChatService
+from pixie_questioner.chat_service import (
+    ChatService,
+    LLMAnswerRelevanceClassifier,
+)
 from pixie_questioner.config import get_settings
 from pixie_questioner.notulist import QuestionnaireNotulist
 from pixie_questioner.schemas import (
@@ -60,6 +63,7 @@ chat_service = ChatService(
     summarizer=summarizer,
     questionnaire_template=settings.questionnaire_template,
     completion_token=settings.completion_token,
+    answer_relevance_classifier=LLMAnswerRelevanceClassifier(llm=llm),
 )
 audit_client: AuditClient | None = None
 if settings.audit_api_url:
