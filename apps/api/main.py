@@ -24,6 +24,7 @@ from pixie_questioner.schemas import (
     ChatRequest,
     ChatResponse,
     ChatSummaryResponse,
+    QuickReplyOption,
 )
 from pixie_questioner.summarizer import ConversationSummarizer
 
@@ -177,7 +178,11 @@ async def chat(request: ChatRequest, response: Response):
         text=result.text,
         summary=result.summary,
         follow_up_question=result.follow_up_question,
-        quick_replies=result.quick_replies,
+        quick_replies=(
+            [QuickReplyOption(**item) for item in result.quick_replies]
+            if result.quick_replies is not None
+            else None
+        ),
         conversation_id=request.session_id,
         state=result.state,
     )

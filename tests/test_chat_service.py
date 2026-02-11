@@ -29,6 +29,16 @@ class FakeLLM:
         return self.responses.pop(0)
 
 
+class RaisingLLM:
+    def __init__(self, exception: Exception):
+        self.exception = exception
+        self.calls = []
+
+    async def ainvoke(self, messages):
+        self.calls.append(messages)
+        raise self.exception
+
+
 class FakeLangCandidate:
     def __init__(self, lang: str, prob: float):
         self.lang = lang
@@ -718,3 +728,65 @@ def test_ask_raises_on_invalid_state_types():
                 ),
             )
         )
+
+
+def test_ask_wraps_notulist_invocation_error_with_cause():
+    question_llm = FakeLLM(["Next question"])
+    notulist_llm = RaisingLLM(RuntimeError("upstream notulist failure"))
+    summarizer_llm = FakeLLM(["Updated summary"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to update questionnaire.") as exc:
+        asyncio.run(
+            service.ask(
+                current_answer="User answer",
+                state={
+                    "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                    "summary": "",
+                    "last_question": "AI question",
+                },
+            )
+        )
+
+    assert exc.value.__cause__ is not None
+    assert "Questionnaire notulist invocation failed." in str(exc.value.__cause__)
+    assert exc.value.__cause__.__cause__ is not None
+    assert "upstream notulist failure" in str(exc.value.__cause__.__cause__)
+
+
+def test_ask_wraps_summarizer_invocation_error_with_cause():
+    question_llm = FakeLLM(["Next question"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Updated answer\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = RaisingLLM(RuntimeError("upstream summarizer failure"))
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    with pytest.raises(RuntimeError, match="Failed to summarize conversation.") as exc:
+        asyncio.run(
+            service.ask(
+                current_answer="User answer",
+                state={
+                    "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                    "summary": "",
+                    "last_question": "AI question",
+                },
+            )
+        )
+
+    assert exc.value.__cause__ is not None
+    assert "Conversation summarizer invocation failed." in str(exc.value.__cause__)
+    assert exc.value.__cause__.__cause__ is not None
+    assert "upstream summarizer failure" in str(exc.value.__cause__.__cause__)

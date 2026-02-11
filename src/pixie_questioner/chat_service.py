@@ -466,21 +466,27 @@ class ChatService:
                 summary=summary_text,
             )
         current_question = current_state.last_question
-        updated_questionnaire = await self.notulist.generate(
-            current_question=current_question,
-            current_answer=current_answer,
-            summary=current_state.questionnaire,
-        )
+        try:
+            updated_questionnaire = await self.notulist.generate(
+                current_question=current_question,
+                current_answer=current_answer,
+                summary=current_state.questionnaire,
+            )
+        except Exception as exc:
+            raise RuntimeError("Failed to update questionnaire.") from exc
         if updated_questionnaire is None:
             raise RuntimeError("Failed to update questionnaire.")
         if not self._is_valid_questionnaire(updated_questionnaire):
             updated_questionnaire = current_state.questionnaire
 
-        updated_summary = await self.summarizer.generate(
-            current_question=current_question,
-            current_answer=current_answer,
-            summary=current_state.summary,
-        )
+        try:
+            updated_summary = await self.summarizer.generate(
+                current_question=current_question,
+                current_answer=current_answer,
+                summary=current_state.summary,
+            )
+        except Exception as exc:
+            raise RuntimeError("Failed to summarize conversation.") from exc
         if updated_summary is None:
             raise RuntimeError("Failed to summarize conversation.")
 

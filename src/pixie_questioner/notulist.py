@@ -40,8 +40,8 @@ class QuestionnaireNotulist:
             response = await self._get_client().ainvoke(
                 [{"role": "system", "content": system_prompt}]
             )
-        except Exception:
-            return None
+        except Exception as exc:
+            raise RuntimeError("Questionnaire notulist invocation failed.") from exc
 
         content = getattr(response, "content", None)
         if content is None:

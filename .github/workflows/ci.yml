@@ -12,6 +12,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    environment: smoke
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -25,5 +26,62 @@ jobs:
       - name: Run lint checks
         run: docker compose -f docker-compose.dev.yml run --rm api ruff check .
 
+      - name: Validate live Azure config for CI
+        env:
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          ADVANCED_AZURE_OPENAI_API_VERSION: ${{ secrets.ADVANCED_AZURE_OPENAI_API_VERSION }}
+          ADVANCED_AZURE_OPENAI_MODEL: ${{ secrets.ADVANCED_AZURE_OPENAI_MODEL }}
+        run: |
+          issues=()
+          required_vars=(
+            AZURE_OPENAI_ENDPOINT
+            AZURE_OPENAI_KEY
+            ADVANCED_AZURE_OPENAI_API_VERSION
+            ADVANCED_AZURE_OPENAI_MODEL
+          )
+
+          for var_name in "${required_vars[@]}"; do
+            value="${!var_name:-}"
+            if [[ -z "${value// }" ]]; then
+              issues+=("${var_name} is missing or empty.")
+            fi
+          done
+
+          endpoint_lower="$(printf '%s' "${AZURE_OPENAI_ENDPOINT:-}" | tr '[:upper:]' '[:lower:]')"
+          key_lower="$(printf '%s' "${AZURE_OPENAI_KEY:-}" | tr '[:upper:]' '[:lower:]')"
+          model_lower="$(printf '%s' "${ADVANCED_AZURE_OPENAI_MODEL:-}" | tr '[:upper:]' '[:lower:]')"
+
+          if [[ -n "${endpoint_lower}" ]] && [[ "${endpoint_lower}" == *"your-resource.openai.azure.com"* || "${endpoint_lower}" == *"replace-me"* ]]; then
+            issues+=("AZURE_OPENAI_ENDPOINT looks like a placeholder value.")
+          fi
+          if [[ -n "${key_lower}" ]] && [[ "${key_lower}" == "replace-me" || "${key_lower}" == "your-key" || "${key_lower}" == *"replace-me"* ]]; then
+            issues+=("AZURE_OPENAI_KEY looks like a placeholder value.")
+          fi
+          if [[ -n "${model_lower}" ]] && [[ "${model_lower}" == "replace-me" || "${model_lower}" == "your-model" || "${model_lower}" == *"replace-me"* ]]; then
+            issues+=("ADVANCED_AZURE_OPENAI_MODEL looks like a placeholder value.")
+          fi
+
+          if (( ${#issues[@]} > 0 )); then
+            echo "CI cannot run mandatory live LLM smoke test due to invalid Azure configuration:"
+            for issue in "${issues[@]}"; do
+              echo "- ${issue}"
+            done
+            exit 1
+          fi
+
       - name: Run test suite
-        run: docker compose -f docker-compose.dev.yml run --rm api pytest
+        env:
+          RUN_LIVE_LLM_TESTS: "1"
+          AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+          AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
+          ADVANCED_AZURE_OPENAI_API_VERSION: ${{ secrets.ADVANCED_AZURE_OPENAI_API_VERSION }}
+          ADVANCED_AZURE_OPENAI_MODEL: ${{ secrets.ADVANCED_AZURE_OPENAI_MODEL }}
+        run: |
+          docker compose -f docker-compose.dev.yml run --rm \
+            -e RUN_LIVE_LLM_TESTS \
+            -e AZURE_OPENAI_ENDPOINT \
+            -e AZURE_OPENAI_KEY \
+            -e ADVANCED_AZURE_OPENAI_API_VERSION \
+            -e ADVANCED_AZURE_OPENAI_MODEL \
+            api pytest
