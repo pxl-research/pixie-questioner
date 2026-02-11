@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CHAT_CONTRACT_VERSION = "chat-v1.0.0"
+CHAT_CONTRACT_VERSION = "chat-v1.1.0"
 AUDIT_EVENT_CONTRACT_VERSION = "audit-event-v1.0.0"
 
 
@@ -16,11 +16,19 @@ class ChatRequest(BaseModel):
     state: dict[str, str] = Field(default_factory=dict)
 
 
+class QuickReplyOption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(..., min_length=1)
+    value: str = Field(..., min_length=1)
+
+
 class ChatAnswerResponse(BaseModel):
     type: Literal["answer"]
     text: str
     summary: str | None = None
     follow_up_question: str | None = None
+    quick_replies: list[QuickReplyOption] | None = Field(default=None, max_length=6)
     conversation_id: str
     state: dict[str, str]
 

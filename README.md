@@ -28,6 +28,7 @@ Store the returned `state` and send it back on the next turn.
 On the first turn, send an empty object for `state`.
 Treat `state` as opaque; its contents are service-specific.
 When `type` is `summary`, `text` is the handoff message and `summary` contains the actual summary.
+When `type` is `answer`, the optional field `quick_replies` may be present with up to 6 `{label, value}` options.
 
 ### GET /health
 

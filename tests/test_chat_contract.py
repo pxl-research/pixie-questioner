@@ -30,8 +30,36 @@ def _is_nullable_string(schema: dict[str, object]) -> bool:
     return types == {"string", "null"}
 
 
+def _is_nullable_quick_reply_array(schema: dict[str, object]) -> bool:
+    any_of = schema.get("anyOf")
+    if not isinstance(any_of, list):
+        return False
+
+    array_schema: dict[str, object] | None = None
+    null_present = False
+    for item in any_of:
+        if not isinstance(item, dict):
+            continue
+        item_dict = cast(dict[str, object], item)
+        item_type = item_dict.get("type")
+        if item_type == "array":
+            array_schema = item_dict
+        elif item_type == "null":
+            null_present = True
+
+    if not null_present or array_schema is None:
+        return False
+    if array_schema.get("maxItems") != 6:
+        return False
+    items = array_schema.get("items")
+    if not isinstance(items, dict):
+        return False
+    items_dict = cast(dict[str, object], items)
+    return items_dict.get("$ref") == "#/$defs/QuickReplyOption"
+
+
 def test_chat_contract_version_is_pinned() -> None:
-    assert CHAT_CONTRACT_VERSION == "chat-v1.0.0"
+    assert CHAT_CONTRACT_VERSION == "chat-v1.1.0"
 
 
 def test_audit_event_contract_version_is_pinned() -> None:
@@ -66,6 +94,15 @@ def test_chat_answer_response_matches_contract_shape() -> None:
     assert schema["properties"]["state"]["additionalProperties"] == {"type": "string"}
     assert _is_nullable_string(schema["properties"]["summary"])
     assert _is_nullable_string(schema["properties"]["follow_up_question"])
+    assert _is_nullable_quick_reply_array(schema["properties"]["quick_replies"])
+
+    option_schema = schema["$defs"]["QuickReplyOption"]
+    assert option_schema["additionalProperties"] is False
+    assert set(option_schema.get("required", [])) == {"label", "value"}
+    assert option_schema["properties"]["label"]["type"] == "string"
+    assert option_schema["properties"]["label"]["minLength"] == 1
+    assert option_schema["properties"]["value"]["type"] == "string"
+    assert option_schema["properties"]["value"]["minLength"] == 1
 
 
 def test_chat_summary_response_matches_contract_shape() -> None:

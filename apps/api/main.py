@@ -177,6 +177,7 @@ async def chat(request: ChatRequest, response: Response):
         text=result.text,
         summary=result.summary,
         follow_up_question=result.follow_up_question,
+        quick_replies=result.quick_replies,
         conversation_id=request.session_id,
         state=result.state,
     )

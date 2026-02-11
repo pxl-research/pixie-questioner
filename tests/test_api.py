@@ -187,6 +187,10 @@ def test_chat_returns_answer(monkeypatch, tmp_path: Path) -> None:
         response_type="answer",
         state=state,
         summary=None,
+        quick_replies=[
+            {"label": "Ja", "value": "yes"},
+            {"label": "Nee", "value": "no"},
+        ],
     )
     chat_stub = StubChatService(result)
     main.chat_service = chat_stub
@@ -210,3 +214,7 @@ def test_chat_returns_answer(monkeypatch, tmp_path: Path) -> None:
     assert response.headers["X-Pixie-Chat-Contract"] == CHAT_CONTRACT_VERSION
     assert "summary" not in payload
     assert "follow_up_question" not in payload
+    assert payload["quick_replies"] == [
+        {"label": "Ja", "value": "yes"},
+        {"label": "Nee", "value": "no"},
+    ]

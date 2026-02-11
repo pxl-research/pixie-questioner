@@ -105,6 +105,7 @@ class ChatResult:
     state: dict[str, str]
     summary: str | None
     follow_up_question: str | None = None
+    quick_replies: list[dict[str, str]] | None = None
 
 
 @dataclass
@@ -281,6 +282,22 @@ class ChatService:
             return random.choice(FEEDBACK_QUESTION_FR)
         return random.choice(FEEDBACK_QUESTION_EN)
 
+    def _build_feedback_quick_replies(self, language: str) -> list[dict[str, str]]:
+        if language.startswith("nl"):
+            return [
+                {"label": "Ja", "value": "yes"},
+                {"label": "Nee", "value": "no"},
+            ]
+        if language.startswith("fr"):
+            return [
+                {"label": "Oui", "value": "yes"},
+                {"label": "Non", "value": "no"},
+            ]
+        return [
+            {"label": "Yes", "value": "yes"},
+            {"label": "No", "value": "no"},
+        ]
+
     def _build_feedback_thanks(self, language: str) -> str:
         if language.startswith("nl"):
             return random.choice(FEEDBACK_THANKS_NL)
@@ -431,6 +448,7 @@ class ChatService:
                 response_type="answer",
                 state=self._serialize_state(current_state),
                 summary=summary_text,
+                quick_replies=self._build_feedback_quick_replies(language),
             )
         if current_state.phase == _PHASE_COMPLETED:
             summary_text = current_state.final_summary
@@ -487,6 +505,7 @@ class ChatService:
                 state=self._serialize_state(final_state),
                 summary=updated_summary,
                 follow_up_question=feedback_question,
+                quick_replies=self._build_feedback_quick_replies(language),
             )
 
         preferred_language = self._detect_preferred_language(
