@@ -97,7 +97,7 @@ OFF_TOPIC_INITIAL_QUESTION_FR = [
 ]
 _FEEDBACK_YES_TOKENS = {"ja", "yes", "oui", "zeker", "absoluut", "y", "si", "jaa"}
 _FEEDBACK_NO_TOKENS = {"nee", "no", "non", "n", "nein"}
-_OFF_TOPIC_TERMINATION_THRESHOLD = 2
+_OFF_TOPIC_TERMINATION_THRESHOLD = 3
 _STOP_PHRASES = (
     "stop",
     "stoppen",
