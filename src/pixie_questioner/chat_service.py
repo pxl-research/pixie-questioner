@@ -97,7 +97,7 @@ OFF_TOPIC_INITIAL_QUESTION_FR = [
 ]
 _FEEDBACK_YES_TOKENS = {"ja", "yes", "oui", "zeker", "absoluut", "y", "si", "jaa"}
 _FEEDBACK_NO_TOKENS = {"nee", "no", "non", "n", "nein"}
-_OFF_TOPIC_TERMINATION_THRESHOLD = 3
+_OFF_TOPIC_TERMINATION_THRESHOLD = 2
 _STOP_PHRASES = (
     "stop",
     "stoppen",
@@ -182,6 +182,20 @@ class LLMAnswerRelevanceClassifier:
             content = str(response)
         return content
 
+    def _parse_relevance_label(self, content: str) -> bool | None:
+        normalized = content.upper()
+        labels = re.findall(r"\b(ON_TOPIC|OFF_TOPIC)\b", normalized)
+        if not labels:
+            return None
+        if len(set(labels)) > 1:
+            return None
+        label = labels[0]
+        if re.search(r"\b(?:NOT|NO|NIET|GEEN|PAS|NE)\s+OFF_TOPIC\b", normalized):
+            return None
+        if re.search(r"\b(?:NOT|NO|NIET|GEEN|PAS|NE)\s+ON_TOPIC\b", normalized):
+            return None
+        return label == "ON_TOPIC"
+
     async def is_on_topic(
         self,
         current_question: str,
@@ -197,10 +211,10 @@ class LLMAnswerRelevanceClassifier:
             [{"role": "system", "content": system_prompt}]
         )
         content = self._extract_content(response)
-        match = re.search(r"\b(ON_TOPIC|OFF_TOPIC)\b", content.upper())
-        if match is None:
+        parsed_label = self._parse_relevance_label(content)
+        if parsed_label is None:
             return True
-        return match.group(1) == "ON_TOPIC"
+        return parsed_label
 
 
 @dataclass(frozen=True)
@@ -479,6 +493,9 @@ class ChatService:
         except Exception:
             return True
 
+    def _should_skip_relevance_check(self, current_question: str) -> bool:
+        return current_question.strip() == _INITIAL_QUESTION
+
     def _extract_questionnaire_indices(self, questionnaire: str) -> list[int]:
         indices = set()
         for match in re.finditer(r"(?m)^\s*(\d+)\.", questionnaire):
@@ -679,11 +696,14 @@ class ChatService:
                 state=self._serialize_state(current_state),
                 summary=summary_text,
             )
-        is_on_topic = await self._is_on_topic_answer(
-            current_question=current_state.last_question,
-            current_answer=current_answer,
-            questionnaire=current_state.questionnaire,
-        )
+        if self._should_skip_relevance_check(current_state.last_question):
+            is_on_topic = True
+        else:
+            is_on_topic = await self._is_on_topic_answer(
+                current_question=current_state.last_question,
+                current_answer=current_answer,
+                questionnaire=current_state.questionnaire,
+            )
         if not is_on_topic:
             current_state.boundary_violation_count += 1
             language = self._detect_preferred_language(

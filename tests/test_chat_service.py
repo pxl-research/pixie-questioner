@@ -14,9 +14,7 @@ from pixie_questioner.chat_service import (
     HANDOFF_EN,
     HANDOFF_FR,
     HANDOFF_NL,
-    OFF_TOPIC_INITIAL_QUESTION_EN,
-    OFF_TOPIC_INITIAL_QUESTION_FR,
-    OFF_TOPIC_INITIAL_QUESTION_NL,
+    OFF_TOPIC_REDIRECT_NL,
     ChatService,
     LLMAnswerRelevanceClassifier,
 )
@@ -332,6 +330,42 @@ def test_ask_returns_goodbye_on_stop_intent_without_summary_or_feedback():
     assert summarizer_llm.calls == []
 
 
+def test_ask_skips_relevance_classifier_for_initial_question_placeholder():
+    question_llm = FakeLLM(["Voor welke gelegenheid zoek je een jeans?"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Graag hulp\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["De klant wil hulp bij het kiezen van een jeans."])
+    relevance_classifier = StubRelevanceClassifier([False])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        answer_relevance_classifier=relevance_classifier,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Graag",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Initial question:",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Voor welke gelegenheid zoek je een jeans?"
+    assert result.state["last_question"] == "Voor welke gelegenheid zoek je een jeans?"
+    assert result.state["boundary_violation_count"] == "0"
+    assert len(relevance_classifier.calls) == 0
+    assert len(notulist_llm.calls) == 1
+    assert len(summarizer_llm.calls) == 1
+
+
 def test_ask_terminates_after_repeated_boundary_violations():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(["Should not be used"])
@@ -345,6 +379,8 @@ def test_ask_terminates_after_repeated_boundary_violations():
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
         answer_relevance_classifier=relevance_classifier,
     )
+    current_question = "Voor welke gelegenheid zoek je een jeans?"
+    expected_redirect = OFF_TOPIC_REDIRECT_NL[0].format(question=current_question)
 
     first = asyncio.run(
         service.ask(
@@ -352,7 +388,7 @@ def test_ask_terminates_after_repeated_boundary_violations():
             state={
                 "questionnaire": QUESTIONNAIRE_TEMPLATE,
                 "summary": "",
-                "last_question": "Initial question:",
+                "last_question": current_question,
             },
         )
     )
@@ -363,11 +399,7 @@ def test_ask_terminates_after_repeated_boundary_violations():
     )
 
     assert first.response_type == "answer"
-    assert first.text in [
-        *OFF_TOPIC_INITIAL_QUESTION_NL,
-        *OFF_TOPIC_INITIAL_QUESTION_EN,
-        *OFF_TOPIC_INITIAL_QUESTION_FR,
-    ]
+    assert first.text == expected_redirect
     assert first.state["boundary_violation_count"] == "1"
     assert first.state["phase"] == "intake"
     assert first.summary is None
@@ -409,6 +441,38 @@ def test_llm_answer_relevance_classifier_defaults_to_on_topic_when_label_missing
         classifier.is_on_topic(
             current_question="Welke pasvorm zoek je?",
             current_answer="Misschien slim fit",
+            questionnaire=QUESTIONNAIRE_TEMPLATE,
+        )
+    )
+
+    assert result is True
+
+
+def test_llm_answer_relevance_classifier_defaults_to_on_topic_when_labels_conflict():
+    classifier = LLMAnswerRelevanceClassifier(
+        llm=FakeLLM(["This is not OFF_TOPIC. ON_TOPIC."])
+    )
+
+    result = asyncio.run(
+        classifier.is_on_topic(
+            current_question="Kan ik je helpen bij het vinden van een jeans?",
+            current_answer="Ja graag",
+            questionnaire=QUESTIONNAIRE_TEMPLATE,
+        )
+    )
+
+    assert result is True
+
+
+def test_llm_answer_relevance_classifier_defaults_to_on_topic_for_negated_off_topic():
+    classifier = LLMAnswerRelevanceClassifier(
+        llm=FakeLLM(["The answer is NOT OFF_TOPIC."])
+    )
+
+    result = asyncio.run(
+        classifier.is_on_topic(
+            current_question="Kan ik je helpen bij het vinden van een jeans?",
+            current_answer="Graag",
             questionnaire=QUESTIONNAIRE_TEMPLATE,
         )
     )
