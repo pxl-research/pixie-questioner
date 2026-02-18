@@ -26,6 +26,8 @@ _SUPPORTED_LANGUAGE_NAMES = {
 _SUPPORTED_LANGUAGE_CLOSE_MARGIN = 0.15
 _OTHER_LANGUAGE_STRONG_PROBABILITY = 0.85
 _OTHER_LANGUAGE_MIN_WORDS = 4
+_SUPPORTED_NON_DUTCH_STRONG_PROBABILITY = 0.85
+_SUPPORTED_NON_DUTCH_MIN_WORDS = 4
 _PHASE_INTAKE = "intake"
 _PHASE_AWAITING_FEEDBACK = "awaiting_feedback"
 _PHASE_COMPLETED = "completed"
@@ -333,7 +335,14 @@ class ChatService:
         word_count = len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", text))
 
         if top_language in _SUPPORTED_LANGUAGE_CODES:
-            return top_language, False
+            if top_language == "nl":
+                return top_language, False
+            if (
+                top_probability >= _SUPPORTED_NON_DUTCH_STRONG_PROBABILITY
+                and word_count >= _SUPPORTED_NON_DUTCH_MIN_WORDS
+            ):
+                return top_language, False
+            return top_language, True
 
         if best_supported is not None:
             best_supported_language, best_supported_probability = best_supported
@@ -369,8 +378,6 @@ class ChatService:
         if not summary_is_uncertain:
             return summary_language
 
-        if answer_language in _SUPPORTED_LANGUAGE_CODES:
-            return answer_language
         if summary_language in _SUPPORTED_LANGUAGE_CODES:
             return summary_language
         return "nl"

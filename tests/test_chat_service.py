@@ -249,6 +249,44 @@ def test_detect_preferred_language_falls_back_to_dutch_for_short_unsupported_tex
     assert preferred_language == "nl"
 
 
+def test_detect_preferred_language_keeps_dutch_for_short_supported_non_dutch_signal(
+    monkeypatch,
+):
+    service = _make_service_for_language_detection()
+
+    def fake_detect_langs(text: str):
+        if text == "Graag":
+            return [FakeLangCandidate("en", 0.99)]
+        return [FakeLangCandidate("nl", 0.99)]
+
+    monkeypatch.setattr("pixie_questioner.chat_service.detect_langs", fake_detect_langs)
+
+    preferred_language = service._detect_preferred_language("Graag", "")
+
+    assert preferred_language == "nl"
+
+
+def test_detect_preferred_language_uses_summary_when_short_answer_is_uncertain(
+    monkeypatch,
+):
+    service = _make_service_for_language_detection()
+
+    def fake_detect_langs(text: str):
+        if text == "Yes":
+            return [FakeLangCandidate("en", 0.99)]
+        if text == "I am looking for dark blue straight jeans for work.":
+            return [FakeLangCandidate("en", 0.97)]
+        return [FakeLangCandidate("nl", 0.99)]
+
+    monkeypatch.setattr("pixie_questioner.chat_service.detect_langs", fake_detect_langs)
+
+    preferred_language = service._detect_preferred_language(
+        "Yes", "I am looking for dark blue straight jeans for work."
+    )
+
+    assert preferred_language == "en"
+
+
 def test_ask_returns_summary_when_questionnaire_complete():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(
@@ -418,6 +456,49 @@ def test_ask_terminates_after_repeated_boundary_violations():
     assert len(notulist_llm.calls) == 0
     assert len(summarizer_llm.calls) == 0
     assert len(relevance_classifier.calls) == 2
+
+
+def test_ask_uses_dutch_off_topic_redirect_for_short_uncertain_answer(monkeypatch):
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    relevance_classifier = StubRelevanceClassifier([False])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        answer_relevance_classifier=relevance_classifier,
+    )
+    current_question = "Voor welke gelegenheid zoek je een jeans?"
+    expected_redirect = OFF_TOPIC_REDIRECT_NL[0].format(question=current_question)
+
+    def fake_detect_langs(text: str):
+        if text == "Graag":
+            return [FakeLangCandidate("en", 0.99)]
+        return [FakeLangCandidate("nl", 0.99)]
+
+    monkeypatch.setattr("pixie_questioner.chat_service.detect_langs", fake_detect_langs)
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Graag",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": current_question,
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == expected_redirect
+    assert result.state["boundary_violation_count"] == "1"
+    assert result.state["phase"] == "intake"
+    assert len(relevance_classifier.calls) == 1
+    assert len(notulist_llm.calls) == 0
+    assert len(summarizer_llm.calls) == 0
 
 
 def test_llm_answer_relevance_classifier_parses_off_topic_label():
