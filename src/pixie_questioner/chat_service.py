@@ -128,11 +128,51 @@ _STOP_PHRASES = (
     "arrete",
     "arreter",
 )
+_WORD_TOKEN_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ']+")
+_STOP_CONTEXT_TOKENS = {
+    "alsjeblieft",
+    "alstublieft",
+    "aub",
+    "please",
+    "pls",
+    "graag",
+    "merci",
+    "bedankt",
+    "thanks",
+    "thank",
+    "you",
+    "dank",
+    "je",
+    "u",
+    "ok",
+    "oke",
+    "okay",
+    "nu",
+    "dan",
+    "maar",
+    "svp",
+    "s'il",
+    "vous",
+    "plait",
+}
 _NL_TECHNICAL_TERM_REPLACEMENTS = (
     ("snit", "pasvorm"),
     ("silhouet", "vorm"),
     ("indigo", "donkerblauw"),
 )
+
+
+def _tokenize_words(text: str) -> tuple[str, ...]:
+    return tuple(_WORD_TOKEN_PATTERN.findall(text.casefold()))
+
+
+_STOP_PHRASE_TOKEN_SEQUENCES: tuple[tuple[str, ...], ...] = tuple(
+    phrase_tokens
+    for phrase_tokens in (_tokenize_words(phrase) for phrase in _STOP_PHRASES)
+    if phrase_tokens
+)
+
+
 DEFAULT_RELEVANCE_CLASSIFIER_PROMPT = (
     "You are a strict relevance classifier for a jeans-store assistant.\n"
     "Decide if the customer's latest answer is a reasonable attempt to answer the assistant's latest question.\n"
@@ -596,8 +636,28 @@ class ChatService:
         }
 
     def _user_requested_stop(self, current_answer: str) -> bool:
-        normalized = " ".join(current_answer.casefold().split())
-        return any(phrase in normalized for phrase in _STOP_PHRASES)
+        answer_tokens = _tokenize_words(current_answer)
+        if not answer_tokens:
+            return False
+        return any(
+            self._matches_stop_phrase(answer_tokens, stop_phrase_tokens)
+            for stop_phrase_tokens in _STOP_PHRASE_TOKEN_SEQUENCES
+        )
+
+    def _matches_stop_phrase(
+        self, answer_tokens: tuple[str, ...], stop_phrase_tokens: tuple[str, ...]
+    ) -> bool:
+        matched_tokens = 0
+        for answer_token in answer_tokens:
+            if (
+                matched_tokens < len(stop_phrase_tokens)
+                and answer_token == stop_phrase_tokens[matched_tokens]
+            ):
+                matched_tokens += 1
+                continue
+            if answer_token not in _STOP_CONTEXT_TOKENS:
+                return False
+        return matched_tokens == len(stop_phrase_tokens)
 
     def _questionnaire_complete(self, questionnaire: str) -> bool:
         return "[]" not in questionnaire

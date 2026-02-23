@@ -368,6 +368,80 @@ def test_ask_returns_goodbye_on_stop_intent_without_summary_or_feedback():
     assert summarizer_llm.calls == []
 
 
+def test_ask_returns_goodbye_on_stop_intent_with_polite_suffix():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik wil stoppen aub",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Welke pasvorm zoek je?",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text in [*GOODBYE_NL, *GOODBYE_EN, *GOODBYE_FR]
+    assert result.state["phase"] == "terminated"
+    assert result.summary is None
+    assert result.follow_up_question is None
+    assert result.quick_replies is None
+    assert len(question_llm.calls) == 0
+    assert len(notulist_llm.calls) == 0
+    assert len(summarizer_llm.calls) == 0
+
+
+def test_ask_does_not_treat_descriptive_enough_as_stop_intent():
+    question_llm = FakeLLM(["Welke kleur heeft je voorkeur?"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Ik zoek een broek\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(
+        ["De klant wil een broek die lang genoeg is en niet te strak."]
+    )
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Lang genoeg en niet te strak aan de benen",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Wat zijn de belangrijkste aspecten?",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Welke kleur heeft je voorkeur?"
+    assert result.state["phase"] == "intake"
+    assert result.state["feedback_status"] == "pending"
+    assert result.state["boundary_violation_count"] == "0"
+    assert result.summary is None
+    assert result.follow_up_question is None
+    assert result.quick_replies is None
+    assert len(question_llm.calls) == 1
+    assert len(notulist_llm.calls) == 1
+    assert len(summarizer_llm.calls) == 1
+
+
 def test_ask_skips_relevance_classifier_for_initial_question_placeholder():
     question_llm = FakeLLM(["Voor welke gelegenheid zoek je een jeans?"])
     notulist_llm = FakeLLM(
