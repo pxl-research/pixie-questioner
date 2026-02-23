@@ -1,5 +1,7 @@
 """Base wrapper that instantiates an Azure ChatCompletion client if available."""
 
+from pydantic import SecretStr
+
 from .abstractclasses.llm import LLM
 
 
@@ -22,8 +24,8 @@ class AzureOpenAILLM(LLM):
         self.model = AzureChatOpenAI(
             openai_api_version=api_version,
             azure_endpoint=api_endpoint,
-            openai_api_key=api_key,
-            azure_deployment=model_version,
+            openai_api_key=SecretStr(api_key),
+            deployment_name=model_version,
             verbose=True,
             temperature=temperature,
             streaming=True,
