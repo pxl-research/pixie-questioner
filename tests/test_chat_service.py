@@ -1,23 +1,14 @@
 import asyncio
+from dataclasses import replace
+from pathlib import Path
 from typing import cast
 
 import pytest
 
-from pixie_questioner.chat_service import (
-    FEEDBACK_QUESTION_EN,
-    FEEDBACK_QUESTION_FR,
-    FEEDBACK_QUESTION_NL,
-    FEEDBACK_THANKS_NL,
-    GOODBYE_EN,
-    GOODBYE_FR,
-    GOODBYE_NL,
-    HANDOFF_EN,
-    HANDOFF_FR,
-    HANDOFF_NL,
-    OFF_TOPIC_REDIRECT_NL,
-    ChatService,
-    LLMAnswerRelevanceClassifier,
-)
+from pixie_questioner.chat.policy import ChatDomainPolicy, ChatQuickReply
+from pixie_questioner.chat.relevance import LLMAnswerRelevanceClassifier
+from pixie_questioner.chat_service import ChatService
+from pixie_questioner.config import load_domain_profile
 from pixie_questioner.notulist import QuestionnaireNotulist
 from pixie_questioner.summarizer import ConversationSummarizer
 
@@ -84,6 +75,25 @@ QUESTIONNAIRE_TEMPLATE = (
     "0. Initial user question: []\n" "1. Occasion, Vibe, Setting: []"
 )
 
+_DEFAULT_PROFILE = load_domain_profile(Path("profiles/default/domain_profile.yml"))
+_DEFAULT_POLICY = _DEFAULT_PROFILE.chat_domain_policy
+_CLASSIFIER_PROMPT = _DEFAULT_PROFILE.relevance_classifier_prompt
+HANDOFF_NL = _DEFAULT_POLICY.handoff_lines["nl"]
+HANDOFF_EN = _DEFAULT_POLICY.handoff_lines["en"]
+HANDOFF_FR = _DEFAULT_POLICY.handoff_lines["fr"]
+FEEDBACK_QUESTION_NL = _DEFAULT_POLICY.feedback_questions["nl"]
+FEEDBACK_QUESTION_EN = _DEFAULT_POLICY.feedback_questions["en"]
+FEEDBACK_QUESTION_FR = _DEFAULT_POLICY.feedback_questions["fr"]
+FEEDBACK_THANKS_NL = _DEFAULT_POLICY.feedback_thanks["nl"]
+GOODBYE_NL = _DEFAULT_POLICY.goodbye_lines["nl"]
+GOODBYE_EN = _DEFAULT_POLICY.goodbye_lines["en"]
+GOODBYE_FR = _DEFAULT_POLICY.goodbye_lines["fr"]
+OFF_TOPIC_REDIRECT_NL = _DEFAULT_POLICY.off_topic_redirects["nl"]
+
+
+def _replace_policy(**changes) -> ChatDomainPolicy:
+    return replace(_DEFAULT_POLICY, **changes)
+
 
 def _make_service_for_language_detection() -> ChatService:
     return ChatService(
@@ -92,6 +102,7 @@ def _make_service_for_language_detection() -> ChatService:
         notulist=_make_notulist(FakeLLM([])),
         summarizer=_make_summarizer(FakeLLM([])),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
 
@@ -107,7 +118,7 @@ def test_ask_updates_state_and_returns_next_question():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
-        completion_token="TOKEN",
+        domain_policy=_replace_policy(completion_token="TOKEN"),
     )
 
     result = asyncio.run(
@@ -158,6 +169,7 @@ def test_ask_prefers_dutch_for_hallo_greeting():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -189,6 +201,7 @@ def test_ask_prefers_german_for_clear_german_sentence():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -212,7 +225,9 @@ def test_detect_preferred_language_prefers_supported_on_small_score_gap(monkeypa
     def fake_detect_langs(_: str):
         return [FakeLangCandidate("de", 0.56), FakeLangCandidate("nl", 0.49)]
 
-    monkeypatch.setattr("pixie_questioner.chat_service.detect_langs", fake_detect_langs)
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
 
     preferred_language = service._detect_preferred_language("kurzer text", "")
 
@@ -225,7 +240,9 @@ def test_detect_preferred_language_allows_other_language_on_strong_signal(monkey
     def fake_detect_langs(_: str):
         return [FakeLangCandidate("de", 0.96), FakeLangCandidate("nl", 0.02)]
 
-    monkeypatch.setattr("pixie_questioner.chat_service.detect_langs", fake_detect_langs)
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
 
     preferred_language = service._detect_preferred_language(
         "guten tag ich suche eine jeans", ""
@@ -242,7 +259,9 @@ def test_detect_preferred_language_falls_back_to_dutch_for_short_unsupported_tex
     def fake_detect_langs(_: str):
         return [FakeLangCandidate("fi", 0.99)]
 
-    monkeypatch.setattr("pixie_questioner.chat_service.detect_langs", fake_detect_langs)
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
 
     preferred_language = service._detect_preferred_language("Hallo", "")
 
@@ -259,7 +278,9 @@ def test_detect_preferred_language_keeps_dutch_for_short_supported_non_dutch_sig
             return [FakeLangCandidate("en", 0.99)]
         return [FakeLangCandidate("nl", 0.99)]
 
-    monkeypatch.setattr("pixie_questioner.chat_service.detect_langs", fake_detect_langs)
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
 
     preferred_language = service._detect_preferred_language("Graag", "")
 
@@ -278,7 +299,9 @@ def test_detect_preferred_language_uses_summary_when_short_answer_is_uncertain(
             return [FakeLangCandidate("en", 0.97)]
         return [FakeLangCandidate("nl", 0.99)]
 
-    monkeypatch.setattr("pixie_questioner.chat_service.detect_langs", fake_detect_langs)
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
 
     preferred_language = service._detect_preferred_language(
         "Yes", "I am looking for dark blue straight jeans for work."
@@ -299,6 +322,7 @@ def test_ask_returns_summary_when_questionnaire_complete():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -340,6 +364,7 @@ def test_ask_returns_goodbye_on_stop_intent_without_summary_or_feedback():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -378,6 +403,7 @@ def test_ask_returns_goodbye_on_stop_intent_with_polite_suffix():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -416,6 +442,7 @@ def test_ask_does_not_treat_descriptive_enough_as_stop_intent():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -455,6 +482,7 @@ def test_ask_skips_relevance_classifier_for_initial_question_placeholder():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
         answer_relevance_classifier=relevance_classifier,
     )
 
@@ -489,6 +517,7 @@ def test_ask_terminates_after_repeated_boundary_violations():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
         answer_relevance_classifier=relevance_classifier,
     )
     current_question = "Voor welke gelegenheid zoek je een jeans?"
@@ -543,6 +572,7 @@ def test_ask_uses_dutch_off_topic_redirect_for_short_uncertain_answer(monkeypatc
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
         answer_relevance_classifier=relevance_classifier,
     )
     current_question = "Voor welke gelegenheid zoek je een jeans?"
@@ -553,7 +583,9 @@ def test_ask_uses_dutch_off_topic_redirect_for_short_uncertain_answer(monkeypatc
             return [FakeLangCandidate("en", 0.99)]
         return [FakeLangCandidate("nl", 0.99)]
 
-    monkeypatch.setattr("pixie_questioner.chat_service.detect_langs", fake_detect_langs)
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
 
     result = asyncio.run(
         service.ask(
@@ -576,7 +608,10 @@ def test_ask_uses_dutch_off_topic_redirect_for_short_uncertain_answer(monkeypatc
 
 
 def test_llm_answer_relevance_classifier_parses_off_topic_label():
-    classifier = LLMAnswerRelevanceClassifier(llm=FakeLLM(["OFF_TOPIC"]))
+    classifier = LLMAnswerRelevanceClassifier(
+        llm=FakeLLM(["OFF_TOPIC"]),
+        system_prompt_template=_CLASSIFIER_PROMPT,
+    )
 
     result = asyncio.run(
         classifier.is_on_topic(
@@ -590,7 +625,10 @@ def test_llm_answer_relevance_classifier_parses_off_topic_label():
 
 
 def test_llm_answer_relevance_classifier_defaults_to_on_topic_when_label_missing():
-    classifier = LLMAnswerRelevanceClassifier(llm=FakeLLM(["uncertain"]))
+    classifier = LLMAnswerRelevanceClassifier(
+        llm=FakeLLM(["uncertain"]),
+        system_prompt_template=_CLASSIFIER_PROMPT,
+    )
 
     result = asyncio.run(
         classifier.is_on_topic(
@@ -605,7 +643,8 @@ def test_llm_answer_relevance_classifier_defaults_to_on_topic_when_label_missing
 
 def test_llm_answer_relevance_classifier_defaults_to_on_topic_when_labels_conflict():
     classifier = LLMAnswerRelevanceClassifier(
-        llm=FakeLLM(["This is not OFF_TOPIC. ON_TOPIC."])
+        llm=FakeLLM(["This is not OFF_TOPIC. ON_TOPIC."]),
+        system_prompt_template=_CLASSIFIER_PROMPT,
     )
 
     result = asyncio.run(
@@ -621,7 +660,8 @@ def test_llm_answer_relevance_classifier_defaults_to_on_topic_when_labels_confli
 
 def test_llm_answer_relevance_classifier_defaults_to_on_topic_for_negated_off_topic():
     classifier = LLMAnswerRelevanceClassifier(
-        llm=FakeLLM(["The answer is NOT OFF_TOPIC."])
+        llm=FakeLLM(["The answer is NOT OFF_TOPIC."]),
+        system_prompt_template=_CLASSIFIER_PROMPT,
     )
 
     result = asyncio.run(
@@ -645,6 +685,7 @@ def test_ask_stores_feedback_response_in_state():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -686,6 +727,7 @@ def test_ask_repeats_feedback_question_for_unclear_feedback_response():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -730,6 +772,7 @@ def test_ask_keeps_final_summary_immutable_while_feedback_pending():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
     pending_state = {
         "questionnaire": QUESTIONNAIRE_TEMPLATE,
@@ -771,6 +814,7 @@ def test_ask_uses_locked_post_summary_language_for_feedback_retry():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -810,6 +854,7 @@ def test_ask_returns_completed_feedback_ack_when_phase_completed():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -851,6 +896,7 @@ def test_ask_returns_english_handoff_for_english_summary():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -875,6 +921,178 @@ def test_ask_returns_english_handoff_for_english_summary():
     assert question_llm.calls == []
 
 
+def test_ask_uses_custom_handoff_line_from_domain_policy():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Filled\n1. Occasion, Vibe, Setting: Filled"]
+    )
+    summarizer_llm = FakeLLM(["I need new jeans."])
+    custom_policy = _replace_policy(
+        handoff_lines={
+            "en": ("Custom handoff line",),
+        },
+        feedback_questions={
+            "en": ("Custom feedback question",),
+        },
+        quick_replies={
+            "en": (
+                ChatQuickReply(label="Yes", value="yes"),
+                ChatQuickReply(label="No", value="no"),
+            )
+        },
+    )
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=custom_policy,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="User answer",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Custom handoff line"
+    assert result.follow_up_question == "Custom feedback question"
+    assert result.quick_replies == [
+        {"label": "Yes", "value": "yes"},
+        {"label": "No", "value": "no"},
+    ]
+
+
+def test_ask_uses_custom_stop_phrase_configuration():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    custom_policy = _replace_policy(
+        stop_phrases=("please close",),
+        stop_context_tokens=frozenset({"please", "close", "now"}),
+        goodbye_lines={"en": ("Custom goodbye",)},
+    )
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=custom_policy,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="please close now",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Any question",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Custom goodbye"
+    assert result.state["phase"] == "terminated"
+    assert len(notulist_llm.calls) == 0
+    assert len(summarizer_llm.calls) == 0
+
+
+def test_ask_respects_custom_off_topic_termination_threshold():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    relevance_classifier = StubRelevanceClassifier([False, False, False])
+    custom_policy = _replace_policy(off_topic_termination_threshold=3)
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        answer_relevance_classifier=relevance_classifier,
+        domain_policy=custom_policy,
+    )
+    current_question = "Voor welke gelegenheid zoek je een jeans?"
+
+    first = asyncio.run(
+        service.ask(
+            current_answer="Off topic 1",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": current_question,
+            },
+        )
+    )
+    second = asyncio.run(service.ask(current_answer="Off topic 2", state=first.state))
+    third = asyncio.run(service.ask(current_answer="Off topic 3", state=second.state))
+
+    assert first.state["phase"] == "intake"
+    assert first.state["boundary_violation_count"] == "1"
+    assert second.state["phase"] == "intake"
+    assert second.state["boundary_violation_count"] == "2"
+    assert third.state["phase"] == "terminated"
+    assert third.state["boundary_violation_count"] == "3"
+
+
+def test_ask_falls_back_to_english_for_missing_extra_language_copy():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    custom_policy = _replace_policy(
+        language_codes=("nl", "en", "fr", "de"),
+        language_names={"nl": "Dutch", "en": "English", "fr": "French", "de": "German"},
+        feedback_questions={
+            "en": ("Would you use this assistant again? (yes/no)",),
+        },
+        quick_replies={
+            "en": (
+                ChatQuickReply(label="Yes", value="yes"),
+                ChatQuickReply(label="No", value="no"),
+            ),
+        },
+    )
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=custom_policy,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Vielleicht",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "Zusammenfassung",
+                "last_question": "AI question",
+                "phase": "awaiting_feedback",
+                "feedback_status": "pending",
+                "final_summary": "Zusammenfassung",
+                "post_summary_language": "de",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Would you use this assistant again? (yes/no)"
+    assert result.quick_replies == [
+        {"label": "Yes", "value": "yes"},
+        {"label": "No", "value": "no"},
+    ]
+
+
 def test_ask_returns_french_handoff_for_french_summary():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(
@@ -887,6 +1105,7 @@ def test_ask_returns_french_handoff_for_french_summary():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -923,6 +1142,7 @@ def test_ask_falls_back_to_dutch_handoff_when_language_is_undetectable():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -959,7 +1179,7 @@ def test_ask_strips_completion_token_from_next_question():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
-        completion_token="TOKEN",
+        domain_policy=_replace_policy(completion_token="TOKEN"),
     )
 
     result = asyncio.run(
@@ -988,6 +1208,7 @@ def test_ask_simplifies_dutch_technical_terms_in_next_question():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -1017,6 +1238,7 @@ def test_ask_seeds_questionnaire_from_template_when_state_empty():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -1040,6 +1262,7 @@ def test_ask_keeps_previous_questionnaire_on_invalid_notulist_output():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     result = asyncio.run(
@@ -1069,6 +1292,7 @@ def test_ask_raises_on_invalid_state_types():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     with pytest.raises(RuntimeError, match="summary"):
@@ -1097,6 +1321,7 @@ def test_ask_wraps_notulist_invocation_error_with_cause():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     with pytest.raises(RuntimeError, match="Failed to update questionnaire.") as exc:
@@ -1129,6 +1354,7 @@ def test_ask_wraps_summarizer_invocation_error_with_cause():
         notulist=_make_notulist(notulist_llm),
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
     )
 
     with pytest.raises(RuntimeError, match="Failed to summarize conversation.") as exc:

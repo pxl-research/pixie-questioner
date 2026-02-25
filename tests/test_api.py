@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from pixie_questioner import config as config_module
-from pixie_questioner.chat_service import ChatResult
+from pixie_questioner.chat.types import ChatResult
 from pixie_questioner.schemas import CHAT_CONTRACT_VERSION
 
 
@@ -17,28 +17,93 @@ def _write_prompt(path: Path, content: str) -> Path:
 
 
 def _set_env(monkeypatch, tmp_path: Path) -> None:
-    system_path = _write_prompt(tmp_path / "system.txt", "system {summary}")
-    notulist_path = _write_prompt(
-        tmp_path / "notulist.txt",
+    _write_prompt(tmp_path / "question_asker.txt", "system {summary}")
+    _write_prompt(
+        tmp_path / "questionnaire_notulist.txt",
         "notulist {summary} {current_question} {current_answer}",
     )
-    summarizer_path = _write_prompt(
-        tmp_path / "summarizer.txt",
-        "summary {summary} {current_question} {current_answer}",
-    )
-    template_path = _write_prompt(
-        tmp_path / "template.txt",
+    _write_prompt(
+        tmp_path / "questionnaire_template.txt",
         "0. Initial user question: []\n1. Occasion, Vibe, Setting: []",
+    )
+    _write_prompt(
+        tmp_path / "relevance_classifier.txt",
+        "Return ON_TOPIC or OFF_TOPIC for {current_question} and {current_answer}",
+    )
+    profile_path = _write_prompt(
+        tmp_path / "domain_profile.yml",
+        "\n".join(
+            [
+                "version: 1",
+                "languages:",
+                "  base: [nl, en, fr]",
+                "  extra: []",
+                "  names:",
+                "    nl: Dutch",
+                "    en: English",
+                "    fr: French",
+                "prompts:",
+                "  question_asker_path: question_asker.txt",
+                "  questionnaire_notulist_path: questionnaire_notulist.txt",
+                "  questionnaire_template_path: questionnaire_template.txt",
+                "  relevance_classifier_path: relevance_classifier.txt",
+                "messages:",
+                "  handoff:",
+                '    nl: ["handoff nl"]',
+                '    en: ["handoff en"]',
+                '    fr: ["handoff fr"]',
+                "  feedback_question:",
+                '    nl: ["feedback question nl"]',
+                '    en: ["feedback question en"]',
+                '    fr: ["feedback question fr"]',
+                "  feedback_thanks:",
+                '    nl: ["feedback thanks nl"]',
+                '    en: ["feedback thanks en"]',
+                '    fr: ["feedback thanks fr"]',
+                "  goodbye:",
+                '    nl: ["goodbye nl"]',
+                '    en: ["goodbye en"]',
+                '    fr: ["goodbye fr"]',
+                "  off_topic_redirect:",
+                '    nl: ["redirect nl: {question}"]',
+                '    en: ["redirect en: {question}"]',
+                '    fr: ["redirect fr: {question}"]',
+                "  off_topic_initial_question:",
+                '    nl: ["initial nl"]',
+                '    en: ["initial en"]',
+                '    fr: ["initial fr"]',
+                "quick_replies:",
+                "  nl:",
+                '    - { label: "Ja", value: "yes" }',
+                '    - { label: "Nee", value: "no" }',
+                "  en:",
+                '    - { label: "Yes", value: "yes" }',
+                '    - { label: "No", value: "no" }',
+                "  fr:",
+                '    - { label: "Oui", value: "yes" }',
+                '    - { label: "Non", value: "no" }',
+                "tokens:",
+                '  feedback_yes: ["ja", "yes", "oui"]',
+                '  feedback_no: ["nee", "no", "non"]',
+                '  stop_phrases: ["stop", "ik wil stoppen", "that is all"]',
+                '  stop_context_tokens: ["aub", "please", "thanks", "ok"]',
+                "behavior:",
+                '  completion_token: "PIXIE_SUMMARY_READY"',
+                "  off_topic_termination_threshold: 2",
+                "term_replacements:",
+                "  nl:",
+                "    snit: pasvorm",
+                "    silhouet: vorm",
+                "    indigo: donkerblauw",
+            ]
+        ),
     )
 
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.com")
     monkeypatch.setenv("AZURE_OPENAI_KEY", "test-key")
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_API_VERSION", "2024-01-01")
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_MODEL", "gpt-test")
-    monkeypatch.setenv("SYSTEM_PROMPT_PATH", str(system_path))
-    monkeypatch.setenv("SUMMARIZER_PROMPT_PATH", str(summarizer_path))
-    monkeypatch.setenv("QUESTIONNAIRE_NOTULIST_PROMPT_PATH", str(notulist_path))
-    monkeypatch.setenv("QUESTIONNAIRE_TEMPLATE_PATH", str(template_path))
+    monkeypatch.setenv("DOMAIN_PROFILE_PATH", str(profile_path))
 
 
 def _load_main(monkeypatch, tmp_path: Path):
