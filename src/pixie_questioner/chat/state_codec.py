@@ -37,10 +37,16 @@ def is_valid_questionnaire(
 
 def _extract_field_value(questionnaire: str, index: int) -> str:
     """Return the value portion of a numbered field line, or '' if absent."""
-    match = re.search(rf"(?m)^\s*{index}\.\s*[^:\n]*:\s*(.*?)$", questionnaire)
+    match = re.search(rf"(?m)^\s*{index}\.\s*[^:\n]*:[^\S\n]*(.*?)$", questionnaire)
     if match:
         return match.group(1).strip()
     return ""
+
+
+def _is_blank_value(value: str) -> bool:
+    """Return True when *value* is empty or bracket-only (e.g. ``[]``)."""
+    stripped = value.strip().strip("[]").strip()
+    return not stripped
 
 
 def _prevent_field_regression(
@@ -48,15 +54,15 @@ def _prevent_field_regression(
     updated_questionnaire: str,
     questionnaire_indices: list[int],
 ) -> str:
-    """Restore any filled field that the proposed update reverted to []."""
+    """Restore any filled field that the proposed update blanked."""
     result = updated_questionnaire
     for index in questionnaire_indices:
         current_value = _extract_field_value(current_questionnaire, index)
-        if not current_value or current_value == "[]":
+        if _is_blank_value(current_value):
             continue
         updated_value = _extract_field_value(result, index)
-        if updated_value == "[]":
-            pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:\s*).*$")
+        if _is_blank_value(updated_value):
+            pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:[^\S\n]*).*$")
             result = pattern.sub(
                 lambda m, v=current_value: f"{m.group(1)}{v}", result, count=1
             )
@@ -83,7 +89,7 @@ def merge_partial_questionnaire_update(
         if ":" not in field_text:
             continue
         value = field_text.split(":", maxsplit=1)[1].strip()
-        if not value or value == "[]":
+        if _is_blank_value(value):
             continue
         proposed_values[index] = value
 
@@ -96,7 +102,7 @@ def merge_partial_questionnaire_update(
         value = proposed_values.get(index)
         if value is None:
             continue
-        pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:\s*).*$")
+        pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:[^\S\n]*).*$")
         merged, count = pattern.subn(lambda m: f"{m.group(1)}{value}", merged, count=1)
         if count:
             merged_any = True

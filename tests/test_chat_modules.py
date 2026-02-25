@@ -256,3 +256,37 @@ def test_merge_partial_skips_blank_values() -> None:
     assert result is not None
     assert "Ik zoek een jeans" in result
     assert "casual" in result
+
+
+def test_merge_prevents_regression_to_empty_string() -> None:
+    """A field reverted to an empty value (no []) must also be protected."""
+    current = (
+        "0. Initial user question: Ik zoek een jeans\n"
+        "1. Occasion: dagelijks\n"
+        "2. Preferences: comfortabel"
+    )
+    proposed = (
+        "0. Initiële vraag: \n"
+        "1. Gelegenheid: dagelijks\n"
+        "2. Voorkeuren: comfortabel"
+    )
+    result = merge_partial_questionnaire_update(current, proposed, _INDICES)
+    assert result is not None
+    assert "Ik zoek een jeans" in result
+
+
+def test_merge_prevents_regression_to_bracket_variants() -> None:
+    """Bracket-like blank values ([ ], [ - ]) must also be caught."""
+    current = (
+        "0. Initial user question: Ik zoek een jeans\n"
+        "1. Occasion: dagelijks\n"
+        "2. Preferences: comfortabel"
+    )
+    proposed = (
+        "0. Initiële vraag: [ ]\n"
+        "1. Gelegenheid: dagelijks\n"
+        "2. Voorkeuren: comfortabel"
+    )
+    result = merge_partial_questionnaire_update(current, proposed, _INDICES)
+    assert result is not None
+    assert "Ik zoek een jeans" in result
