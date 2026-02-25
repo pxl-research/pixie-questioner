@@ -1,3 +1,5 @@
+# Chat Service Decomposition Proposal
+
 ## Why
 
 `src/pixie_questioner/chat_service.py` combineert momenteel meerdere verantwoordelijkheden in één klasse:

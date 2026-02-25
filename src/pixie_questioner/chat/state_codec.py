@@ -35,6 +35,78 @@ def is_valid_questionnaire(
     return True
 
 
+def _read_state_string(
+    state: dict[str, str],
+    field_name: str,
+    default: str,
+) -> str:
+    value = state.get(field_name, default)
+    if not isinstance(value, str):
+        raise RuntimeError(f"State field '{field_name}' must be a string.")
+    return value
+
+
+def _normalize_phase(phase: str) -> str:
+    if phase in VALID_PHASES:
+        return phase
+    return PHASE_INTAKE
+
+
+def _normalize_feedback_status(feedback_status: str) -> str:
+    if feedback_status in VALID_FEEDBACK_STATUSES:
+        return feedback_status
+    return FEEDBACK_PENDING
+
+
+def _parse_boundary_violation_count(boundary_violation_count_raw: str) -> int:
+    try:
+        boundary_violation_count = int(boundary_violation_count_raw)
+    except ValueError:
+        return 0
+    return max(boundary_violation_count, 0)
+
+
+def _normalize_questionnaire(
+    questionnaire: str,
+    questionnaire_template: str,
+) -> str:
+    if questionnaire.strip():
+        return questionnaire
+    return questionnaire_template
+
+
+def _normalize_phase_context(
+    phase: str,
+    feedback_status: str,
+    summary: str,
+    final_summary: str,
+    post_summary_language: str,
+    detect_language: Callable[[str], str],
+) -> tuple[str, str, str, str]:
+    if phase == PHASE_INTAKE:
+        return phase, FEEDBACK_PENDING, "", ""
+
+    if phase == PHASE_TERMINATED:
+        return phase, FEEDBACK_PENDING, "", post_summary_language
+
+    normalized_final_summary = final_summary if final_summary.strip() else summary
+    normalized_post_summary_language = (
+        post_summary_language
+        if post_summary_language.strip()
+        else detect_language(normalized_final_summary)
+    )
+    normalized_phase = phase
+    if phase == PHASE_AWAITING_FEEDBACK and feedback_status != FEEDBACK_PENDING:
+        normalized_phase = PHASE_COMPLETED
+
+    return (
+        normalized_phase,
+        feedback_status,
+        normalized_final_summary,
+        normalized_post_summary_language,
+    )
+
+
 def parse_state(
     state: dict[str, str] | None,
     questionnaire_template: str,
@@ -42,59 +114,32 @@ def parse_state(
 ) -> ChatState:
     if not state:
         return ChatState(questionnaire=questionnaire_template)
-    questionnaire = state.get("questionnaire", "")
-    summary = state.get("summary", "")
-    last_question = state.get("last_question", INITIAL_QUESTION)
-    phase = state.get("phase", PHASE_INTAKE)
-    feedback_status = state.get("feedback_status", FEEDBACK_PENDING)
-    final_summary = state.get("final_summary", "")
-    post_summary_language = state.get("post_summary_language", "")
-    boundary_violation_count_raw = state.get("boundary_violation_count", "0")
 
-    if not isinstance(questionnaire, str):
-        raise RuntimeError("State field 'questionnaire' must be a string.")
-    if not isinstance(summary, str):
-        raise RuntimeError("State field 'summary' must be a string.")
-    if not isinstance(last_question, str):
-        raise RuntimeError("State field 'last_question' must be a string.")
-    if not isinstance(phase, str):
-        raise RuntimeError("State field 'phase' must be a string.")
-    if not isinstance(feedback_status, str):
-        raise RuntimeError("State field 'feedback_status' must be a string.")
-    if not isinstance(final_summary, str):
-        raise RuntimeError("State field 'final_summary' must be a string.")
-    if not isinstance(post_summary_language, str):
-        raise RuntimeError("State field 'post_summary_language' must be a string.")
-    if not isinstance(boundary_violation_count_raw, str):
-        raise RuntimeError("State field 'boundary_violation_count' must be a string.")
-
-    try:
-        boundary_violation_count = int(boundary_violation_count_raw)
-    except ValueError:
-        boundary_violation_count = 0
-    boundary_violation_count = max(boundary_violation_count, 0)
-
-    if not questionnaire.strip():
-        questionnaire = questionnaire_template
-    if phase not in VALID_PHASES:
-        phase = PHASE_INTAKE
-    if feedback_status not in VALID_FEEDBACK_STATUSES:
-        feedback_status = FEEDBACK_PENDING
-
-    if phase == PHASE_INTAKE:
-        feedback_status = FEEDBACK_PENDING
-        final_summary = ""
-        post_summary_language = ""
-    elif phase == PHASE_TERMINATED:
-        feedback_status = FEEDBACK_PENDING
-        final_summary = ""
-    else:
-        if not final_summary.strip():
-            final_summary = summary
-        if not post_summary_language.strip():
-            post_summary_language = detect_language(final_summary)
-        if phase == PHASE_AWAITING_FEEDBACK and feedback_status != FEEDBACK_PENDING:
-            phase = PHASE_COMPLETED
+    questionnaire = _normalize_questionnaire(
+        _read_state_string(state, "questionnaire", ""),
+        questionnaire_template,
+    )
+    summary = _read_state_string(state, "summary", "")
+    last_question = _read_state_string(state, "last_question", INITIAL_QUESTION)
+    phase = _normalize_phase(_read_state_string(state, "phase", PHASE_INTAKE))
+    feedback_status = _normalize_feedback_status(
+        _read_state_string(state, "feedback_status", FEEDBACK_PENDING)
+    )
+    final_summary = _read_state_string(state, "final_summary", "")
+    post_summary_language = _read_state_string(state, "post_summary_language", "")
+    boundary_violation_count = _parse_boundary_violation_count(
+        _read_state_string(state, "boundary_violation_count", "0")
+    )
+    phase, feedback_status, final_summary, post_summary_language = (
+        _normalize_phase_context(
+            phase=phase,
+            feedback_status=feedback_status,
+            summary=summary,
+            final_summary=final_summary,
+            post_summary_language=post_summary_language,
+            detect_language=detect_language,
+        )
+    )
 
     return ChatState(
         questionnaire=questionnaire,
