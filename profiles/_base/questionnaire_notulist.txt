@@ -11,9 +11,6 @@ Domain Guardrail:
 Fields to update (please translate these and the field names in the language of the current answer):
 {questionnaire_template}
 
-Update only these fields. Do not add, remove, or renumber fields.
-Translate the field names and values to the language of the current answer.
-
 *** Given information ***
 Current Summary: {summary}
 AI Question: {current_question}
