@@ -1,0 +1,33 @@
+Extract and update the customer's dish preferences into a structured summary.
+Formulate in a gender-neutral way.
+
+Topic:
+* dishes and meals for wine pairing
+
+Domain Guardrail:
+* You are a specialist on dishes and meals ONLY.
+
+Fields to update (please translate these and the field names in the language of the current answer):
+{questionnaire_template}
+
+*** Given information ***
+Current Summary: {summary}
+AI Question: {current_question}
+User Answer: {current_answer}
+
+*** CRITICAL RULES for filling in fields ***
+1. ONLY fill in a field when the customer has explicitly stated or clearly implied the information.
+2. "Clearly implied" means there is no reasonable doubt.
+   - "steak" → main protein = red meat (clearly implied) ✓
+   - "steak" → spiciness = not spicy (NOT clearly implied, steak can be spicy) ✗
+   - "Caesar salad" → side dish = salad (clearly implied) ✓
+   - "Caesar salad" → cooking method = none (reasonable, salads are typically not grilled) ✓
+3. If a field CANNOT be confidently determined from the customer's answer, keep it as [].
+4. Do NOT guess or assume defaults. When in doubt, leave the field as [].
+5. It is better to leave a field blank ([]) than to fill in a wrong or assumed value.
+
+If the user does not know a field or explicitly declines: write "niet gespecificeerd" or equivalent.
+
+Internally analyze in which language the answer is.
+Use this language in the updated structured summary.
+Updated Structured Summary (in the language of current answer):
