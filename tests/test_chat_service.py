@@ -12,8 +12,7 @@ from pixie_questioner.chat.relevance import (
 )
 from pixie_questioner.chat_service import ChatService
 from pixie_questioner.config import load_domain_profile
-from pixie_questioner.notulist import QuestionnaireNotulist
-from pixie_questioner.summarizer import ConversationSummarizer
+from pixie_questioner.llm_client import LLMPromptInvoker
 
 
 class FakeLLM:
@@ -64,16 +63,18 @@ class StubRelevanceClassifier:
 
 
 def _make_notulist(llm):
-    return QuestionnaireNotulist(
+    return LLMPromptInvoker(
         llm=llm,
         system_prompt_template="Q:{current_question}\nA:{current_answer}\nS:{summary}",
+        error_label="Questionnaire notulist",
     )
 
 
 def _make_summarizer(llm):
-    return ConversationSummarizer(
+    return LLMPromptInvoker(
         llm=llm,
         system_prompt_template="Q:{current_question}\nA:{current_answer}\nS:{summary}",
+        error_label="Conversation summarizer",
     )
 
 

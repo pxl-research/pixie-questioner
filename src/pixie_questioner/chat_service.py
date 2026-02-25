@@ -31,16 +31,15 @@ from .chat.types import (
     ChatResult,
     ChatState,
 )
-from .notulist import QuestionnaireNotulist
-from .summarizer import ConversationSummarizer
+from .llm_client import LLMPromptInvoker
 
 
 @dataclass
 class ChatService:
     llm: object
     question_asker_prompt: str
-    notulist: QuestionnaireNotulist
-    summarizer: ConversationSummarizer
+    notulist: LLMPromptInvoker
+    summarizer: LLMPromptInvoker
     questionnaire_template: str
     domain_policy: ChatDomainPolicy
     answer_relevance_classifier: AnswerRelevanceClassifierProtocol | None = None
@@ -218,8 +217,6 @@ class ChatService:
             )
         except Exception as exc:
             raise RuntimeError("Failed to update questionnaire.") from exc
-        if updated is None:
-            raise RuntimeError("Failed to update questionnaire.")
         if not is_valid_questionnaire(
             updated, questionnaire_indices=self._questionnaire_indices
         ):
@@ -237,8 +234,6 @@ class ChatService:
             )
         except Exception as exc:
             raise RuntimeError("Failed to summarize conversation.") from exc
-        if updated is None:
-            raise RuntimeError("Failed to summarize conversation.")
         return updated
 
     async def _handle_on_topic_intake(

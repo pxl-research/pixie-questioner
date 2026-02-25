@@ -11,6 +11,8 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .chat.policy import ChatDomainPolicy, ChatQuickReply
+
 
 def load_prompt(path: Path) -> str:
     try:
@@ -47,12 +49,6 @@ def _resolve_prompt_path(base_dir: Path, prompt_path: str) -> Path:
 
 
 @dataclass(frozen=True)
-class DomainQuickReply:
-    label: str
-    value: str
-
-
-@dataclass(frozen=True)
 class ResolvedDomainProfile:
     question_asker_prompt: str
     questionnaire_notulist_prompt: str
@@ -66,7 +62,7 @@ class ResolvedDomainProfile:
     goodbye_lines: dict[str, tuple[str, ...]]
     off_topic_redirects: dict[str, tuple[str, ...]]
     off_topic_initial_questions: dict[str, tuple[str, ...]]
-    quick_replies: dict[str, tuple[DomainQuickReply, ...]]
+    quick_replies: dict[str, tuple[ChatQuickReply, ...]]
     feedback_yes_tokens: frozenset[str]
     feedback_no_tokens: frozenset[str]
     completion_token: str
@@ -74,9 +70,7 @@ class ResolvedDomainProfile:
     term_replacements: dict[str, tuple[tuple[str, str], ...]]
 
     @property
-    def chat_domain_policy(self):
-        from .chat.policy import ChatDomainPolicy, ChatQuickReply
-
+    def chat_domain_policy(self) -> ChatDomainPolicy:
         return ChatDomainPolicy(
             language_codes=self.language_codes,
             language_names=self.language_names,
@@ -86,13 +80,7 @@ class ResolvedDomainProfile:
             goodbye_lines=self.goodbye_lines,
             off_topic_redirects=self.off_topic_redirects,
             off_topic_initial_questions=self.off_topic_initial_questions,
-            quick_replies={
-                language: tuple(
-                    ChatQuickReply(label=item.label, value=item.value)
-                    for item in quick_reply_options
-                )
-                for language, quick_reply_options in self.quick_replies.items()
-            },
+            quick_replies=self.quick_replies,
             feedback_yes_tokens=self.feedback_yes_tokens,
             feedback_no_tokens=self.feedback_no_tokens,
             completion_token=self.completion_token,
@@ -265,7 +253,7 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
 
     quick_replies = {
         _normalize_language_code(language): tuple(
-            DomainQuickReply(label=item.label, value=item.value)
+            ChatQuickReply(label=item.label, value=item.value)
             for item in localized_quick_replies
         )
         for language, localized_quick_replies in profile.quick_replies.items()

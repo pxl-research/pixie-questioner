@@ -14,7 +14,7 @@ from pixie_questioner.azure_openai_llm import AzureOpenAILLM
 from pixie_questioner.chat.relevance import LLMAnswerRelevanceClassifier
 from pixie_questioner.chat_service import ChatService
 from pixie_questioner.config import get_settings
-from pixie_questioner.notulist import QuestionnaireNotulist
+from pixie_questioner.llm_client import CONVERSATION_SUMMARIZER_PROMPT, LLMPromptInvoker
 from pixie_questioner.schemas import (
     AUDIT_EVENT_CONTRACT_VERSION,
     CHAT_CONTRACT_VERSION,
@@ -27,7 +27,6 @@ from pixie_questioner.schemas import (
     ChatSummaryResponse,
     QuickReplyOption,
 )
-from pixie_questioner.summarizer import ConversationSummarizer
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +39,15 @@ llm = AzureOpenAILLM(
     model_version=settings.advanced_azure_openai_model,
     temperature=settings.advanced_azure_openai_temperature,
 )
-notulist = QuestionnaireNotulist(
+notulist = LLMPromptInvoker(
     llm=llm,
     system_prompt_template=domain_profile.questionnaire_notulist_prompt,
+    error_label="Questionnaire notulist",
 )
-summarizer = ConversationSummarizer(
+summarizer = LLMPromptInvoker(
     llm=llm,
+    system_prompt_template=CONVERSATION_SUMMARIZER_PROMPT,
+    error_label="Conversation summarizer",
 )
 chat_service = ChatService(
     llm=llm,

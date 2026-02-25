@@ -10,8 +10,7 @@ import pytest
 from pixie_questioner.azure_openai_llm import AzureOpenAILLM
 from pixie_questioner.chat_service import ChatService
 from pixie_questioner.config import load_domain_profile
-from pixie_questioner.notulist import QuestionnaireNotulist
-from pixie_questioner.summarizer import ConversationSummarizer
+from pixie_questioner.llm_client import CONVERSATION_SUMMARIZER_PROMPT, LLMPromptInvoker
 
 
 _REQUIRED_ENV_VARS = (
@@ -58,12 +57,15 @@ def _build_live_service() -> ChatService:
         model_version=os.environ["ADVANCED_AZURE_OPENAI_MODEL"],
         temperature=float(os.environ.get("ADVANCED_AZURE_OPENAI_TEMPERATURE", "0.2")),
     )
-    notulist = QuestionnaireNotulist(
+    notulist = LLMPromptInvoker(
         llm=llm,
         system_prompt_template=profile.questionnaire_notulist_prompt,
+        error_label="Questionnaire notulist",
     )
-    summarizer = ConversationSummarizer(
+    summarizer = LLMPromptInvoker(
         llm=llm,
+        system_prompt_template=CONVERSATION_SUMMARIZER_PROMPT,
+        error_label="Conversation summarizer",
     )
 
     return ChatService(

@@ -2,10 +2,8 @@
 
 from pydantic import SecretStr
 
-from .abstractclasses.llm import LLM
 
-
-class AzureOpenAILLM(LLM):
+class AzureOpenAILLM:
     def __init__(
         self,
         api_version: str,
@@ -14,7 +12,7 @@ class AzureOpenAILLM(LLM):
         model_version: str,
         temperature: float = 0.01,
     ) -> None:
-        super().__init__(model_version)
+        self.model = None
         try:  # optional dependency
             from langchain_openai import AzureChatOpenAI
         except Exception:

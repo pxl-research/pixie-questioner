@@ -6,11 +6,9 @@ import re
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from ..llm_client import extract_llm_content, resolve_llm_client
+
 ClassificationLabel = Literal["on_topic", "off_topic", "stop"]
-
-
-class LLMClientProtocol(Protocol):
-    async def ainvoke(self, messages: list[dict[str, str]]): ...
 
 
 class AnswerRelevanceClassifierProtocol(Protocol):
@@ -26,20 +24,6 @@ class AnswerRelevanceClassifierProtocol(Protocol):
 class LLMAnswerRelevanceClassifier:
     llm: object
     system_prompt_template: str
-
-    def _get_client(self) -> LLMClientProtocol:
-        if hasattr(self.llm, "ainvoke"):
-            return self.llm  # type: ignore[return-value]
-        model = getattr(self.llm, "model", None)
-        if model is None:
-            raise RuntimeError("LLM client is not configured.")
-        return model
-
-    def _extract_content(self, response: object) -> str:
-        content = getattr(response, "content", None)
-        if content is None:
-            content = str(response)
-        return content
 
     def _parse_classification_label(self, content: str) -> ClassificationLabel | None:
         normalized = content.upper()
@@ -72,10 +56,10 @@ class LLMAnswerRelevanceClassifier:
             current_question=current_question,
             current_answer=current_answer,
         )
-        response = await self._get_client().ainvoke(
+        response = await resolve_llm_client(self.llm).ainvoke(
             [{"role": "system", "content": system_prompt}]
         )
-        content = self._extract_content(response)
+        content = extract_llm_content(response)
         parsed_label = self._parse_classification_label(content)
         if parsed_label is None:
             return "on_topic"
