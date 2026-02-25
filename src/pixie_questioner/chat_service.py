@@ -19,7 +19,7 @@ from .chat.question_asker import QuestionAsker
 from .chat.relevance import AnswerRelevanceClassifierProtocol, ClassificationLabel
 from .chat.state_codec import (
     extract_questionnaire_indices,
-    is_valid_questionnaire,
+    merge_partial_questionnaire_update,
     parse_state,
     serialize_state,
 )
@@ -217,11 +217,14 @@ class ChatService:
             )
         except Exception as exc:
             raise RuntimeError("Failed to update questionnaire.") from exc
-        if not is_valid_questionnaire(
-            updated, questionnaire_indices=self._questionnaire_indices
-        ):
+        merged = merge_partial_questionnaire_update(
+            current_questionnaire=current_state.questionnaire,
+            proposed_questionnaire=updated,
+            questionnaire_indices=self._questionnaire_indices,
+        )
+        if merged is None:
             return current_state.questionnaire
-        return updated
+        return merged
 
     async def _update_summary(
         self, current_state: ChatState, current_answer: str

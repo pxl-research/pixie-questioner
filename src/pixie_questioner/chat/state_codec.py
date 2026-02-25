@@ -35,6 +35,49 @@ def is_valid_questionnaire(
     return True
 
 
+def merge_partial_questionnaire_update(
+    current_questionnaire: str,
+    proposed_questionnaire: str,
+    questionnaire_indices: list[int],
+) -> str | None:
+    if is_valid_questionnaire(proposed_questionnaire, questionnaire_indices):
+        return proposed_questionnaire
+
+    allowed_indices = set(questionnaire_indices)
+    proposed_values: dict[int, str] = {}
+    for match in re.finditer(r"(?m)^\s*(\d+)\.\s*(.+)$", proposed_questionnaire):
+        index = int(match.group(1))
+        if index not in allowed_indices:
+            continue
+        field_text = match.group(2).strip()
+        if ":" not in field_text:
+            continue
+        value = field_text.split(":", maxsplit=1)[1].strip()
+        if not value:
+            continue
+        proposed_values[index] = value
+
+    if not proposed_values:
+        return None
+
+    merged = current_questionnaire
+    merged_any = False
+    for index in questionnaire_indices:
+        value = proposed_values.get(index)
+        if value is None:
+            continue
+        pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:\s*).*$")
+        merged, count = pattern.subn(lambda m: f"{m.group(1)}{value}", merged, count=1)
+        if count:
+            merged_any = True
+
+    if not merged_any:
+        return None
+    if not is_valid_questionnaire(merged, questionnaire_indices):
+        return None
+    return merged
+
+
 def _read_state_string(
     state: dict[str, str],
     field_name: str,
