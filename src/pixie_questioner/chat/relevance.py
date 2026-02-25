@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
+
+ClassificationLabel = Literal["on_topic", "off_topic", "stop"]
 
 
 class LLMClientProtocol(Protocol):
@@ -12,12 +14,12 @@ class LLMClientProtocol(Protocol):
 
 
 class AnswerRelevanceClassifierProtocol(Protocol):
-    async def is_on_topic(
+    async def classify(
         self,
         current_question: str,
         current_answer: str,
         questionnaire: str,
-    ) -> bool: ...
+    ) -> ClassificationLabel: ...
 
 
 @dataclass
@@ -39,26 +41,32 @@ class LLMAnswerRelevanceClassifier:
             content = str(response)
         return content
 
-    def _parse_relevance_label(self, content: str) -> bool | None:
+    def _parse_classification_label(self, content: str) -> ClassificationLabel | None:
         normalized = content.upper()
-        labels = re.findall(r"\b(ON_TOPIC|OFF_TOPIC)\b", normalized)
+        labels = re.findall(r"\b(ON_TOPIC|OFF_TOPIC|STOP)\b", normalized)
         if not labels:
             return None
-        if len(set(labels)) > 1:
+        unique_labels = set(labels)
+        if len(unique_labels) > 1:
             return None
         label = labels[0]
-        if re.search(r"\b(?:NOT|NO|NIET|GEEN|PAS|NE)\s+OFF_TOPIC\b", normalized):
+        if re.search(
+            r"\b(?:NOT|NO|NIET|GEEN|PAS|NE)\s+(?:OFF_TOPIC|ON_TOPIC|STOP)\b",
+            normalized,
+        ):
             return None
-        if re.search(r"\b(?:NOT|NO|NIET|GEEN|PAS|NE)\s+ON_TOPIC\b", normalized):
-            return None
-        return label == "ON_TOPIC"
+        if label == "ON_TOPIC":
+            return "on_topic"
+        if label == "OFF_TOPIC":
+            return "off_topic"
+        return "stop"
 
-    async def is_on_topic(
+    async def classify(
         self,
         current_question: str,
         current_answer: str,
         questionnaire: str,
-    ) -> bool:
+    ) -> ClassificationLabel:
         system_prompt = self.system_prompt_template.format(
             questionnaire=questionnaire,
             current_question=current_question,
@@ -68,7 +76,7 @@ class LLMAnswerRelevanceClassifier:
             [{"role": "system", "content": system_prompt}]
         )
         content = self._extract_content(response)
-        parsed_label = self._parse_relevance_label(content)
+        parsed_label = self._parse_classification_label(content)
         if parsed_label is None:
-            return True
+            return "on_topic"
         return parsed_label

@@ -16,16 +16,12 @@ from .chat.language import create_language_support
 from .chat.messages import PolicyMessages
 from .chat.policy import ChatDomainPolicy
 from .chat.question_asker import QuestionAsker
-from .chat.relevance import AnswerRelevanceClassifierProtocol
+from .chat.relevance import AnswerRelevanceClassifierProtocol, ClassificationLabel
 from .chat.state_codec import (
     extract_questionnaire_indices,
     is_valid_questionnaire,
     parse_state,
     serialize_state,
-)
-from .chat.stop_detection import (
-    build_stop_phrase_token_sequences,
-    user_requested_stop,
 )
 from .chat.types import (
     INITIAL_QUESTION,
@@ -74,18 +70,8 @@ class ChatService:
             language=self._language,
             messages=self._messages,
         )
-        self._stop_phrase_token_sequences = build_stop_phrase_token_sequences(
-            self.domain_policy.stop_phrases
-        )
 
     # -- Helpers ---------------------------------------------------------------
-
-    def _user_requested_stop(self, current_answer: str) -> bool:
-        return user_requested_stop(
-            current_answer,
-            stop_phrase_token_sequences=self._stop_phrase_token_sequences,
-            stop_context_tokens=self.domain_policy.stop_context_tokens,
-        )
 
     def _questionnaire_complete(self, questionnaire: str) -> bool:
         return "[]" not in questionnaire
@@ -144,16 +130,6 @@ class ChatService:
             state=current_state,
         )
 
-    def _handle_user_stop_request(
-        self, current_state: ChatState, current_answer: str
-    ) -> ChatResult:
-        language = self._resolve_goodbye_language(current_state, current_answer)
-        terminated_state = to_terminated_state(current_state, language)
-        return self._answer_result(
-            text=self._messages.goodbye(language),
-            state=terminated_state,
-        )
-
     def _handle_awaiting_feedback_phase(
         self, current_state: ChatState, current_answer: str
     ) -> ChatResult:
@@ -189,21 +165,21 @@ class ChatService:
 
     # -- Intake phase ----------------------------------------------------------
 
-    async def _is_on_topic_for_intake(
+    async def _classify_intake_answer(
         self, current_state: ChatState, current_answer: str
-    ) -> bool:
+    ) -> ClassificationLabel:
         if current_state.last_question.strip() == INITIAL_QUESTION:
-            return True
+            return "on_topic"
         if self.answer_relevance_classifier is None:
-            return True
+            return "on_topic"
         try:
-            return await self.answer_relevance_classifier.is_on_topic(
+            return await self.answer_relevance_classifier.classify(
                 current_question=current_state.last_question,
                 current_answer=current_answer,
                 questionnaire=current_state.questionnaire,
             )
         except Exception:
-            return True
+            return "on_topic"
 
     def _handle_off_topic_intake(
         self, current_state: ChatState, current_answer: str
@@ -266,7 +242,11 @@ class ChatService:
         return updated
 
     async def _handle_on_topic_intake(
-        self, current_state: ChatState, current_answer: str
+        self,
+        current_state: ChatState,
+        current_answer: str,
+        *,
+        force_complete: bool = False,
     ) -> ChatResult:
         current_state.boundary_violation_count = 0
         updated_questionnaire = await self._update_questionnaire(
@@ -274,9 +254,7 @@ class ChatService:
         )
         updated_summary = await self._update_summary(current_state, current_answer)
 
-        if self._questionnaire_complete(
-            updated_questionnaire
-        ) or self._user_requested_stop(current_answer):
+        if self._questionnaire_complete(updated_questionnaire) or force_complete:
             language = self._language.detect(updated_summary)
             feedback_state = to_feedback_state(
                 state=current_state,
@@ -310,9 +288,15 @@ class ChatService:
     async def _handle_intake_phase(
         self, current_state: ChatState, current_answer: str
     ) -> ChatResult:
-        is_on_topic = await self._is_on_topic_for_intake(current_state, current_answer)
-        if not is_on_topic:
+        classification = await self._classify_intake_answer(
+            current_state, current_answer
+        )
+        if classification == "off_topic":
             return self._handle_off_topic_intake(current_state, current_answer)
+        if classification == "stop":
+            return await self._handle_on_topic_intake(
+                current_state, current_answer, force_complete=True
+            )
         return await self._handle_on_topic_intake(current_state, current_answer)
 
     # -- Public entry point ----------------------------------------------------
@@ -325,12 +309,9 @@ class ChatService:
         current_state = self._parse_state(state)
 
         # Turn routing is phase-first. This keeps the orchestration flow explicit:
-        # terminated -> explicit user stop -> feedback -> completed -> intake.
+        # terminated -> feedback -> completed -> intake (incl. stop detection).
         if current_state.phase == PHASE_TERMINATED:
             return self._handle_terminated_phase(current_state, current_answer)
-
-        if self._user_requested_stop(current_answer):
-            return self._handle_user_stop_request(current_state, current_answer)
 
         if current_state.phase == PHASE_AWAITING_FEEDBACK:
             return self._handle_awaiting_feedback_phase(current_state, current_answer)

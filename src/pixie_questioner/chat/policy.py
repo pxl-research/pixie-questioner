@@ -24,8 +24,6 @@ class ChatDomainPolicy:
     quick_replies: dict[str, tuple[ChatQuickReply, ...]]
     feedback_yes_tokens: frozenset[str]
     feedback_no_tokens: frozenset[str]
-    stop_phrases: tuple[str, ...]
-    stop_context_tokens: frozenset[str]
     completion_token: str
     off_topic_termination_threshold: int
     term_replacements: dict[str, tuple[tuple[str, str], ...]]

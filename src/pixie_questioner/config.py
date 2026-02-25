@@ -69,8 +69,6 @@ class ResolvedDomainProfile:
     quick_replies: dict[str, tuple[DomainQuickReply, ...]]
     feedback_yes_tokens: frozenset[str]
     feedback_no_tokens: frozenset[str]
-    stop_phrases: tuple[str, ...]
-    stop_context_tokens: frozenset[str]
     completion_token: str
     off_topic_termination_threshold: int
     term_replacements: dict[str, tuple[tuple[str, str], ...]]
@@ -97,8 +95,6 @@ class ResolvedDomainProfile:
             },
             feedback_yes_tokens=self.feedback_yes_tokens,
             feedback_no_tokens=self.feedback_no_tokens,
-            stop_phrases=self.stop_phrases,
-            stop_context_tokens=self.stop_context_tokens,
             completion_token=self.completion_token,
             off_topic_termination_threshold=self.off_topic_termination_threshold,
             term_replacements=self.term_replacements,
@@ -146,8 +142,6 @@ class DomainProfileQuickReply(BaseModel):
 class DomainProfileTokens(BaseModel):
     feedback_yes: list[str]
     feedback_no: list[str]
-    stop_phrases: list[str]
-    stop_context_tokens: list[str]
 
 
 class DomainProfileBehavior(BaseModel):
@@ -309,14 +303,6 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         feedback_no_tokens=frozenset(
             token.casefold().strip()
             for token in profile.tokens.feedback_no
-            if token.strip()
-        ),
-        stop_phrases=tuple(
-            phrase.strip() for phrase in profile.tokens.stop_phrases if phrase.strip()
-        ),
-        stop_context_tokens=frozenset(
-            token.casefold().strip()
-            for token in profile.tokens.stop_context_tokens
             if token.strip()
         ),
         completion_token=profile.behavior.completion_token,

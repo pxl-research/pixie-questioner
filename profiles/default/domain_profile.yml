@@ -72,62 +72,6 @@ quick_replies:
 tokens:
   feedback_yes: ["ja", "yes", "oui", "zeker", "absoluut", "y", "si", "jaa"]
   feedback_no: ["nee", "no", "non", "n", "nein"]
-  stop_phrases:
-    [
-      "stop",
-      "stoppen",
-      "ik wil stoppen",
-      "ik ben klaar",
-      "klaar",
-      "genoeg",
-      "dat was het",
-      "dat is alles",
-      "dit is alles",
-      "niets meer",
-      "done",
-      "i am done",
-      "finished",
-      "that's all",
-      "that is all",
-      "that's it",
-      "that is it",
-      "no more",
-      "i want to stop",
-      "c'est tout",
-      "cest tout",
-      "j'ai fini",
-      "jai fini",
-      "fini",
-      "arrete",
-      "arreter",
-    ]
-  stop_context_tokens:
-    [
-      "alsjeblieft",
-      "alstublieft",
-      "aub",
-      "please",
-      "pls",
-      "graag",
-      "merci",
-      "bedankt",
-      "thanks",
-      "thank",
-      "you",
-      "dank",
-      "je",
-      "u",
-      "ok",
-      "oke",
-      "okay",
-      "nu",
-      "dan",
-      "maar",
-      "svp",
-      "s'il",
-      "vous",
-      "plait",
-    ]
 
 behavior:
   completion_token: PIXIE_SUMMARY_READY

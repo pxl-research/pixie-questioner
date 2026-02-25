@@ -6,6 +6,7 @@ from .policy import ChatDomainPolicy, ChatQuickReply
 from .question_asker import QuestionAsker
 from .relevance import (
     AnswerRelevanceClassifierProtocol,
+    ClassificationLabel,
     LLMAnswerRelevanceClassifier,
 )
 from .types import ChatResult, ChatState
@@ -16,6 +17,7 @@ __all__ = [
     "ChatQuickReply",
     "ChatResult",
     "ChatState",
+    "ClassificationLabel",
     "LanguageSupport",
     "LLMAnswerRelevanceClassifier",
     "PolicyMessages",
