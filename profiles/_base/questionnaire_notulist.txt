@@ -8,7 +8,10 @@ Topic:
 Domain Guardrail:
 * You are specialist on your topic ONLY.
 
-Update only the fields shown in the Current Summary below.
+Fields to update (please translate these and the field names in the language of the current answer):
+{questionnaire_template}
+
+Update only these fields. Do not add, remove, or renumber fields.
 Translate the field names and values to the language of the current answer.
 
 *** Given information ***

@@ -187,7 +187,7 @@ def _write_base_profile(base_dir: Path) -> Path:
         encoding="utf-8",
     )
     (base_dir / "questionnaire_notulist.txt").write_text(
-        "notulist for {topic}: {summary} {current_question} {current_answer}",
+        "notulist for {topic}:\n{questionnaire_template}\n{summary} {current_question} {current_answer}",
         encoding="utf-8",
     )
     profile_path = base_dir / "domain_profile.yml"
@@ -368,6 +368,10 @@ def test_profile_notulist_prompt_resolves_topic_from_base(tmp_path: Path) -> Non
     assert "{topic}" not in profile.questionnaire_notulist_prompt
     assert "{summary}" in profile.questionnaire_notulist_prompt
     assert "{current_question}" in profile.questionnaire_notulist_prompt
+
+    # {questionnaire_template} replaced with actual template content
+    assert "{questionnaire_template}" not in profile.questionnaire_notulist_prompt
+    assert "0. Initial user question: []" in profile.questionnaire_notulist_prompt
 
 
 def test_profile_domain_overrides_base_values(tmp_path: Path) -> None:
