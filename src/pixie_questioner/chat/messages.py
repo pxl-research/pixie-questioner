@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import secrets
 import re
+from dataclasses import dataclass
 
-from .policy import ChatQuickReply
+from .policy import ChatDomainPolicy, ChatQuickReply
+from .types import FEEDBACK_NO, FEEDBACK_YES, INITIAL_QUESTION
 
 
 def get_localized_options(
@@ -102,10 +104,63 @@ def simplify_technical_terms(
     for source, target in replacements:
         simplified = re.sub(
             rf"\b{re.escape(source)}\b",
-            lambda match: (
-                target.capitalize() if match.group(0)[0].isupper() else target
+            lambda match, replacement=target: (
+                replacement.capitalize() if match.group(0)[0].isupper() else replacement
             ),
             simplified,
             flags=re.IGNORECASE,
         )
     return simplified
+
+
+@dataclass(frozen=True)
+class PolicyMessages:
+    """Localized message builder backed by a domain policy.
+
+    Wraps a ChatDomainPolicy so callers can request messages by language
+    without passing individual config dicts every time.
+    """
+
+    policy: ChatDomainPolicy
+
+    def handoff(self, language: str) -> str:
+        return choose_localized_message(self.policy.handoff_lines, language)
+
+    def feedback_question(self, language: str) -> str:
+        return choose_localized_message(self.policy.feedback_questions, language)
+
+    def feedback_quick_replies(self, language: str) -> list[dict[str, str]]:
+        return build_feedback_quick_replies(
+            self.policy.quick_replies, language=language
+        )
+
+    def feedback_thanks(self, language: str) -> str:
+        return choose_localized_message(self.policy.feedback_thanks, language)
+
+    def goodbye(self, language: str) -> str:
+        return choose_localized_message(self.policy.goodbye_lines, language)
+
+    def off_topic_redirect(self, language: str, current_question: str) -> str:
+        return build_off_topic_redirect(
+            language=language,
+            current_question=current_question,
+            initial_question=INITIAL_QUESTION,
+            off_topic_initial_questions=self.policy.off_topic_initial_questions,
+            off_topic_redirects=self.policy.off_topic_redirects,
+        )
+
+    def normalize_feedback(self, current_answer: str) -> str | None:
+        return normalize_feedback_response(
+            current_answer=current_answer,
+            feedback_yes_tokens=self.policy.feedback_yes_tokens,
+            feedback_no_tokens=self.policy.feedback_no_tokens,
+            feedback_yes_value=FEEDBACK_YES,
+            feedback_no_value=FEEDBACK_NO,
+        )
+
+    def simplify_terms(self, text: str, language: str) -> str:
+        return simplify_technical_terms(
+            text,
+            language=language,
+            term_replacements=self.policy.term_replacements,
+        )

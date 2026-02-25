@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from langdetect import DetectorFactory, detect_langs
 from langdetect.lang_detect_exception import LangDetectException
@@ -165,4 +166,78 @@ def build_language_instruction(
         f"- Respond in {language_target}.\n"
         f"{default_hint}\n"
         f"- Prefer {default_language_name} when there is no strong language signal."
+    )
+
+
+@dataclass
+class LanguageSupport:
+    """Pre-computed language detection and instruction builder.
+
+    Binds the normalized language configuration so callers do not need
+    to thread individual config values through every call.
+    """
+
+    supported_language_codes: tuple[str, ...]
+    supported_language_set: set[str]
+    supported_language_priority: dict[str, int]
+    supported_language_names: dict[str, str]
+    default_language_code: str
+
+    def detect(self, text: str) -> str:
+        return detect_language(
+            text,
+            supported_language_set=self.supported_language_set,
+            default_language_code=self.default_language_code,
+        )
+
+    def detect_preferred(self, current_answer: str, previous_summary: str) -> str:
+        return detect_preferred_language(
+            current_answer=current_answer,
+            previous_summary=previous_summary,
+            supported_language_set=self.supported_language_set,
+            supported_language_priority=self.supported_language_priority,
+            default_language_code=self.default_language_code,
+        )
+
+    def build_instruction(self, language_code: str) -> str:
+        return build_language_instruction(
+            language_code,
+            supported_language_names=self.supported_language_names,
+            supported_language_codes=self.supported_language_codes,
+            default_language_code=self.default_language_code,
+        )
+
+
+def create_language_support(
+    language_codes: tuple[str, ...],
+    language_names: dict[str, str],
+) -> LanguageSupport:
+    """Build a LanguageSupport from raw domain-policy language configuration."""
+    normalized_codes = tuple(
+        dict.fromkeys(
+            code.strip().casefold() for code in language_codes if code.strip()
+        )
+    )
+    if not normalized_codes:
+        raise RuntimeError("language_codes must include at least one language.")
+
+    supported_set = set(normalized_codes)
+    priority = {code: idx for idx, code in enumerate(normalized_codes)}
+    default = "nl" if "nl" in supported_set else normalized_codes[0]
+
+    names: dict[str, str] = {
+        code.strip().casefold(): name
+        for code, name in language_names.items()
+        if code.strip()
+    }
+    for code in normalized_codes:
+        names.setdefault(code, code.upper())
+    names.setdefault("en", "English")
+
+    return LanguageSupport(
+        supported_language_codes=normalized_codes,
+        supported_language_set=supported_set,
+        supported_language_priority=priority,
+        supported_language_names=names,
+        default_language_code=default,
     )

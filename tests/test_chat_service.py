@@ -19,6 +19,7 @@ class FakeLLM:
         self.calls = []
 
     async def ainvoke(self, messages):
+        await asyncio.sleep(0)
         self.calls.append(messages)
         if not self.responses:
             raise AssertionError("No responses left for FakeLLM.")
@@ -31,6 +32,7 @@ class RaisingLLM:
         self.calls = []
 
     async def ainvoke(self, messages):
+        await asyncio.sleep(0)
         self.calls.append(messages)
         raise self.exception
 
@@ -49,6 +51,7 @@ class StubRelevanceClassifier:
     async def is_on_topic(
         self, current_question: str, current_answer: str, questionnaire: str
     ) -> bool:
+        await asyncio.sleep(0)
         self.calls.append((current_question, current_answer, questionnaire))
         if not self.responses:
             raise AssertionError(
@@ -71,9 +74,7 @@ def _make_summarizer(llm):
     )
 
 
-QUESTIONNAIRE_TEMPLATE = (
-    "0. Initial user question: []\n" "1. Occasion, Vibe, Setting: []"
-)
+QUESTIONNAIRE_TEMPLATE = "0. Initial user question: []\n1. Occasion, Vibe, Setting: []"
 
 _DEFAULT_PROFILE = load_domain_profile(Path("profiles/default/domain_profile.yml"))
 _DEFAULT_POLICY = _DEFAULT_PROFILE.chat_domain_policy
@@ -134,8 +135,9 @@ def test_ask_updates_state_and_returns_next_question():
 
     assert result.response_type == "answer"
     assert result.text == "Next question"
-    assert result.state["questionnaire"] == (
-        "0. Initial user question: Updated answer\n" "1. Occasion, Vibe, Setting: []"
+    assert (
+        result.state["questionnaire"]
+        == "0. Initial user question: Updated answer\n1. Occasion, Vibe, Setting: []"
     )
     assert result.state["summary"] == "Updated summary"
     assert result.state["last_question"] == "Next question"
@@ -229,7 +231,7 @@ def test_detect_preferred_language_prefers_supported_on_small_score_gap(monkeypa
         "pixie_questioner.chat.language.detect_langs", fake_detect_langs
     )
 
-    preferred_language = service._detect_preferred_language("kurzer text", "")
+    preferred_language = service._language.detect_preferred("kurzer text", "")
 
     assert preferred_language == "nl"
 
@@ -244,7 +246,7 @@ def test_detect_preferred_language_allows_other_language_on_strong_signal(monkey
         "pixie_questioner.chat.language.detect_langs", fake_detect_langs
     )
 
-    preferred_language = service._detect_preferred_language(
+    preferred_language = service._language.detect_preferred(
         "guten tag ich suche eine jeans", ""
     )
 
@@ -263,7 +265,7 @@ def test_detect_preferred_language_falls_back_to_dutch_for_short_unsupported_tex
         "pixie_questioner.chat.language.detect_langs", fake_detect_langs
     )
 
-    preferred_language = service._detect_preferred_language("Hallo", "")
+    preferred_language = service._language.detect_preferred("Hallo", "")
 
     assert preferred_language == "nl"
 
@@ -282,7 +284,7 @@ def test_detect_preferred_language_keeps_dutch_for_short_supported_non_dutch_sig
         "pixie_questioner.chat.language.detect_langs", fake_detect_langs
     )
 
-    preferred_language = service._detect_preferred_language("Graag", "")
+    preferred_language = service._language.detect_preferred("Graag", "")
 
     assert preferred_language == "nl"
 
@@ -303,7 +305,7 @@ def test_detect_preferred_language_uses_summary_when_short_answer_is_uncertain(
         "pixie_questioner.chat.language.detect_langs", fake_detect_langs
     )
 
-    preferred_language = service._detect_preferred_language(
+    preferred_language = service._language.detect_preferred(
         "Yes", "I am looking for dark blue straight jeans for work."
     )
 

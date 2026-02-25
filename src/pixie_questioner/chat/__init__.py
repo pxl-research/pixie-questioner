@@ -1,6 +1,9 @@
 """Internal chat domain modules."""
 
+from .language import LanguageSupport, create_language_support
+from .messages import PolicyMessages
 from .policy import ChatDomainPolicy, ChatQuickReply
+from .question_asker import QuestionAsker
 from .relevance import (
     AnswerRelevanceClassifierProtocol,
     LLMAnswerRelevanceClassifier,
@@ -13,5 +16,9 @@ __all__ = [
     "ChatQuickReply",
     "ChatResult",
     "ChatState",
+    "LanguageSupport",
     "LLMAnswerRelevanceClassifier",
+    "PolicyMessages",
+    "QuestionAsker",
+    "create_language_support",
 ]
