@@ -111,7 +111,7 @@ class DomainProfilePrompts(BaseModel):
     question_asker_path: str
     questionnaire_notulist_path: str
     questionnaire_template_path: str
-    relevance_classifier_path: str
+    relevance_classifier_path: str = Field(default="")
 
 
 class DomainProfileMessages(BaseModel):
@@ -275,8 +275,10 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
     extends = loaded.pop("extends", None)
     variables: dict[str, dict[str, str]] = loaded.pop("variables", {})
 
+    base_dir: Path | None = None
     if extends:
         base_path = (resolved_path.resolve().parent / extends).resolve()
+        base_dir = base_path.parent
         base_loaded = _load_yaml_file(base_path)
         base_loaded.pop("extends", None)
         base_loaded.pop("variables", None)
@@ -303,9 +305,27 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
     questionnaire_template = load_prompt(
         _resolve_prompt_path(profile_dir, prompt_paths.questionnaire_template_path)
     )
-    relevance_classifier_prompt = load_prompt(
-        _resolve_prompt_path(profile_dir, prompt_paths.relevance_classifier_path)
-    )
+    # Resolve relevance_classifier_path: domain dir first, then base dir.
+    classifier_path = prompt_paths.relevance_classifier_path
+    if classifier_path:
+        candidate = _resolve_prompt_path(profile_dir, classifier_path)
+        if not candidate.exists() and base_dir is not None:
+            candidate = _resolve_prompt_path(base_dir, classifier_path)
+        classifier_full = candidate
+    else:
+        classifier_full = _resolve_prompt_path(profile_dir, "relevance_classifier.txt")
+    relevance_classifier_prompt = load_prompt(classifier_full)
+
+    # Substitute profile variables (e.g. {topic}) in prompts.
+    # Use English values as the prompts are written in English.
+    if variables:
+        en_vars = {
+            var_name: lang_values.get("en", next(iter(lang_values.values()), ""))
+            for var_name, lang_values in variables.items()
+        }
+        relevance_classifier_prompt = _substitute_variables(
+            relevance_classifier_prompt, en_vars
+        )
 
     normalized_base = tuple(
         dict.fromkeys(_normalize_language_code(code) for code in profile.languages.base)

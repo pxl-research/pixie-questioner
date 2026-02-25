@@ -180,8 +180,12 @@ def test_domain_profile_path_is_required(
 
 
 def _write_base_profile(base_dir: Path) -> Path:
-    """Create a base profile YAML without prompts or term_replacements."""
+    """Create a base profile YAML with shared prompts and messages."""
     base_dir.mkdir(parents=True, exist_ok=True)
+    (base_dir / "relevance_classifier.txt").write_text(
+        "Classifier for {topic}: {current_question} {current_answer}",
+        encoding="utf-8",
+    )
     profile_path = base_dir / "domain_profile.yml"
     profile_path.write_text(
         """
@@ -193,6 +197,8 @@ languages:
     nl: Dutch
     en: English
     fr: French
+prompts:
+  relevance_classifier_path: relevance_classifier.txt
 messages:
   handoff:
     nl: ["handoff nl"]
@@ -250,9 +256,6 @@ def _write_domain_profile_with_extends(domain_dir: Path, base_relative: str) -> 
     (domain_dir / "questionnaire_template.txt").write_text(
         "0. Initial user question: []", encoding="utf-8"
     )
-    (domain_dir / "relevance_classifier.txt").write_text(
-        "Classify {current_question} and {current_answer}", encoding="utf-8"
-    )
 
     profile_path = domain_dir / "domain_profile.yml"
     profile_path.write_text(
@@ -272,7 +275,6 @@ prompts:
   question_asker_path: question_asker.txt
   questionnaire_notulist_path: questionnaire_notulist.txt
   questionnaire_template_path: questionnaire_template.txt
-  relevance_classifier_path: relevance_classifier.txt
 term_replacements:
   nl:
     snit: pasvorm
@@ -333,6 +335,22 @@ def test_profile_without_extends_still_works(tmp_path: Path) -> None:
 
     assert profile.language_codes == ("nl", "en", "fr", "de")
     assert profile.completion_token == "READY"
+
+
+def test_profile_classifier_prompt_resolves_topic_from_base(tmp_path: Path) -> None:
+    """The classifier prompt from _base should have {topic} substituted."""
+    base_dir = tmp_path / "_base"
+    domain_dir = tmp_path / "brooklyn"
+    _write_base_profile(base_dir)
+    _write_domain_profile_with_extends(domain_dir, "../_base/domain_profile.yml")
+
+    profile = config.load_domain_profile(domain_dir / "domain_profile.yml")
+
+    # {topic} resolved with EN value, runtime placeholders kept
+    assert "jeans" in profile.relevance_classifier_prompt
+    assert "{topic}" not in profile.relevance_classifier_prompt
+    assert "{current_question}" in profile.relevance_classifier_prompt
+    assert "{current_answer}" in profile.relevance_classifier_prompt
 
 
 def test_profile_domain_overrides_base_values(tmp_path: Path) -> None:
