@@ -1,0 +1,72 @@
+version: 1
+
+languages:
+  base: [nl, en, fr]
+  extra: []
+  names:
+    nl: Dutch
+    en: English
+    fr: French
+
+messages:
+  handoff:
+    nl:
+      - "Dank je wel, dit geeft al een duidelijk beeld naar wat je op zoek bent:"
+    en:
+      - "Thanks. This gives a clear picture of what you're looking for: "
+    fr:
+      - "Merci. Cela donne une idée claire de ce que vous recherchez: "
+  feedback_question:
+    nl:
+      - "Zou je deze assistent bij een volgend {visit_type} opnieuw gebruiken? (ja/nee)"
+    en:
+      - "Would you use this assistant again on a future {visit_type}? (yes/no)"
+    fr:
+      - "Utiliseriez-vous a nouveau cet assistant lors d'une prochaine {visit_type} ? (oui/non)"
+  feedback_thanks:
+    nl:
+      - "Bedankt voor je feedback."
+    en:
+      - "Thanks for your feedback."
+    fr:
+      - "Merci pour votre retour."
+  goodbye:
+    nl:
+      - "Dank je wel. Ik rond het gesprek hier af. Veel succes met je keuze."
+    en:
+      - "Thanks. I'll close the conversation here. Good luck with your choice."
+    fr:
+      - "Merci. Je vais cloturer la conversation ici. Bonne chance pour votre choix."
+  off_topic_redirect:
+    nl:
+      - "Ik kan je alleen helpen met {topic}. Kun je deze vraag beantwoorden: {question}"
+    en:
+      - "I can only help with {topic}. Could you answer this question: {question}"
+    fr:
+      - "Je peux seulement vous aider avec des {topic}. Pouvez-vous repondre a cette question: {question}"
+  off_topic_initial_question:
+    nl:
+      - "Kan ik je helpen bij het uitzoeken welk type {topic} bij je past?"
+    en:
+      - "Can I help you find which type of {topic} fits you best?"
+    fr:
+      - "Puis-je vous aider a trouver le type de {topic} qui vous convient le mieux ?"
+
+quick_replies:
+  nl:
+    - { label: "Ja", value: "yes" }
+    - { label: "Nee", value: "no" }
+  en:
+    - { label: "Yes", value: "yes" }
+    - { label: "No", value: "no" }
+  fr:
+    - { label: "Oui", value: "yes" }
+    - { label: "Non", value: "no" }
+
+tokens:
+  feedback_yes: ["ja", "yes", "oui", "zeker", "absoluut", "y", "si", "jaa"]
+  feedback_no: ["nee", "no", "non", "n", "nein"]
+
+behavior:
+  completion_token: PIXIE_SUMMARY_READY
+  off_topic_termination_threshold: 2

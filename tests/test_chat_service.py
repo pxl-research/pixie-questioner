@@ -80,7 +80,7 @@ def _make_summarizer(llm):
 
 QUESTIONNAIRE_TEMPLATE = "0. Initial user question: []\n1. Occasion, Vibe, Setting: []"
 
-_DEFAULT_PROFILE = load_domain_profile(Path("profiles/default/domain_profile.yml"))
+_DEFAULT_PROFILE = load_domain_profile(Path("profiles/brooklyn/domain_profile.yml"))
 _DEFAULT_POLICY = _DEFAULT_PROFILE.chat_domain_policy
 _CLASSIFIER_PROMPT = _DEFAULT_PROFILE.relevance_classifier_prompt
 HANDOFF_NL = _DEFAULT_POLICY.handoff_lines["nl"]

@@ -118,7 +118,7 @@ def test_collect_live_env_issues_accepts_valid_configuration() -> None:
             "AZURE_OPENAI_KEY": "live-secret",
             "ADVANCED_AZURE_OPENAI_API_VERSION": "2024-12-01-preview",
             "ADVANCED_AZURE_OPENAI_MODEL": "gpt-5-chat",
-            "DOMAIN_PROFILE_PATH": "profiles/default/domain_profile.yml",
+            "DOMAIN_PROFILE_PATH": "profiles/brooklyn/domain_profile.yml",
         }
     )
 
