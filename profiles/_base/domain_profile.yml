@@ -67,6 +67,9 @@ tokens:
   feedback_yes: ["ja", "yes", "oui", "zeker", "absoluut", "y", "si", "jaa"]
   feedback_no: ["nee", "no", "non", "n", "nein"]
 
+prompts:
+  relevance_classifier_path: relevance_classifier.txt
+
 behavior:
   completion_token: PIXIE_SUMMARY_READY
   off_topic_termination_threshold: 2
