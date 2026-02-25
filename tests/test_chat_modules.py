@@ -10,7 +10,11 @@ from pixie_questioner.chat.messages import (
 )
 from pixie_questioner.chat.policy import ChatQuickReply
 from pixie_questioner.chat.relevance import LLMAnswerRelevanceClassifier
-from pixie_questioner.chat.state_codec import parse_state, serialize_state
+from pixie_questioner.chat.state_codec import (
+    merge_partial_questionnaire_update,
+    parse_state,
+    serialize_state,
+)
 from pixie_questioner.chat.types import FEEDBACK_NO, FEEDBACK_YES
 
 
@@ -179,3 +183,76 @@ def test_relevance_classifier_parses_labels_and_negation() -> None:
         )
         == "stop"
     )
+
+
+# --- Field regression protection tests ---
+
+_TEMPLATE = "0. Initial user question: []\n" "1. Occasion: []\n" "2. Preferences: []"
+_INDICES = [0, 1, 2]
+
+
+def test_merge_prevents_filled_field_reverting_to_blank() -> None:
+    """A field that was previously filled must not revert to []."""
+    current = (
+        "0. Initial user question: Ik zoek een jeans\n"
+        "1. Occasion: dagelijks\n"
+        "2. Preferences: []"
+    )
+    proposed = (
+        "0. Initiële vraag: []\n" "1. Gelegenheid: dagelijks\n" "2. Voorkeuren: casual"
+    )
+    result = merge_partial_questionnaire_update(current, proposed, _INDICES)
+    assert result is not None
+    assert "[]" not in result.split("\n")[0]
+    assert "Ik zoek een jeans" in result or "Initiële vraag" not in result
+
+
+def test_merge_full_replacement_preserves_filled_fields() -> None:
+    """Full replacement (all indices valid) still protects filled fields."""
+    current = (
+        "0. Initial user question: Ik zoek een jeans\n"
+        "1. Occasion: niets speciaals\n"
+        "2. Preferences: comfortabel"
+    )
+    # LLM returns valid questionnaire but blanked field 0
+    proposed = (
+        "0. Initiële vraag: []\n"
+        "1. Gelegenheid: niets speciaals\n"
+        "2. Voorkeuren: comfortabel"
+    )
+    result = merge_partial_questionnaire_update(current, proposed, _INDICES)
+    assert result is not None
+    # Field 0 must NOT be [] — it was filled before
+    assert "Ik zoek een jeans" in result
+
+
+def test_merge_allows_updating_filled_field_with_new_value() -> None:
+    """A filled field CAN be updated to a different non-blank value."""
+    current = (
+        "0. Initial user question: Ik zoek een jeans\n"
+        "1. Occasion: dagelijks\n"
+        "2. Preferences: []"
+    )
+    proposed = (
+        "0. Initiële vraag: Ik zoek een jeans\n"
+        "1. Gelegenheid: feestje\n"
+        "2. Voorkeuren: casual"
+    )
+    result = merge_partial_questionnaire_update(current, proposed, _INDICES)
+    assert result is not None
+    assert "feestje" in result
+
+
+def test_merge_partial_skips_blank_values() -> None:
+    """Partial merge must not overwrite a filled field with []."""
+    current = (
+        "0. Initial user question: Ik zoek een jeans\n"
+        "1. Occasion: dagelijks\n"
+        "2. Preferences: []"
+    )
+    # LLM returns only field 2, with field 0 blanked (partial output)
+    proposed = "0. Vraag: []\n2. Voorkeuren: casual"
+    result = merge_partial_questionnaire_update(current, proposed, _INDICES)
+    assert result is not None
+    assert "Ik zoek een jeans" in result
+    assert "casual" in result

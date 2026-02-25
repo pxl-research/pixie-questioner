@@ -35,13 +35,43 @@ def is_valid_questionnaire(
     return True
 
 
+def _extract_field_value(questionnaire: str, index: int) -> str:
+    """Return the value portion of a numbered field line, or '' if absent."""
+    match = re.search(rf"(?m)^\s*{index}\.\s*[^:\n]*:\s*(.*?)$", questionnaire)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
+def _prevent_field_regression(
+    current_questionnaire: str,
+    updated_questionnaire: str,
+    questionnaire_indices: list[int],
+) -> str:
+    """Restore any filled field that the proposed update reverted to []."""
+    result = updated_questionnaire
+    for index in questionnaire_indices:
+        current_value = _extract_field_value(current_questionnaire, index)
+        if not current_value or current_value == "[]":
+            continue
+        updated_value = _extract_field_value(result, index)
+        if updated_value == "[]":
+            pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:\s*).*$")
+            result = pattern.sub(
+                lambda m, v=current_value: f"{m.group(1)}{v}", result, count=1
+            )
+    return result
+
+
 def merge_partial_questionnaire_update(
     current_questionnaire: str,
     proposed_questionnaire: str,
     questionnaire_indices: list[int],
 ) -> str | None:
     if is_valid_questionnaire(proposed_questionnaire, questionnaire_indices):
-        return proposed_questionnaire
+        return _prevent_field_regression(
+            current_questionnaire, proposed_questionnaire, questionnaire_indices
+        )
 
     allowed_indices = set(questionnaire_indices)
     proposed_values: dict[int, str] = {}
@@ -53,7 +83,7 @@ def merge_partial_questionnaire_update(
         if ":" not in field_text:
             continue
         value = field_text.split(":", maxsplit=1)[1].strip()
-        if not value:
+        if not value or value == "[]":
             continue
         proposed_values[index] = value
 
