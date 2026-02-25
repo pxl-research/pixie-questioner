@@ -80,18 +80,16 @@ def _build_live_service() -> ChatService:
     os.environ.get("RUN_LIVE_LLM_TESTS", "1") != "1",
     reason="Set RUN_LIVE_LLM_TESTS=0 to skip live Azure OpenAI smoke tests.",
 )
-def test_live_llm_stop_terminates_without_summary() -> None:
+def test_live_llm_initial_answer_proceeds_to_intake() -> None:
     issues = _collect_live_env_issues(os.environ)
     if issues:
         pytest.fail("Live LLM configuration issues:\n- " + "\n- ".join(issues))
 
     service = _build_live_service()
 
-    result = asyncio.run(service.ask(current_answer="stop", state={}))
+    result = asyncio.run(service.ask(current_answer="Ik zoek een jeans", state={}))
     assert result.response_type == "answer"
-    assert result.summary is None
-    assert result.follow_up_question is None
-    assert result.state.get("phase") == "terminated"
+    assert result.state.get("phase") == "intake"
 
 
 def test_collect_live_env_issues_reports_missing_and_placeholder_values() -> None:

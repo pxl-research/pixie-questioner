@@ -85,8 +85,6 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
                 "tokens:",
                 '  feedback_yes: ["ja", "yes", "oui"]',
                 '  feedback_no: ["nee", "no", "non"]',
-                '  stop_phrases: ["stop", "ik wil stoppen", "that is all"]',
-                '  stop_context_tokens: ["aub", "please", "thanks", "ok"]',
                 "behavior:",
                 '  completion_token: "PIXIE_SUMMARY_READY"',
                 "  off_topic_termination_threshold: 2",

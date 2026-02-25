@@ -11,10 +11,6 @@ from pixie_questioner.chat.messages import (
 from pixie_questioner.chat.policy import ChatQuickReply
 from pixie_questioner.chat.relevance import LLMAnswerRelevanceClassifier
 from pixie_questioner.chat.state_codec import parse_state, serialize_state
-from pixie_questioner.chat.stop_detection import (
-    build_stop_phrase_token_sequences,
-    user_requested_stop,
-)
 from pixie_questioner.chat.types import FEEDBACK_NO, FEEDBACK_YES
 
 
@@ -31,21 +27,6 @@ class FakeLLM:
     async def ainvoke(self, messages: list[dict[str, str]]):
         _ = messages
         return self.responses.pop(0)
-
-
-def test_stop_detection_allows_context_tokens_only() -> None:
-    sequences = build_stop_phrase_token_sequences(("ik wil stoppen",))
-
-    assert user_requested_stop(
-        current_answer="ik wil stoppen aub",
-        stop_phrase_token_sequences=sequences,
-        stop_context_tokens=frozenset({"aub"}),
-    )
-    assert not user_requested_stop(
-        current_answer="ik wil stoppen morgen",
-        stop_phrase_token_sequences=sequences,
-        stop_context_tokens=frozenset({"aub"}),
-    )
 
 
 def test_detect_preferred_language_prefers_supported_on_small_score_gap(
@@ -154,7 +135,7 @@ def test_state_codec_parse_and_serialize_roundtrip() -> None:
     assert serialized["boundary_violation_count"] == "2"
 
 
-def test_relevance_classifier_parses_off_topic_and_negation() -> None:
+def test_relevance_classifier_parses_labels_and_negation() -> None:
     off_topic = LLMAnswerRelevanceClassifier(
         llm=FakeLLM(["OFF_TOPIC"]),
         system_prompt_template="{questionnaire} {current_question} {current_answer}",
@@ -163,24 +144,38 @@ def test_relevance_classifier_parses_off_topic_and_negation() -> None:
         llm=FakeLLM(["This is NOT OFF_TOPIC."]),
         system_prompt_template="{questionnaire} {current_question} {current_answer}",
     )
+    stop = LLMAnswerRelevanceClassifier(
+        llm=FakeLLM(["STOP"]),
+        system_prompt_template="{questionnaire} {current_question} {current_answer}",
+    )
 
     assert (
         asyncio.run(
-            off_topic.is_on_topic(
+            off_topic.classify(
                 current_question="Vraag",
                 current_answer="Antwoord",
                 questionnaire="Q",
             )
         )
-        is False
+        == "off_topic"
     )
     assert (
         asyncio.run(
-            negated.is_on_topic(
+            negated.classify(
                 current_question="Vraag",
                 current_answer="Antwoord",
                 questionnaire="Q",
             )
         )
-        is True
+        == "on_topic"
+    )
+    assert (
+        asyncio.run(
+            stop.classify(
+                current_question="Vraag",
+                current_answer="Ik wil stoppen",
+                questionnaire="Q",
+            )
+        )
+        == "stop"
     )

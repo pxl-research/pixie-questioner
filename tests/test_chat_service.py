@@ -6,7 +6,10 @@ from typing import cast
 import pytest
 
 from pixie_questioner.chat.policy import ChatDomainPolicy, ChatQuickReply
-from pixie_questioner.chat.relevance import LLMAnswerRelevanceClassifier
+from pixie_questioner.chat.relevance import (
+    ClassificationLabel,
+    LLMAnswerRelevanceClassifier,
+)
 from pixie_questioner.chat_service import ChatService
 from pixie_questioner.config import load_domain_profile
 from pixie_questioner.notulist import QuestionnaireNotulist
@@ -48,9 +51,9 @@ class StubRelevanceClassifier:
         self.responses = list(responses)
         self.calls = []
 
-    async def is_on_topic(
+    async def classify(
         self, current_question: str, current_answer: str, questionnaire: str
-    ) -> bool:
+    ) -> ClassificationLabel:
         await asyncio.sleep(0)
         self.calls.append((current_question, current_answer, questionnaire))
         if not self.responses:
@@ -354,12 +357,13 @@ def test_ask_returns_summary_when_questionnaire_complete():
     assert question_llm.calls == []
 
 
-def test_ask_returns_goodbye_on_stop_intent_without_summary_or_feedback():
+def test_ask_enters_feedback_flow_on_stop_classification():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(
-        ["0. Initial user question: []\n1. Occasion, Vibe, Setting: []"]
+        ["0. Initial user question: Hulp\n1. Occasion, Vibe, Setting: []"]
     )
-    summarizer_llm = FakeLLM(["Eind samenvatting"])
+    summarizer_llm = FakeLLM(["Klant wil stoppen."])
+    relevance_classifier = StubRelevanceClassifier(["stop"])
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -367,13 +371,14 @@ def test_ask_returns_goodbye_on_stop_intent_without_summary_or_feedback():
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
         domain_policy=_DEFAULT_POLICY,
+        answer_relevance_classifier=relevance_classifier,
     )
 
     result = asyncio.run(
         service.ask(
             current_answer="Ik wil stoppen",
             state={
-                "questionnaire": "Prev []",
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
                 "summary": "Prev summary",
                 "last_question": "AI question",
             },
@@ -381,24 +386,31 @@ def test_ask_returns_goodbye_on_stop_intent_without_summary_or_feedback():
     )
 
     assert result.response_type == "answer"
-    assert result.text in [*GOODBYE_NL, *GOODBYE_EN, *GOODBYE_FR]
-    assert result.follow_up_question is None
-    assert result.summary is None
-    assert result.state["phase"] == "terminated"
+    assert result.text in [*HANDOFF_NL, *HANDOFF_EN, *HANDOFF_FR]
+    assert result.follow_up_question is not None
+    assert result.summary == "Klant wil stoppen."
+    assert result.state["phase"] == "awaiting_feedback"
     assert result.state["feedback_status"] == "pending"
-    assert result.state["final_summary"] == ""
     assert result.state["boundary_violation_count"] == "0"
-    assert result.state["post_summary_language"] in {"nl", "en", "fr"}
-    assert result.quick_replies is None
-    assert question_llm.calls == []
-    assert notulist_llm.calls == []
-    assert summarizer_llm.calls == []
+    assert result.quick_replies is not None
+    assert len(question_llm.calls) == 0
+    assert len(notulist_llm.calls) == 1
+    assert len(summarizer_llm.calls) == 1
+    assert len(relevance_classifier.calls) == 1
 
 
-def test_ask_returns_goodbye_on_stop_intent_with_polite_suffix():
+def test_ask_stop_classification_runs_notulist_and_summarizer():
     question_llm = FakeLLM(["Should not be used"])
-    notulist_llm = FakeLLM(["Should not be used"])
-    summarizer_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Initial user question: Slim fit blauw\n"
+            "1. Occasion, Vibe, Setting: [casual]"
+        ]
+    )
+    summarizer_llm = FakeLLM(
+        ["Klant zoekt een casual slim fit blauwe jeans en wil stoppen."]
+    )
+    relevance_classifier = StubRelevanceClassifier(["stop"])
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -406,11 +418,12 @@ def test_ask_returns_goodbye_on_stop_intent_with_polite_suffix():
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=QUESTIONNAIRE_TEMPLATE,
         domain_policy=_DEFAULT_POLICY,
+        answer_relevance_classifier=relevance_classifier,
     )
 
     result = asyncio.run(
         service.ask(
-            current_answer="Ik wil stoppen aub",
+            current_answer="Dat is alles, gewoon een blauwe slim fit",
             state={
                 "questionnaire": QUESTIONNAIRE_TEMPLATE,
                 "summary": "",
@@ -420,53 +433,9 @@ def test_ask_returns_goodbye_on_stop_intent_with_polite_suffix():
     )
 
     assert result.response_type == "answer"
-    assert result.text in [*GOODBYE_NL, *GOODBYE_EN, *GOODBYE_FR]
-    assert result.state["phase"] == "terminated"
-    assert result.summary is None
-    assert result.follow_up_question is None
-    assert result.quick_replies is None
-    assert len(question_llm.calls) == 0
-    assert len(notulist_llm.calls) == 0
-    assert len(summarizer_llm.calls) == 0
-
-
-def test_ask_does_not_treat_descriptive_enough_as_stop_intent():
-    question_llm = FakeLLM(["Welke kleur heeft je voorkeur?"])
-    notulist_llm = FakeLLM(
-        ["0. Initial user question: Ik zoek een broek\n1. Occasion, Vibe, Setting: []"]
-    )
-    summarizer_llm = FakeLLM(
-        ["De klant wil een broek die lang genoeg is en niet te strak."]
-    )
-    service = ChatService(
-        llm=question_llm,
-        question_asker_prompt="PROMPT {summary} {completion_token}",
-        notulist=_make_notulist(notulist_llm),
-        summarizer=_make_summarizer(summarizer_llm),
-        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
-        domain_policy=_DEFAULT_POLICY,
-    )
-
-    result = asyncio.run(
-        service.ask(
-            current_answer="Lang genoeg en niet te strak aan de benen",
-            state={
-                "questionnaire": QUESTIONNAIRE_TEMPLATE,
-                "summary": "",
-                "last_question": "Wat zijn de belangrijkste aspecten?",
-            },
-        )
-    )
-
-    assert result.response_type == "answer"
-    assert result.text == "Welke kleur heeft je voorkeur?"
-    assert result.state["phase"] == "intake"
-    assert result.state["feedback_status"] == "pending"
-    assert result.state["boundary_violation_count"] == "0"
-    assert result.summary is None
-    assert result.follow_up_question is None
-    assert result.quick_replies is None
-    assert len(question_llm.calls) == 1
+    assert result.text in [*HANDOFF_NL, *HANDOFF_EN, *HANDOFF_FR]
+    assert result.summary is not None
+    assert result.state["phase"] == "awaiting_feedback"
     assert len(notulist_llm.calls) == 1
     assert len(summarizer_llm.calls) == 1
 
@@ -477,7 +446,7 @@ def test_ask_skips_relevance_classifier_for_initial_question_placeholder():
         ["0. Initial user question: Graag hulp\n1. Occasion, Vibe, Setting: []"]
     )
     summarizer_llm = FakeLLM(["De klant wil hulp bij het kiezen van een jeans."])
-    relevance_classifier = StubRelevanceClassifier([False])
+    relevance_classifier = StubRelevanceClassifier(["off_topic"])
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -512,7 +481,7 @@ def test_ask_terminates_after_repeated_boundary_violations():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(["Should not be used"])
     summarizer_llm = FakeLLM(["Should not be used"])
-    relevance_classifier = StubRelevanceClassifier([False, False])
+    relevance_classifier = StubRelevanceClassifier(["off_topic", "off_topic"])
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -567,7 +536,7 @@ def test_ask_uses_dutch_off_topic_redirect_for_short_uncertain_answer(monkeypatc
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(["Should not be used"])
     summarizer_llm = FakeLLM(["Should not be used"])
-    relevance_classifier = StubRelevanceClassifier([False])
+    relevance_classifier = StubRelevanceClassifier(["off_topic"])
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -616,14 +585,31 @@ def test_llm_answer_relevance_classifier_parses_off_topic_label():
     )
 
     result = asyncio.run(
-        classifier.is_on_topic(
+        classifier.classify(
             current_question="Voor welke gelegenheid zoek je een jeans?",
             current_answer="Ik moet naar het toilet",
             questionnaire=QUESTIONNAIRE_TEMPLATE,
         )
     )
 
-    assert result is False
+    assert result == "off_topic"
+
+
+def test_llm_answer_relevance_classifier_parses_stop_label():
+    classifier = LLMAnswerRelevanceClassifier(
+        llm=FakeLLM(["STOP"]),
+        system_prompt_template=_CLASSIFIER_PROMPT,
+    )
+
+    result = asyncio.run(
+        classifier.classify(
+            current_question="Welke pasvorm zoek je?",
+            current_answer="Ik wil stoppen",
+            questionnaire=QUESTIONNAIRE_TEMPLATE,
+        )
+    )
+
+    assert result == "stop"
 
 
 def test_llm_answer_relevance_classifier_defaults_to_on_topic_when_label_missing():
@@ -633,14 +619,14 @@ def test_llm_answer_relevance_classifier_defaults_to_on_topic_when_label_missing
     )
 
     result = asyncio.run(
-        classifier.is_on_topic(
+        classifier.classify(
             current_question="Welke pasvorm zoek je?",
             current_answer="Misschien slim fit",
             questionnaire=QUESTIONNAIRE_TEMPLATE,
         )
     )
 
-    assert result is True
+    assert result == "on_topic"
 
 
 def test_llm_answer_relevance_classifier_defaults_to_on_topic_when_labels_conflict():
@@ -650,14 +636,14 @@ def test_llm_answer_relevance_classifier_defaults_to_on_topic_when_labels_confli
     )
 
     result = asyncio.run(
-        classifier.is_on_topic(
+        classifier.classify(
             current_question="Kan ik je helpen bij het vinden van een jeans?",
             current_answer="Ja graag",
             questionnaire=QUESTIONNAIRE_TEMPLATE,
         )
     )
 
-    assert result is True
+    assert result == "on_topic"
 
 
 def test_llm_answer_relevance_classifier_defaults_to_on_topic_for_negated_off_topic():
@@ -667,14 +653,14 @@ def test_llm_answer_relevance_classifier_defaults_to_on_topic_for_negated_off_to
     )
 
     result = asyncio.run(
-        classifier.is_on_topic(
+        classifier.classify(
             current_question="Kan ik je helpen bij het vinden van een jeans?",
             current_answer="Graag",
             questionnaire=QUESTIONNAIRE_TEMPLATE,
         )
     )
 
-    assert result is True
+    assert result == "on_topic"
 
 
 def test_ask_stores_feedback_response_in_state():
@@ -972,47 +958,13 @@ def test_ask_uses_custom_handoff_line_from_domain_policy():
     ]
 
 
-def test_ask_uses_custom_stop_phrase_configuration():
-    question_llm = FakeLLM(["Should not be used"])
-    notulist_llm = FakeLLM(["Should not be used"])
-    summarizer_llm = FakeLLM(["Should not be used"])
-    custom_policy = _replace_policy(
-        stop_phrases=("please close",),
-        stop_context_tokens=frozenset({"please", "close", "now"}),
-        goodbye_lines={"en": ("Custom goodbye",)},
-    )
-    service = ChatService(
-        llm=question_llm,
-        question_asker_prompt="PROMPT {summary} {completion_token}",
-        notulist=_make_notulist(notulist_llm),
-        summarizer=_make_summarizer(summarizer_llm),
-        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
-        domain_policy=custom_policy,
-    )
-
-    result = asyncio.run(
-        service.ask(
-            current_answer="please close now",
-            state={
-                "questionnaire": QUESTIONNAIRE_TEMPLATE,
-                "summary": "",
-                "last_question": "Any question",
-            },
-        )
-    )
-
-    assert result.response_type == "answer"
-    assert result.text == "Custom goodbye"
-    assert result.state["phase"] == "terminated"
-    assert len(notulist_llm.calls) == 0
-    assert len(summarizer_llm.calls) == 0
-
-
 def test_ask_respects_custom_off_topic_termination_threshold():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(["Should not be used"])
     summarizer_llm = FakeLLM(["Should not be used"])
-    relevance_classifier = StubRelevanceClassifier([False, False, False])
+    relevance_classifier = StubRelevanceClassifier(
+        ["off_topic", "off_topic", "off_topic"]
+    )
     custom_policy = _replace_policy(off_topic_termination_threshold=3)
     service = ChatService(
         llm=question_llm,

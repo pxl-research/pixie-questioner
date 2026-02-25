@@ -88,8 +88,6 @@ quick_replies:
 tokens:
   feedback_yes: ["ja", "yes", "oui"]
   feedback_no: ["nee", "no", "non"]
-  stop_phrases: ["stop", "that's all"]
-  stop_context_tokens: ["please", "thanks", "ok"]
 behavior:
   completion_token: "READY"
   off_topic_termination_threshold: 3
