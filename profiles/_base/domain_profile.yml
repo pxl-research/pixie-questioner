@@ -68,6 +68,7 @@ tokens:
   feedback_no: ["nee", "no", "non", "n", "nein"]
 
 prompts:
+  questionnaire_notulist_path: questionnaire_notulist.txt
   relevance_classifier_path: relevance_classifier.txt
 
 behavior:

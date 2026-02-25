@@ -1,9 +1,9 @@
-Extract and update the user's denim preferences into a structured summary.
+Extract and update the user's {topic} preferences into a structured summary.
 If the user does not know a field, declines or gives a partial answer: still write it in.
 Formulate in a gender-neutral way.
 
 Topic:
-* denim, jeans, legware, clothing
+* {topic}
 
 Domain Guardrail:
 * You are specialist on your topic ONLY.

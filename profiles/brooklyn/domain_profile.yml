@@ -14,7 +14,6 @@ variables:
 
 prompts:
   question_asker_path: question_asker.txt
-  questionnaire_notulist_path: questionnaire_notulist.txt
   questionnaire_template_path: questionnaire_template.txt
 
 term_replacements:
