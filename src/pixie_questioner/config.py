@@ -109,7 +109,7 @@ class DomainProfileLanguages(BaseModel):
 
 class DomainProfilePrompts(BaseModel):
     question_asker_path: str
-    questionnaire_notulist_path: str
+    questionnaire_notulist_path: str = Field(default="")
     questionnaire_template_path: str
     relevance_classifier_path: str = Field(default="")
 
@@ -299,9 +299,17 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
     question_asker_prompt = load_prompt(
         _resolve_prompt_path(profile_dir, prompt_paths.question_asker_path)
     )
-    questionnaire_notulist_prompt = load_prompt(
-        _resolve_prompt_path(profile_dir, prompt_paths.questionnaire_notulist_path)
-    )
+    # Resolve questionnaire_notulist_path: domain dir first, then base dir.
+    notulist_path = prompt_paths.questionnaire_notulist_path
+    if notulist_path:
+        notulist_candidate = _resolve_prompt_path(profile_dir, notulist_path)
+        if not notulist_candidate.exists() and base_dir is not None:
+            notulist_candidate = _resolve_prompt_path(base_dir, notulist_path)
+    else:
+        notulist_candidate = _resolve_prompt_path(
+            profile_dir, "questionnaire_notulist.txt"
+        )
+    questionnaire_notulist_prompt = load_prompt(notulist_candidate)
     questionnaire_template = load_prompt(
         _resolve_prompt_path(profile_dir, prompt_paths.questionnaire_template_path)
     )
@@ -325,6 +333,9 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         }
         relevance_classifier_prompt = _substitute_variables(
             relevance_classifier_prompt, en_vars
+        )
+        questionnaire_notulist_prompt = _substitute_variables(
+            questionnaire_notulist_prompt, en_vars
         )
 
     normalized_base = tuple(
