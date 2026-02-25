@@ -369,9 +369,10 @@ def test_profile_notulist_prompt_resolves_topic_from_base(tmp_path: Path) -> Non
     assert "{summary}" in profile.questionnaire_notulist_prompt
     assert "{current_question}" in profile.questionnaire_notulist_prompt
 
-    # {questionnaire_template} replaced with actual template content
+    # {questionnaire_template} replaced with field names only (no ': []')
     assert "{questionnaire_template}" not in profile.questionnaire_notulist_prompt
-    assert "0. Initial user question: []" in profile.questionnaire_notulist_prompt
+    assert "0. Initial user question" in profile.questionnaire_notulist_prompt
+    assert ": []" not in profile.questionnaire_notulist_prompt
 
 
 def test_profile_domain_overrides_base_values(tmp_path: Path) -> None:

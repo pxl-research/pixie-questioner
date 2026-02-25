@@ -314,11 +314,14 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         _resolve_prompt_path(profile_dir, prompt_paths.questionnaire_template_path)
     )
 
-    # Inject questionnaire field structure into the notulist prompt so the LLM
-    # always has the original schema as reference.
+    # Inject questionnaire field names into the notulist prompt so the LLM
+    # knows which fields exist.  Strip the ": []" suffixes so the empty
+    # brackets are not echoed back as default values — the actual current
+    # state already arrives via the {summary} placeholder at runtime.
     if "{questionnaire_template}" in questionnaire_notulist_prompt:
+        field_names_only = re.sub(r":\s*\[\]", "", questionnaire_template.strip())
         questionnaire_notulist_prompt = questionnaire_notulist_prompt.replace(
-            "{questionnaire_template}", questionnaire_template.strip()
+            "{questionnaire_template}", field_names_only
         )
 
     # Resolve relevance_classifier_path: domain dir first, then base dir.
