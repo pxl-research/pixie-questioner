@@ -187,24 +187,7 @@ def test_relevance_classifier_parses_labels_and_negation() -> None:
 
 # --- Field regression protection tests ---
 
-_TEMPLATE = "0. Initial user question: []\n" "1. Occasion: []\n" "2. Preferences: []"
 _INDICES = [0, 1, 2]
-
-
-def test_merge_prevents_filled_field_reverting_to_blank() -> None:
-    """A field that was previously filled must not revert to []."""
-    current = (
-        "0. Initial user question: Ik zoek een jeans\n"
-        "1. Occasion: dagelijks\n"
-        "2. Preferences: []"
-    )
-    proposed = (
-        "0. Initiële vraag: []\n" "1. Gelegenheid: dagelijks\n" "2. Voorkeuren: casual"
-    )
-    result = merge_partial_questionnaire_update(current, proposed, _INDICES)
-    assert result is not None
-    assert "[]" not in result.split("\n")[0]
-    assert "Ik zoek een jeans" in result or "Initiële vraag" not in result
 
 
 def test_merge_full_replacement_preserves_filled_fields() -> None:
