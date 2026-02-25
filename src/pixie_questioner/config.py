@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -197,7 +198,60 @@ class DomainProfileFile(BaseModel):
         return self
 
 
-def load_domain_profile(path: Path) -> ResolvedDomainProfile:
+_VARIABLE_PATTERN = re.compile(r"\{(\w+)\}")
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Deep-merge *override* into *base*. Override values take precedence."""
+    merged = base.copy()
+    for key, value in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _substitute_variables(text: str, variables: dict[str, str]) -> str:
+    """Replace ``{var}`` placeholders whose key exists in *variables*.
+
+    Unknown placeholders (e.g. runtime ``{question}``) are left intact.
+    """
+
+    def _replacer(match: re.Match[str]) -> str:
+        key = match.group(1)
+        return variables.get(key, match.group(0))
+
+    return _VARIABLE_PATTERN.sub(_replacer, text)
+
+
+def _resolve_message_variables(
+    messages: dict[str, Any],
+    variables: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    """Resolve ``{var}`` placeholders in message strings using localized variables."""
+    resolved: dict[str, Any] = {}
+    for msg_key, localized in messages.items():
+        if not isinstance(localized, dict):
+            resolved[msg_key] = localized
+            continue
+        resolved[msg_key] = {}
+        for lang, lines in localized.items():
+            lang_vars = {
+                var_name: lang_values.get(lang, lang_values.get("en", ""))
+                for var_name, lang_values in variables.items()
+            }
+            if isinstance(lines, list):
+                resolved[msg_key][lang] = [
+                    _substitute_variables(line, lang_vars) for line in lines
+                ]
+            else:
+                resolved[msg_key][lang] = lines
+    return resolved
+
+
+def _load_yaml_file(path: Path) -> dict[str, Any]:
+    """Load and parse a YAML file, returning the raw dict."""
     resolved_path = path.expanduser()
     try:
         raw_yaml = resolved_path.read_text(encoding="utf-8")
@@ -210,6 +264,27 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         raise RuntimeError(f"Invalid domain profile YAML: {path}") from exc
     if not isinstance(loaded, dict):
         raise RuntimeError(f"Invalid domain profile YAML: {path}")
+    return loaded
+
+
+def load_domain_profile(path: Path) -> ResolvedDomainProfile:
+    resolved_path = path.expanduser()
+    loaded = _load_yaml_file(resolved_path)
+
+    # Handle profile inheritance via ``extends``.
+    extends = loaded.pop("extends", None)
+    variables: dict[str, dict[str, str]] = loaded.pop("variables", {})
+
+    if extends:
+        base_path = (resolved_path.resolve().parent / extends).resolve()
+        base_loaded = _load_yaml_file(base_path)
+        base_loaded.pop("extends", None)
+        base_loaded.pop("variables", None)
+        loaded = _deep_merge(base_loaded, loaded)
+
+    # Resolve template variables in messages.
+    if variables and "messages" in loaded:
+        loaded["messages"] = _resolve_message_variables(loaded["messages"], variables)
 
     try:
         profile = DomainProfileFile.model_validate(loaded)

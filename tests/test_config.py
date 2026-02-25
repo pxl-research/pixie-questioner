@@ -174,3 +174,180 @@ def test_domain_profile_path_is_required(
     with pytest.raises(Exception):
         config.get_settings()
     config.get_settings.cache_clear()
+
+
+# --- Profile layering (extends + variables) tests ---
+
+
+def _write_base_profile(base_dir: Path) -> Path:
+    """Create a base profile YAML without prompts or term_replacements."""
+    base_dir.mkdir(parents=True, exist_ok=True)
+    profile_path = base_dir / "domain_profile.yml"
+    profile_path.write_text(
+        """
+version: 1
+languages:
+  base: [nl, en, fr]
+  extra: []
+  names:
+    nl: Dutch
+    en: English
+    fr: French
+messages:
+  handoff:
+    nl: ["handoff nl"]
+    en: ["handoff en"]
+    fr: ["handoff fr"]
+  feedback_question:
+    nl: ["feedback {visit_type} nl"]
+    en: ["feedback {visit_type} en"]
+    fr: ["feedback {visit_type} fr"]
+  feedback_thanks:
+    nl: ["thanks nl"]
+    en: ["thanks en"]
+    fr: ["thanks fr"]
+  goodbye:
+    nl: ["bye nl"]
+    en: ["bye en"]
+    fr: ["bye fr"]
+  off_topic_redirect:
+    nl: ["alleen {topic}: {question}"]
+    en: ["only {topic}: {question}"]
+    fr: ["seulement {topic}: {question}"]
+  off_topic_initial_question:
+    nl: ["help {topic} nl"]
+    en: ["help {topic} en"]
+    fr: ["help {topic} fr"]
+quick_replies:
+  nl:
+    - { label: "Ja", value: "yes" }
+    - { label: "Nee", value: "no" }
+  en:
+    - { label: "Yes", value: "yes" }
+    - { label: "No", value: "no" }
+  fr:
+    - { label: "Oui", value: "yes" }
+    - { label: "Non", value: "no" }
+tokens:
+  feedback_yes: ["ja", "yes", "oui"]
+  feedback_no: ["nee", "no", "non"]
+behavior:
+  completion_token: "BASE_TOKEN"
+  off_topic_termination_threshold: 2
+""".strip(),
+        encoding="utf-8",
+    )
+    return profile_path
+
+
+def _write_domain_profile_with_extends(domain_dir: Path, base_relative: str) -> Path:
+    """Create a domain profile that extends a base and adds domain-specific parts."""
+    domain_dir.mkdir(parents=True, exist_ok=True)
+    (domain_dir / "question_asker.txt").write_text("asker {summary}", encoding="utf-8")
+    (domain_dir / "questionnaire_notulist.txt").write_text(
+        "notulist {summary} {current_question} {current_answer}", encoding="utf-8"
+    )
+    (domain_dir / "questionnaire_template.txt").write_text(
+        "0. Initial user question: []", encoding="utf-8"
+    )
+    (domain_dir / "relevance_classifier.txt").write_text(
+        "Classify {current_question} and {current_answer}", encoding="utf-8"
+    )
+
+    profile_path = domain_dir / "domain_profile.yml"
+    profile_path.write_text(
+        f"""
+version: 1
+extends: {base_relative}
+variables:
+  topic:
+    nl: jeansbroeken
+    en: jeans
+    fr: jeans
+  visit_type:
+    nl: winkelbezoek
+    en: store visit
+    fr: visite en magasin
+prompts:
+  question_asker_path: question_asker.txt
+  questionnaire_notulist_path: questionnaire_notulist.txt
+  questionnaire_template_path: questionnaire_template.txt
+  relevance_classifier_path: relevance_classifier.txt
+term_replacements:
+  nl:
+    snit: pasvorm
+""".strip(),
+        encoding="utf-8",
+    )
+    return profile_path
+
+
+def test_profile_extends_merges_base_and_domain(tmp_path: Path) -> None:
+    base_dir = tmp_path / "_base"
+    domain_dir = tmp_path / "brooklyn"
+    _write_base_profile(base_dir)
+    _write_domain_profile_with_extends(domain_dir, "../_base/domain_profile.yml")
+
+    profile = config.load_domain_profile(domain_dir / "domain_profile.yml")
+
+    # Inherited from base
+    assert profile.language_codes == ("nl", "en", "fr")
+    assert profile.completion_token == "BASE_TOKEN"
+    assert profile.off_topic_termination_threshold == 2
+    assert profile.feedback_yes_tokens == frozenset({"ja", "yes", "oui"})
+
+    # Domain-specific
+    assert profile.question_asker_prompt == "asker {summary}"
+    assert profile.questionnaire_template == "0. Initial user question: []"
+    assert profile.term_replacements == {"nl": (("snit", "pasvorm"),)}
+
+
+def test_profile_variables_resolve_in_messages(tmp_path: Path) -> None:
+    base_dir = tmp_path / "_base"
+    domain_dir = tmp_path / "brooklyn"
+    _write_base_profile(base_dir)
+    _write_domain_profile_with_extends(domain_dir, "../_base/domain_profile.yml")
+
+    profile = config.load_domain_profile(domain_dir / "domain_profile.yml")
+    policy = profile.chat_domain_policy
+
+    # {topic} resolved, {question} kept as runtime placeholder
+    assert policy.off_topic_redirects["nl"] == ("alleen jeansbroeken: {question}",)
+    assert policy.off_topic_redirects["en"] == ("only jeans: {question}",)
+    assert policy.off_topic_redirects["fr"] == ("seulement jeans: {question}",)
+
+    # {visit_type} resolved
+    assert policy.feedback_questions["nl"] == ("feedback winkelbezoek nl",)
+    assert policy.feedback_questions["en"] == ("feedback store visit en",)
+    assert policy.feedback_questions["fr"] == ("feedback visite en magasin fr",)
+
+    # {topic} resolved in initial question
+    assert policy.off_topic_initial_questions["nl"] == ("help jeansbroeken nl",)
+    assert policy.off_topic_initial_questions["en"] == ("help jeans en",)
+
+
+def test_profile_without_extends_still_works(tmp_path: Path) -> None:
+    """A standalone profile without extends must keep working."""
+    profile_path = _write_default_profile_assets(tmp_path)
+    profile = config.load_domain_profile(profile_path)
+
+    assert profile.language_codes == ("nl", "en", "fr", "de")
+    assert profile.completion_token == "READY"
+
+
+def test_profile_domain_overrides_base_values(tmp_path: Path) -> None:
+    base_dir = tmp_path / "_base"
+    domain_dir = tmp_path / "shop"
+    _write_base_profile(base_dir)
+    _write_domain_profile_with_extends(domain_dir, "../_base/domain_profile.yml")
+
+    # Override behavior in domain profile
+    domain_profile_path = domain_dir / "domain_profile.yml"
+    content = domain_profile_path.read_text(encoding="utf-8")
+    content += "\nbehavior:\n  completion_token: SHOP_DONE\n  off_topic_termination_threshold: 5\n"
+    domain_profile_path.write_text(content, encoding="utf-8")
+
+    profile = config.load_domain_profile(domain_profile_path)
+
+    assert profile.completion_token == "SHOP_DONE"
+    assert profile.off_topic_termination_threshold == 5
