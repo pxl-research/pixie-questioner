@@ -11,10 +11,8 @@ from pydantic import ValidationError
 
 from pixie_questioner.audit_client import AuditClient
 from pixie_questioner.azure_openai_llm import AzureOpenAILLM
-from pixie_questioner.chat_service import (
-    ChatService,
-    LLMAnswerRelevanceClassifier,
-)
+from pixie_questioner.chat.relevance import LLMAnswerRelevanceClassifier
+from pixie_questioner.chat_service import ChatService
 from pixie_questioner.config import get_settings
 from pixie_questioner.notulist import QuestionnaireNotulist
 from pixie_questioner.schemas import (
@@ -34,6 +32,7 @@ from pixie_questioner.summarizer import ConversationSummarizer
 logger = logging.getLogger(__name__)
 
 settings = get_settings()
+domain_profile = settings.domain_profile
 llm = AzureOpenAILLM(
     api_version=settings.advanced_azure_openai_api_version,
     api_endpoint=settings.azure_openai_endpoint,
@@ -41,29 +40,24 @@ llm = AzureOpenAILLM(
     model_version=settings.advanced_azure_openai_model,
     temperature=settings.advanced_azure_openai_temperature,
 )
-summarizer_prompt = settings.summarizer_prompt
-if summarizer_prompt:
-    summarizer = ConversationSummarizer(
-        llm=llm,
-        system_prompt_template=summarizer_prompt,
-    )
-else:
-    summarizer = ConversationSummarizer(llm=llm)
-notulist_prompt = settings.questionnaire_notulist_prompt
-if notulist_prompt is None:
-    raise RuntimeError("QUESTIONNAIRE_NOTULIST_PROMPT_PATH must be set.")
 notulist = QuestionnaireNotulist(
     llm=llm,
-    system_prompt_template=notulist_prompt,
+    system_prompt_template=domain_profile.questionnaire_notulist_prompt,
+)
+summarizer = ConversationSummarizer(
+    llm=llm,
 )
 chat_service = ChatService(
     llm=llm,
-    question_asker_prompt=settings.system_prompt,
+    question_asker_prompt=domain_profile.question_asker_prompt,
     notulist=notulist,
     summarizer=summarizer,
-    questionnaire_template=settings.questionnaire_template,
-    completion_token=settings.completion_token,
-    answer_relevance_classifier=LLMAnswerRelevanceClassifier(llm=llm),
+    questionnaire_template=domain_profile.questionnaire_template,
+    domain_policy=domain_profile.chat_domain_policy,
+    answer_relevance_classifier=LLMAnswerRelevanceClassifier(
+        llm=llm,
+        system_prompt_template=domain_profile.relevance_classifier_prompt,
+    ),
 )
 audit_client: AuditClient | None = None
 if settings.audit_api_url:

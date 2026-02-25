@@ -56,23 +56,20 @@ Set environment variables in `.env.dev`:
 - `ADVANCED_AZURE_OPENAI_API_VERSION`
 - `ADVANCED_AZURE_OPENAI_MODEL`
 - `ADVANCED_AZURE_OPENAI_TEMPERATURE`
-- `SYSTEM_PROMPT_PATH`
-- `SUMMARIZER_PROMPT_PATH` (optional)
-- `QUESTIONNAIRE_NOTULIST_PROMPT_PATH`
-- `QUESTIONNAIRE_TEMPLATE_PATH`
-- `COMPLETION_TOKEN` (optional)
+- `DOMAIN_PROFILE_PATH`
 - `AUDIT_API_URL` (optional)
 - `AUDIT_API_KEY` (optional)
 - `AUDIT_PROFILE` (optional)
 - `AUDIT_TIMEOUT_SECONDS` (optional, default 5)
 
-`system_prompt` is loaded from the file pointed to by `SYSTEM_PROMPT_PATH` (store this file outside the repo).
-`summarizer_prompt` is loaded from `SUMMARIZER_PROMPT_PATH` when provided.
-`questionnaire_notulist_prompt` is loaded from `QUESTIONNAIRE_NOTULIST_PROMPT_PATH`.
-`questionnaire_template` is loaded from `QUESTIONNAIRE_TEMPLATE_PATH` and used to seed the first turn.
-`COMPLETION_TOKEN` is only used to fill/strip the question-asker prompt placeholder; summary generation
-is triggered by the orchestrator logic, not by a model-emitted token.
-`QUESTIONNAIRE_NOTULIST_PROMPT_PATH` must be set for the API to start.
+`DOMAIN_PROFILE_PATH` points to a YAML domain profile that defines:
+- prompt file paths (question asker, notulist, template, summarizer, relevance classifier)
+- localized runtime copy (handoff, feedback, off-topic, goodbye)
+- quick replies and normalization tokens
+- stop detection phrases/context tokens
+- behavior knobs (`completion_token`, off-topic threshold)
+
+Prompt paths inside the profile can be absolute or relative to the profile file directory.
 If `AUDIT_API_URL` is set, the service posts interaction events to `/events` using `AUDIT_PROFILE`
 as the required profile value and `AUDIT_API_KEY` for the `X-API-Key` header when provided.
 

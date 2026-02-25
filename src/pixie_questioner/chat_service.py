@@ -2,283 +2,52 @@
 
 from __future__ import annotations
 
-import random
 import re
 from dataclasses import dataclass
-from typing import Protocol
 
-from langdetect import DetectorFactory, detect_langs
-from langdetect.lang_detect_exception import LangDetectException
-
+from .chat.language import (
+    build_language_instruction,
+    detect_language,
+    detect_preferred_language,
+)
+from .chat.messages import (
+    build_feedback_quick_replies,
+    build_off_topic_redirect,
+    choose_localized_message,
+    normalize_feedback_response,
+    simplify_technical_terms,
+)
+from .chat.policy import ChatDomainPolicy
+from .chat.relevance import (
+    AnswerRelevanceClassifierProtocol,
+    LLMClientProtocol,
+)
+from .chat.state_codec import (
+    extract_questionnaire_indices,
+    is_valid_questionnaire,
+    parse_state,
+    serialize_state,
+)
+from .chat.stop_detection import (
+    build_stop_phrase_token_sequences,
+    user_requested_stop,
+)
+from .chat.types import (
+    FEEDBACK_NO,
+    FEEDBACK_PENDING,
+    FEEDBACK_YES,
+    INITIAL_QUESTION,
+    PHASE_AWAITING_FEEDBACK,
+    PHASE_COMPLETED,
+    PHASE_INTAKE,
+    PHASE_TERMINATED,
+    ChatResult,
+    ChatState,
+)
 from .notulist import QuestionnaireNotulist
 from .summarizer import ConversationSummarizer
 
-DEFAULT_COMPLETION_TOKEN = "PIXIE_SUMMARY_READY"
 _COMPLETION_STRIP_CHARS = " \t\n\r\"'`.,:;!?()[]{}<>"
-_INITIAL_QUESTION = "Initial question:"
-_SUPPORTED_LANGUAGE_CODES = {"nl", "en", "fr"}
-_SUPPORTED_LANGUAGE_PRIORITY = {"nl": 0, "en": 1, "fr": 2}
-_SUPPORTED_LANGUAGE_NAMES = {
-    "nl": "Dutch",
-    "en": "English",
-    "fr": "French",
-}
-_SUPPORTED_LANGUAGE_CLOSE_MARGIN = 0.15
-_OTHER_LANGUAGE_STRONG_PROBABILITY = 0.85
-_OTHER_LANGUAGE_MIN_WORDS = 4
-_SUPPORTED_NON_DUTCH_STRONG_PROBABILITY = 0.85
-_SUPPORTED_NON_DUTCH_MIN_WORDS = 4
-_PHASE_INTAKE = "intake"
-_PHASE_AWAITING_FEEDBACK = "awaiting_feedback"
-_PHASE_COMPLETED = "completed"
-_PHASE_TERMINATED = "terminated"
-_VALID_PHASES = {
-    _PHASE_INTAKE,
-    _PHASE_AWAITING_FEEDBACK,
-    _PHASE_COMPLETED,
-    _PHASE_TERMINATED,
-}
-_FEEDBACK_PENDING = "pending"
-_FEEDBACK_YES = "yes"
-_FEEDBACK_NO = "no"
-_VALID_FEEDBACK_STATUSES = {_FEEDBACK_PENDING, _FEEDBACK_YES, _FEEDBACK_NO}
-DetectorFactory.seed = 0
-HANDOFF_NL = [
-    "Dank je wel, dit geeft al een duidelijk beeld naar wat je op zoek bent:",
-]
-HANDOFF_EN = [
-    "Thanks. This gives a clear picture of what you're looking for: ",
-]
-HANDOFF_FR = [
-    "Merci. Cela donne une idée claire de ce que vous recherchez: ",
-]
-FEEDBACK_QUESTION_NL = [
-    "Zou je deze assistent bij een volgend winkelbezoek opnieuw gebruiken? (ja/nee)",
-]
-FEEDBACK_QUESTION_EN = [
-    "Would you use this assistant again on a future store visit? (yes/no)",
-]
-FEEDBACK_QUESTION_FR = [
-    "Utiliseriez-vous a nouveau cet assistant lors d'une prochaine visite en magasin ? (oui/non)",
-]
-FEEDBACK_THANKS_NL = [
-    "Bedankt voor je feedback.",
-]
-FEEDBACK_THANKS_EN = [
-    "Thanks for your feedback.",
-]
-FEEDBACK_THANKS_FR = [
-    "Merci pour votre retour.",
-]
-GOODBYE_NL = [
-    "Dank je wel. Ik rond het gesprek hier af. Veel succes met je keuze.",
-]
-GOODBYE_EN = [
-    "Thanks. I'll close the conversation here. Good luck with your choice.",
-]
-GOODBYE_FR = [
-    "Merci. Je vais cloturer la conversation ici. Bonne chance pour votre choix.",
-]
-OFF_TOPIC_REDIRECT_NL = [
-    "Ik kan je alleen helpen met jeansbroeken. Kun je deze vraag beantwoorden: {question}",
-]
-OFF_TOPIC_REDIRECT_EN = [
-    "I can only help with jeans. Could you answer this question: {question}",
-]
-OFF_TOPIC_REDIRECT_FR = [
-    "Je peux seulement vous aider avec des jeans. Pouvez-vous repondre a cette question: {question}",
-]
-OFF_TOPIC_INITIAL_QUESTION_NL = [
-    "Kan ik je helpen bij het uitzoeken welk type jeansbroek bij je past?",
-]
-OFF_TOPIC_INITIAL_QUESTION_EN = [
-    "Can I help you find which type of jeans fits you best?",
-]
-OFF_TOPIC_INITIAL_QUESTION_FR = [
-    "Puis-je vous aider a trouver le type de jean qui vous convient le mieux ?",
-]
-_FEEDBACK_YES_TOKENS = {"ja", "yes", "oui", "zeker", "absoluut", "y", "si", "jaa"}
-_FEEDBACK_NO_TOKENS = {"nee", "no", "non", "n", "nein"}
-_OFF_TOPIC_TERMINATION_THRESHOLD = 2
-_STOP_PHRASES = (
-    "stop",
-    "stoppen",
-    "ik wil stoppen",
-    "ik ben klaar",
-    "klaar",
-    "genoeg",
-    "dat was het",
-    "dat is alles",
-    "dit is alles",
-    "niets meer",
-    "done",
-    "i am done",
-    "finished",
-    "that's all",
-    "that is all",
-    "that's it",
-    "that is it",
-    "no more",
-    "i want to stop",
-    "c'est tout",
-    "cest tout",
-    "j'ai fini",
-    "jai fini",
-    "fini",
-    "arrete",
-    "arreter",
-)
-_WORD_TOKEN_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ']+")
-_STOP_CONTEXT_TOKENS = {
-    "alsjeblieft",
-    "alstublieft",
-    "aub",
-    "please",
-    "pls",
-    "graag",
-    "merci",
-    "bedankt",
-    "thanks",
-    "thank",
-    "you",
-    "dank",
-    "je",
-    "u",
-    "ok",
-    "oke",
-    "okay",
-    "nu",
-    "dan",
-    "maar",
-    "svp",
-    "s'il",
-    "vous",
-    "plait",
-}
-_NL_TECHNICAL_TERM_REPLACEMENTS = (
-    ("snit", "pasvorm"),
-    ("silhouet", "vorm"),
-    ("indigo", "donkerblauw"),
-)
-
-
-def _tokenize_words(text: str) -> tuple[str, ...]:
-    return tuple(_WORD_TOKEN_PATTERN.findall(text.casefold()))
-
-
-_STOP_PHRASE_TOKEN_SEQUENCES: tuple[tuple[str, ...], ...] = tuple(
-    phrase_tokens
-    for phrase_tokens in (_tokenize_words(phrase) for phrase in _STOP_PHRASES)
-    if phrase_tokens
-)
-
-
-DEFAULT_RELEVANCE_CLASSIFIER_PROMPT = (
-    "You are a strict relevance classifier for a jeans-store assistant.\n"
-    "Decide if the customer's latest answer is a reasonable attempt to answer the assistant's latest question.\n"
-    "Use this context:\n"
-    "- The store only helps customers choose jeans.\n"
-    "- The assistant asks targeted intake questions to narrow down the right jeans.\n"
-    "- If the customer answer is clearly about unrelated topics, mark OFF_TOPIC.\n"
-    "- If the answer is a reasonable attempt, even if short or imperfect, mark ON_TOPIC.\n"
-    "- If unsure, mark ON_TOPIC.\n\n"
-    "Questionnaire context:\n"
-    "{questionnaire}\n\n"
-    "Assistant question:\n"
-    "{current_question}\n\n"
-    "Customer answer:\n"
-    "{current_answer}\n\n"
-    "Return exactly one label: ON_TOPIC or OFF_TOPIC."
-)
-
-
-class LLMClientProtocol(Protocol):
-    async def ainvoke(self, messages: list[dict[str, str]]): ...
-
-
-class AnswerRelevanceClassifierProtocol(Protocol):
-    async def is_on_topic(
-        self,
-        current_question: str,
-        current_answer: str,
-        questionnaire: str,
-    ) -> bool: ...
-
-
-@dataclass
-class LLMAnswerRelevanceClassifier:
-    llm: object
-    system_prompt_template: str = DEFAULT_RELEVANCE_CLASSIFIER_PROMPT
-
-    def _get_client(self) -> LLMClientProtocol:
-        if hasattr(self.llm, "ainvoke"):
-            return self.llm  # type: ignore[return-value]
-        model = getattr(self.llm, "model", None)
-        if model is None:
-            raise RuntimeError("LLM client is not configured.")
-        return model
-
-    def _extract_content(self, response: object) -> str:
-        content = getattr(response, "content", None)
-        if content is None:
-            content = str(response)
-        return content
-
-    def _parse_relevance_label(self, content: str) -> bool | None:
-        normalized = content.upper()
-        labels = re.findall(r"\b(ON_TOPIC|OFF_TOPIC)\b", normalized)
-        if not labels:
-            return None
-        if len(set(labels)) > 1:
-            return None
-        label = labels[0]
-        if re.search(r"\b(?:NOT|NO|NIET|GEEN|PAS|NE)\s+OFF_TOPIC\b", normalized):
-            return None
-        if re.search(r"\b(?:NOT|NO|NIET|GEEN|PAS|NE)\s+ON_TOPIC\b", normalized):
-            return None
-        return label == "ON_TOPIC"
-
-    async def is_on_topic(
-        self,
-        current_question: str,
-        current_answer: str,
-        questionnaire: str,
-    ) -> bool:
-        system_prompt = self.system_prompt_template.format(
-            questionnaire=questionnaire,
-            current_question=current_question,
-            current_answer=current_answer,
-        )
-        response = await self._get_client().ainvoke(
-            [{"role": "system", "content": system_prompt}]
-        )
-        content = self._extract_content(response)
-        parsed_label = self._parse_relevance_label(content)
-        if parsed_label is None:
-            return True
-        return parsed_label
-
-
-@dataclass(frozen=True)
-class ChatResult:
-    text: str
-    response_type: str
-    state: dict[str, str]
-    summary: str | None
-    follow_up_question: str | None = None
-    quick_replies: list[dict[str, str]] | None = None
-
-
-@dataclass
-class ChatState:
-    questionnaire: str = ""
-    summary: str = ""
-    last_question: str = _INITIAL_QUESTION
-    phase: str = _PHASE_INTAKE
-    feedback_status: str = _FEEDBACK_PENDING
-    final_summary: str = ""
-    post_summary_language: str = ""
-    boundary_violation_count: int = 0
 
 
 @dataclass
@@ -288,17 +57,58 @@ class ChatService:
     notulist: QuestionnaireNotulist
     summarizer: ConversationSummarizer
     questionnaire_template: str
-    completion_token: str = DEFAULT_COMPLETION_TOKEN
+    domain_policy: ChatDomainPolicy
     answer_relevance_classifier: AnswerRelevanceClassifierProtocol | None = None
 
     def __post_init__(self) -> None:
         if not self.questionnaire_template.strip():
             raise RuntimeError("Questionnaire template is required.")
-        self._questionnaire_indices = self._extract_questionnaire_indices(
+        self._questionnaire_indices = extract_questionnaire_indices(
             self.questionnaire_template
         )
         if not self._questionnaire_indices:
             raise RuntimeError("Questionnaire template must contain numbered fields.")
+        if self.domain_policy.off_topic_termination_threshold < 1:
+            raise RuntimeError(
+                "off_topic_termination_threshold must be greater than or equal to 1."
+            )
+
+        self._completion_token = self.domain_policy.completion_token
+        normalized_language_codes = tuple(
+            dict.fromkeys(
+                code.strip().casefold()
+                for code in self.domain_policy.language_codes
+                if code.strip()
+            )
+        )
+        if not normalized_language_codes:
+            raise RuntimeError(
+                "domain_policy.language_codes must include at least one language."
+            )
+
+        self._supported_language_codes = normalized_language_codes
+        self._supported_language_set = set(normalized_language_codes)
+        self._supported_language_priority = {
+            code: index for index, code in enumerate(normalized_language_codes)
+        }
+        self._default_language_code = (
+            "nl"
+            if "nl" in self._supported_language_set
+            else normalized_language_codes[0]
+        )
+        self._supported_language_names = {
+            code.strip().casefold(): name
+            for code, name in self.domain_policy.language_names.items()
+            if code.strip()
+        }
+        for language_code in self._supported_language_codes:
+            self._supported_language_names.setdefault(
+                language_code, language_code.upper()
+            )
+        self._supported_language_names.setdefault("en", "English")
+        self._stop_phrase_token_sequences = build_stop_phrase_token_sequences(
+            self.domain_policy.stop_phrases
+        )
 
     def _get_client(self) -> LLMClientProtocol:
         if hasattr(self.llm, "ainvoke"):
@@ -313,7 +123,7 @@ class ChatService:
         if "{summary}" in prompt:
             prompt = prompt.replace("{summary}", questionnaire)
         if "{completion_token}" in prompt:
-            prompt = prompt.replace("{completion_token}", self.completion_token)
+            prompt = prompt.replace("{completion_token}", self._completion_token)
         return prompt
 
     def _extract_content(self, response: object) -> str:
@@ -324,204 +134,78 @@ class ChatService:
 
     def _strip_completion_token(self, content: str) -> str:
         stripped = re.sub(
-            re.escape(self.completion_token), "", content, flags=re.IGNORECASE
+            re.escape(self._completion_token), "", content, flags=re.IGNORECASE
         )
         return stripped.strip(_COMPLETION_STRIP_CHARS)
 
     def _detect_language(self, text: str) -> str:
-        candidates = self._detect_language_candidates(text)
-        if not candidates:
-            return "nl"
-
-        for language_code, _ in candidates:
-            if language_code in _SUPPORTED_LANGUAGE_CODES:
-                return language_code
-        return "nl"
-
-    def _detect_language_candidates(self, text: str) -> list[tuple[str, float]]:
-        if not text.strip():
-            return []
-        try:
-            detected = detect_langs(text)
-        except LangDetectException:
-            return []
-        return [(candidate.lang, candidate.prob) for candidate in detected]
-
-    def _select_best_supported_language(
-        self, candidates: list[tuple[str, float]]
-    ) -> tuple[str, float] | None:
-        supported_candidates = [
-            (language_code, probability)
-            for language_code, probability in candidates
-            if language_code in _SUPPORTED_LANGUAGE_CODES
-        ]
-        if not supported_candidates:
-            return None
-        return min(
-            supported_candidates,
-            key=lambda item: (
-                -item[1],
-                _SUPPORTED_LANGUAGE_PRIORITY[item[0]],
-            ),
+        return detect_language(
+            text,
+            supported_language_set=self._supported_language_set,
+            default_language_code=self._default_language_code,
         )
-
-    def _select_preferred_language_from_text(self, text: str) -> tuple[str, bool]:
-        candidates = self._detect_language_candidates(text)
-        if not candidates:
-            return "nl", True
-
-        top_language, top_probability = candidates[0]
-        best_supported = self._select_best_supported_language(candidates)
-        word_count = len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", text))
-
-        if top_language in _SUPPORTED_LANGUAGE_CODES:
-            if top_language == "nl":
-                return top_language, False
-            if (
-                top_probability >= _SUPPORTED_NON_DUTCH_STRONG_PROBABILITY
-                and word_count >= _SUPPORTED_NON_DUTCH_MIN_WORDS
-            ):
-                return top_language, False
-            return top_language, True
-
-        if best_supported is not None:
-            best_supported_language, best_supported_probability = best_supported
-            score_gap = top_probability - best_supported_probability
-            if score_gap <= _SUPPORTED_LANGUAGE_CLOSE_MARGIN:
-                return best_supported_language, True
-            if (
-                top_probability >= _OTHER_LANGUAGE_STRONG_PROBABILITY
-                and word_count >= _OTHER_LANGUAGE_MIN_WORDS
-            ):
-                return top_language, False
-            return best_supported_language, True
-
-        if (
-            top_probability >= _OTHER_LANGUAGE_STRONG_PROBABILITY
-            and word_count >= _OTHER_LANGUAGE_MIN_WORDS
-        ):
-            return top_language, False
-        return "nl", True
 
     def _detect_preferred_language(
         self, current_answer: str, previous_summary: str
     ) -> str:
-        answer_language, answer_is_uncertain = (
-            self._select_preferred_language_from_text(current_answer)
+        return detect_preferred_language(
+            current_answer=current_answer,
+            previous_summary=previous_summary,
+            supported_language_set=self._supported_language_set,
+            supported_language_priority=self._supported_language_priority,
+            default_language_code=self._default_language_code,
         )
-        if not answer_is_uncertain:
-            return answer_language
-
-        summary_language, summary_is_uncertain = (
-            self._select_preferred_language_from_text(previous_summary)
-        )
-        if not summary_is_uncertain:
-            return summary_language
-
-        if summary_language in _SUPPORTED_LANGUAGE_CODES:
-            return summary_language
-        return "nl"
 
     def _build_language_instruction(self, language_code: str) -> str:
-        if language_code in _SUPPORTED_LANGUAGE_NAMES:
-            language_target = _SUPPORTED_LANGUAGE_NAMES[language_code]
-            default_hint = "- If uncertain, default to Dutch."
-        else:
-            language_target = f"the language with ISO code '{language_code}'"
-            default_hint = "- If uncertain, default to Dutch, English, or French."
-        return (
-            "\n\nLanguage policy:\n"
-            f"- Respond in {language_target}.\n"
-            f"{default_hint}\n"
-            "- Prefer Dutch when there is no strong language signal."
+        return build_language_instruction(
+            language_code,
+            supported_language_names=self._supported_language_names,
+            supported_language_codes=self._supported_language_codes,
+            default_language_code=self._default_language_code,
         )
 
     def _build_handoff_line(self, language: str) -> str:
-        if language.startswith("nl"):
-            return random.choice(HANDOFF_NL)
-        if language.startswith("fr"):
-            return random.choice(HANDOFF_FR)
-        return random.choice(HANDOFF_EN)
+        return choose_localized_message(self.domain_policy.handoff_lines, language)
 
     def _build_feedback_question(self, language: str) -> str:
-        if language.startswith("nl"):
-            return random.choice(FEEDBACK_QUESTION_NL)
-        if language.startswith("fr"):
-            return random.choice(FEEDBACK_QUESTION_FR)
-        return random.choice(FEEDBACK_QUESTION_EN)
+        return choose_localized_message(self.domain_policy.feedback_questions, language)
 
     def _build_feedback_quick_replies(self, language: str) -> list[dict[str, str]]:
-        if language.startswith("nl"):
-            return [
-                {"label": "Ja", "value": "yes"},
-                {"label": "Nee", "value": "no"},
-            ]
-        if language.startswith("fr"):
-            return [
-                {"label": "Oui", "value": "yes"},
-                {"label": "Non", "value": "no"},
-            ]
-        return [
-            {"label": "Yes", "value": "yes"},
-            {"label": "No", "value": "no"},
-        ]
+        return build_feedback_quick_replies(
+            self.domain_policy.quick_replies,
+            language=language,
+        )
 
     def _build_feedback_thanks(self, language: str) -> str:
-        if language.startswith("nl"):
-            return random.choice(FEEDBACK_THANKS_NL)
-        if language.startswith("fr"):
-            return random.choice(FEEDBACK_THANKS_FR)
-        return random.choice(FEEDBACK_THANKS_EN)
+        return choose_localized_message(self.domain_policy.feedback_thanks, language)
 
     def _build_goodbye_line(self, language: str) -> str:
-        if language.startswith("nl"):
-            return random.choice(GOODBYE_NL)
-        if language.startswith("fr"):
-            return random.choice(GOODBYE_FR)
-        return random.choice(GOODBYE_EN)
+        return choose_localized_message(self.domain_policy.goodbye_lines, language)
 
     def _build_off_topic_redirect(self, language: str, current_question: str) -> str:
-        if current_question.strip() == _INITIAL_QUESTION:
-            if language.startswith("nl"):
-                return random.choice(OFF_TOPIC_INITIAL_QUESTION_NL)
-            if language.startswith("fr"):
-                return random.choice(OFF_TOPIC_INITIAL_QUESTION_FR)
-            return random.choice(OFF_TOPIC_INITIAL_QUESTION_EN)
-        if language.startswith("nl"):
-            return random.choice(OFF_TOPIC_REDIRECT_NL).format(
-                question=current_question
-            )
-        if language.startswith("fr"):
-            return random.choice(OFF_TOPIC_REDIRECT_FR).format(
-                question=current_question
-            )
-        return random.choice(OFF_TOPIC_REDIRECT_EN).format(question=current_question)
+        return build_off_topic_redirect(
+            language=language,
+            current_question=current_question,
+            initial_question=INITIAL_QUESTION,
+            off_topic_initial_questions=self.domain_policy.off_topic_initial_questions,
+            off_topic_redirects=self.domain_policy.off_topic_redirects,
+        )
 
     def _normalize_feedback_response(self, current_answer: str) -> str | None:
-        tokens = set(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", current_answer.casefold()))
-        has_yes = bool(tokens & _FEEDBACK_YES_TOKENS)
-        has_no = bool(tokens & _FEEDBACK_NO_TOKENS)
-        if has_yes and not has_no:
-            return _FEEDBACK_YES
-        if has_no and not has_yes:
-            return _FEEDBACK_NO
-        return None
+        return normalize_feedback_response(
+            current_answer=current_answer,
+            feedback_yes_tokens=self.domain_policy.feedback_yes_tokens,
+            feedback_no_tokens=self.domain_policy.feedback_no_tokens,
+            feedback_yes_value=FEEDBACK_YES,
+            feedback_no_value=FEEDBACK_NO,
+        )
 
     def _simplify_technical_terms(self, text: str, language: str) -> str:
-        if not language.startswith("nl"):
-            return text
-
-        simplified = text
-        for source, target in _NL_TECHNICAL_TERM_REPLACEMENTS:
-            simplified = re.sub(
-                rf"\b{re.escape(source)}\b",
-                lambda match: (
-                    target.capitalize() if match.group(0)[0].isupper() else target
-                ),
-                simplified,
-                flags=re.IGNORECASE,
-            )
-        return simplified
+        return simplify_technical_terms(
+            text,
+            language=language,
+            term_replacements=self.domain_policy.term_replacements,
+        )
 
     async def _is_on_topic_answer(
         self,
@@ -541,123 +225,30 @@ class ChatService:
             return True
 
     def _should_skip_relevance_check(self, current_question: str) -> bool:
-        return current_question.strip() == _INITIAL_QUESTION
-
-    def _extract_questionnaire_indices(self, questionnaire: str) -> list[int]:
-        indices = set()
-        for match in re.finditer(r"(?m)^\s*(\d+)\.", questionnaire):
-            indices.add(int(match.group(1)))
-        return sorted(indices)
+        return current_question.strip() == INITIAL_QUESTION
 
     def _is_valid_questionnaire(self, questionnaire: str) -> bool:
-        for index in self._questionnaire_indices:
-            if not re.search(rf"(?m)^\s*{index}\.", questionnaire):
-                return False
-        return True
+        return is_valid_questionnaire(
+            questionnaire,
+            questionnaire_indices=self._questionnaire_indices,
+        )
 
     def _parse_state(self, state: dict[str, str] | None) -> ChatState:
-        if not state:
-            return ChatState(questionnaire=self.questionnaire_template)
-        questionnaire = state.get("questionnaire", "")
-        summary = state.get("summary", "")
-        last_question = state.get("last_question", _INITIAL_QUESTION)
-        phase = state.get("phase", _PHASE_INTAKE)
-        feedback_status = state.get("feedback_status", _FEEDBACK_PENDING)
-        final_summary = state.get("final_summary", "")
-        post_summary_language = state.get("post_summary_language", "")
-        boundary_violation_count_raw = state.get("boundary_violation_count", "0")
-        if not isinstance(questionnaire, str):
-            raise RuntimeError("State field 'questionnaire' must be a string.")
-        if not isinstance(summary, str):
-            raise RuntimeError("State field 'summary' must be a string.")
-        if not isinstance(last_question, str):
-            raise RuntimeError("State field 'last_question' must be a string.")
-        if not isinstance(phase, str):
-            raise RuntimeError("State field 'phase' must be a string.")
-        if not isinstance(feedback_status, str):
-            raise RuntimeError("State field 'feedback_status' must be a string.")
-        if not isinstance(final_summary, str):
-            raise RuntimeError("State field 'final_summary' must be a string.")
-        if not isinstance(post_summary_language, str):
-            raise RuntimeError("State field 'post_summary_language' must be a string.")
-        if not isinstance(boundary_violation_count_raw, str):
-            raise RuntimeError(
-                "State field 'boundary_violation_count' must be a string."
-            )
-        try:
-            boundary_violation_count = int(boundary_violation_count_raw)
-        except ValueError:
-            boundary_violation_count = 0
-        boundary_violation_count = max(boundary_violation_count, 0)
-        if not questionnaire.strip():
-            questionnaire = self.questionnaire_template
-        if phase not in _VALID_PHASES:
-            phase = _PHASE_INTAKE
-        if feedback_status not in _VALID_FEEDBACK_STATUSES:
-            feedback_status = _FEEDBACK_PENDING
-        if phase == _PHASE_INTAKE:
-            feedback_status = _FEEDBACK_PENDING
-            final_summary = ""
-            post_summary_language = ""
-        elif phase == _PHASE_TERMINATED:
-            feedback_status = _FEEDBACK_PENDING
-            final_summary = ""
-        else:
-            if not final_summary.strip():
-                final_summary = summary
-            if not post_summary_language.strip():
-                post_summary_language = self._detect_language(final_summary)
-            if (
-                phase == _PHASE_AWAITING_FEEDBACK
-                and feedback_status != _FEEDBACK_PENDING
-            ):
-                phase = _PHASE_COMPLETED
-        return ChatState(
-            questionnaire=questionnaire,
-            summary=summary,
-            last_question=last_question,
-            phase=phase,
-            feedback_status=feedback_status,
-            final_summary=final_summary,
-            post_summary_language=post_summary_language,
-            boundary_violation_count=boundary_violation_count,
+        return parse_state(
+            state,
+            questionnaire_template=self.questionnaire_template,
+            detect_language=self._detect_language,
         )
 
     def _serialize_state(self, state: ChatState) -> dict[str, str]:
-        return {
-            "questionnaire": state.questionnaire,
-            "summary": state.summary,
-            "last_question": state.last_question,
-            "phase": state.phase,
-            "feedback_status": state.feedback_status,
-            "final_summary": state.final_summary,
-            "post_summary_language": state.post_summary_language,
-            "boundary_violation_count": str(state.boundary_violation_count),
-        }
+        return serialize_state(state)
 
     def _user_requested_stop(self, current_answer: str) -> bool:
-        answer_tokens = _tokenize_words(current_answer)
-        if not answer_tokens:
-            return False
-        return any(
-            self._matches_stop_phrase(answer_tokens, stop_phrase_tokens)
-            for stop_phrase_tokens in _STOP_PHRASE_TOKEN_SEQUENCES
+        return user_requested_stop(
+            current_answer,
+            stop_phrase_token_sequences=self._stop_phrase_token_sequences,
+            stop_context_tokens=self.domain_policy.stop_context_tokens,
         )
-
-    def _matches_stop_phrase(
-        self, answer_tokens: tuple[str, ...], stop_phrase_tokens: tuple[str, ...]
-    ) -> bool:
-        matched_tokens = 0
-        for answer_token in answer_tokens:
-            if (
-                matched_tokens < len(stop_phrase_tokens)
-                and answer_token == stop_phrase_tokens[matched_tokens]
-            ):
-                matched_tokens += 1
-                continue
-            if answer_token not in _STOP_CONTEXT_TOKENS:
-                return False
-        return matched_tokens == len(stop_phrase_tokens)
 
     def _questionnaire_complete(self, questionnaire: str) -> bool:
         return "[]" not in questionnaire
@@ -674,8 +265,8 @@ class ChatService:
         )
         content = self._extract_content(response)
         if (
-            self.completion_token
-            and self.completion_token.casefold() in content.casefold()
+            self._completion_token
+            and self._completion_token.casefold() in content.casefold()
         ):
             content = self._strip_completion_token(content)
         return self._simplify_technical_terms(content, preferred_language)
@@ -686,7 +277,7 @@ class ChatService:
         state: dict[str, str] | None,
     ) -> ChatResult:
         current_state = self._parse_state(state)
-        if current_state.phase == _PHASE_TERMINATED:
+        if current_state.phase == PHASE_TERMINATED:
             language = current_state.post_summary_language
             if not language:
                 language = self._detect_preferred_language(
@@ -700,6 +291,7 @@ class ChatService:
                 state=self._serialize_state(current_state),
                 summary=None,
             )
+
         if self._user_requested_stop(current_answer):
             language = self._detect_preferred_language(
                 current_answer=current_answer,
@@ -709,8 +301,8 @@ class ChatService:
                 questionnaire=current_state.questionnaire,
                 summary=current_state.summary,
                 last_question=current_state.last_question,
-                phase=_PHASE_TERMINATED,
-                feedback_status=_FEEDBACK_PENDING,
+                phase=PHASE_TERMINATED,
+                feedback_status=FEEDBACK_PENDING,
                 final_summary="",
                 post_summary_language=language,
                 boundary_violation_count=current_state.boundary_violation_count,
@@ -721,7 +313,8 @@ class ChatService:
                 state=self._serialize_state(terminated_state),
                 summary=None,
             )
-        if current_state.phase == _PHASE_AWAITING_FEEDBACK:
+
+        if current_state.phase == PHASE_AWAITING_FEEDBACK:
             summary_text = current_state.final_summary
             if not summary_text.strip():
                 summary_text = current_state.summary
@@ -732,7 +325,7 @@ class ChatService:
                 current_state.post_summary_language = language
             feedback_response = self._normalize_feedback_response(current_answer)
             if feedback_response is not None:
-                current_state.phase = _PHASE_COMPLETED
+                current_state.phase = PHASE_COMPLETED
                 current_state.feedback_status = feedback_response
                 return ChatResult(
                     text=self._build_feedback_thanks(language),
@@ -740,7 +333,8 @@ class ChatService:
                     state=self._serialize_state(current_state),
                     summary=summary_text,
                 )
-            current_state.feedback_status = _FEEDBACK_PENDING
+
+            current_state.feedback_status = FEEDBACK_PENDING
             return ChatResult(
                 text=self._build_feedback_question(language),
                 response_type="answer",
@@ -748,7 +342,8 @@ class ChatService:
                 summary=summary_text,
                 quick_replies=self._build_feedback_quick_replies(language),
             )
-        if current_state.phase == _PHASE_COMPLETED:
+
+        if current_state.phase == PHASE_COMPLETED:
             summary_text = current_state.final_summary
             if not summary_text.strip():
                 summary_text = current_state.summary
@@ -763,6 +358,7 @@ class ChatService:
                 state=self._serialize_state(current_state),
                 summary=summary_text,
             )
+
         if self._should_skip_relevance_check(current_state.last_question):
             is_on_topic = True
         else:
@@ -771,6 +367,7 @@ class ChatService:
                 current_answer=current_answer,
                 questionnaire=current_state.questionnaire,
             )
+
         if not is_on_topic:
             current_state.boundary_violation_count += 1
             language = self._detect_preferred_language(
@@ -779,18 +376,14 @@ class ChatService:
             )
             if (
                 current_state.boundary_violation_count
-                >= _OFF_TOPIC_TERMINATION_THRESHOLD
+                >= self.domain_policy.off_topic_termination_threshold
             ):
-                language = self._detect_preferred_language(
-                    current_answer=current_answer,
-                    previous_summary=current_state.summary,
-                )
                 terminated_state = ChatState(
                     questionnaire=current_state.questionnaire,
                     summary=current_state.summary,
                     last_question=current_state.last_question,
-                    phase=_PHASE_TERMINATED,
-                    feedback_status=_FEEDBACK_PENDING,
+                    phase=PHASE_TERMINATED,
+                    feedback_status=FEEDBACK_PENDING,
                     final_summary="",
                     post_summary_language=language,
                     boundary_violation_count=current_state.boundary_violation_count,
@@ -801,12 +394,13 @@ class ChatService:
                     state=self._serialize_state(terminated_state),
                     summary=None,
                 )
+
             redirected_state = ChatState(
                 questionnaire=current_state.questionnaire,
                 summary=current_state.summary,
                 last_question=current_state.last_question,
-                phase=_PHASE_INTAKE,
-                feedback_status=_FEEDBACK_PENDING,
+                phase=PHASE_INTAKE,
+                feedback_status=FEEDBACK_PENDING,
                 final_summary="",
                 post_summary_language="",
                 boundary_violation_count=current_state.boundary_violation_count,
@@ -820,8 +414,8 @@ class ChatService:
                 state=self._serialize_state(redirected_state),
                 summary=None,
             )
-        else:
-            current_state.boundary_violation_count = 0
+
+        current_state.boundary_violation_count = 0
         current_question = current_state.last_question
         try:
             updated_questionnaire = await self.notulist.generate(
@@ -851,24 +445,22 @@ class ChatService:
             updated_questionnaire
         ) or self._user_requested_stop(current_answer):
             language = self._detect_language(updated_summary)
-            handoff_line = self._build_handoff_line(language)
-            feedback_question = self._build_feedback_question(language)
             final_state = ChatState(
                 questionnaire=updated_questionnaire,
                 summary=updated_summary,
                 last_question=current_question,
-                phase=_PHASE_AWAITING_FEEDBACK,
-                feedback_status=_FEEDBACK_PENDING,
+                phase=PHASE_AWAITING_FEEDBACK,
+                feedback_status=FEEDBACK_PENDING,
                 final_summary=updated_summary,
                 post_summary_language=language,
                 boundary_violation_count=current_state.boundary_violation_count,
             )
             return ChatResult(
-                text=handoff_line,
+                text=self._build_handoff_line(language),
                 response_type="answer",
                 state=self._serialize_state(final_state),
                 summary=updated_summary,
-                follow_up_question=feedback_question,
+                follow_up_question=self._build_feedback_question(language),
                 quick_replies=self._build_feedback_quick_replies(language),
             )
 
@@ -877,14 +469,15 @@ class ChatService:
             previous_summary=current_state.summary,
         )
         next_question = await self._ask_next_question(
-            updated_questionnaire, preferred_language
+            updated_questionnaire,
+            preferred_language,
         )
         next_state = ChatState(
             questionnaire=updated_questionnaire,
             summary=updated_summary,
             last_question=next_question,
-            phase=_PHASE_INTAKE,
-            feedback_status=_FEEDBACK_PENDING,
+            phase=PHASE_INTAKE,
+            feedback_status=FEEDBACK_PENDING,
             boundary_violation_count=current_state.boundary_violation_count,
         )
         return ChatResult(
