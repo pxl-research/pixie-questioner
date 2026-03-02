@@ -167,9 +167,6 @@ class ChatService:
             ("none", "geen", "aucun", "aucune", "pas de", "zonder"),
         )
 
-    def _yes_no(self, value: bool) -> str:
-        return "ja" if value else "nee"
-
     def _canonical_course_type(self, value: str) -> str:
         if self._is_blank_questionnaire_value(value):
             return "onbekend"
@@ -354,22 +351,23 @@ class ChatService:
         cheese_type = self._canonical_cheese_type(
             self._extract_questionnaire_field_value(questionnaire, 4)
         )
-        categories = {
-            "foodpair_aperitief": self._yes_no(course_type == "aperitief"),
-            "foodpair_vis_zeevruchten": self._yes_no(main_protein == "vis_zeevruchten"),
-            "foodpair_witvlees_gevogelte": self._yes_no(
-                main_protein == "witvlees_gevogelte"
-            ),
-            "foodpair_roodvlees": self._yes_no(main_protein == "roodvlees"),
-            "foodpair_wild": self._yes_no(main_protein == "wild"),
-            "foodpair_bbq_grill": self._yes_no(cooking_method == "bbq_grill"),
-            "foodpair_stoofgerecht": self._yes_no(cooking_method == "stoofgerecht"),
-            "foodpair_blauwschimmel_kaas": self._yes_no(cheese_type == "blauwschimmel"),
-            "foodpair_zachte_kaas": self._yes_no(cheese_type == "zachte"),
-            "foodpair_harde_kaas": self._yes_no(cheese_type == "harde"),
-            "foodpair_dessert": self._yes_no(course_type == "dessert"),
+        category_flags = {
+            "foodpair_aperitief": course_type == "aperitief",
+            "foodpair_vis_zeevruchten": main_protein == "vis_zeevruchten",
+            "foodpair_witvlees_gevogelte": main_protein == "witvlees_gevogelte",
+            "foodpair_roodvlees": main_protein == "roodvlees",
+            "foodpair_wild": main_protein == "wild",
+            "foodpair_bbq_grill": cooking_method == "bbq_grill",
+            "foodpair_stoofgerecht": cooking_method == "stoofgerecht",
+            "foodpair_blauwschimmel_kaas": cheese_type == "blauwschimmel",
+            "foodpair_zachte_kaas": cheese_type == "zachte",
+            "foodpair_harde_kaas": cheese_type == "harde",
+            "foodpair_dessert": course_type == "dessert",
         }
-        return json.dumps(categories, ensure_ascii=False, separators=(",", ":"))
+        true_categories = {
+            key: True for key, is_true in category_flags.items() if is_true
+        }
+        return json.dumps(true_categories, ensure_ascii=False, separators=(",", ":"))
 
     def _format_handoff_categories_for_display(self, handoff_categories_v1: str) -> str:
         try:

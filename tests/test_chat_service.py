@@ -447,25 +447,16 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
     assert any(
         result.text.startswith(line) for line in [*HANDOFF_NL, *HANDOFF_EN, *HANDOFF_FR]
     )
-    assert '"foodpair_witvlees_gevogelte": "ja"' in result.text
-    assert '"foodpair_stoofgerecht": "ja"' in result.text
+    assert '"foodpair_witvlees_gevogelte": true' in result.text
+    assert '"foodpair_stoofgerecht": true' in result.text
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None
     assert result.state["phase"] == "completed"
     assert result.state["feedback_status"] == "pending"
     assert json.loads(result.state["handoff_categories_v1"]) == {
-        "foodpair_aperitief": "nee",
-        "foodpair_vis_zeevruchten": "nee",
-        "foodpair_witvlees_gevogelte": "ja",
-        "foodpair_roodvlees": "nee",
-        "foodpair_wild": "nee",
-        "foodpair_bbq_grill": "nee",
-        "foodpair_stoofgerecht": "ja",
-        "foodpair_blauwschimmel_kaas": "nee",
-        "foodpair_zachte_kaas": "nee",
-        "foodpair_harde_kaas": "nee",
-        "foodpair_dessert": "nee",
+        "foodpair_witvlees_gevogelte": True,
+        "foodpair_stoofgerecht": True,
     }
     assert question_llm.calls == []
 
@@ -505,25 +496,12 @@ def test_ask_stop_classification_completes_categorized_handoff_with_defaults():
     )
 
     assert result.response_type == "answer"
-    assert '"foodpair_aperitief": "nee"' in result.text
-    assert '"foodpair_dessert": "nee"' in result.text
+    assert result.text.rstrip().endswith("{}")
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None
     assert result.state["phase"] == "completed"
-    assert json.loads(result.state["handoff_categories_v1"]) == {
-        "foodpair_aperitief": "nee",
-        "foodpair_vis_zeevruchten": "nee",
-        "foodpair_witvlees_gevogelte": "nee",
-        "foodpair_roodvlees": "nee",
-        "foodpair_wild": "nee",
-        "foodpair_bbq_grill": "nee",
-        "foodpair_stoofgerecht": "nee",
-        "foodpair_blauwschimmel_kaas": "nee",
-        "foodpair_zachte_kaas": "nee",
-        "foodpair_harde_kaas": "nee",
-        "foodpair_dessert": "nee",
-    }
+    assert json.loads(result.state["handoff_categories_v1"]) == {}
     assert question_llm.calls == []
     assert len(relevance_classifier.calls) == 1
 
@@ -574,9 +552,8 @@ def test_ask_categorized_handoff_sets_non_cheese_type_to_none():
         "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none"
         in result.state["questionnaire"]
     )
-    assert (
-        json.loads(result.state["handoff_categories_v1"])["foodpair_harde_kaas"]
-        == "nee"
+    assert "foodpair_harde_kaas" not in json.loads(
+        result.state["handoff_categories_v1"]
     )
     assert question_llm.calls == []
 
@@ -649,12 +626,7 @@ def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
         "post_summary_language": "",
         "boundary_violation_count": "0",
         "handoff_categories_v1": (
-            '{"foodpair_aperitief":"nee","foodpair_vis_zeevruchten":"nee",'
-            '"foodpair_witvlees_gevogelte":"ja","foodpair_roodvlees":"nee",'
-            '"foodpair_wild":"nee","foodpair_bbq_grill":"nee",'
-            '"foodpair_stoofgerecht":"ja","foodpair_blauwschimmel_kaas":"nee",'
-            '"foodpair_zachte_kaas":"nee","foodpair_harde_kaas":"nee",'
-            '"foodpair_dessert":"nee"}'
+            '{"foodpair_witvlees_gevogelte":true,"foodpair_stoofgerecht":true}'
         ),
     }
 
@@ -664,8 +636,8 @@ def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
     assert any(
         result.text.startswith(line) for line in [*HANDOFF_NL, *HANDOFF_EN, *HANDOFF_FR]
     )
-    assert '"foodpair_witvlees_gevogelte": "ja"' in result.text
-    assert '"foodpair_stoofgerecht": "ja"' in result.text
+    assert '"foodpair_witvlees_gevogelte": true' in result.text
+    assert '"foodpair_stoofgerecht": true' in result.text
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None
