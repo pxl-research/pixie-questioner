@@ -83,10 +83,9 @@ QUESTIONNAIRE_TEMPLATE = "0. Initial user question: []\n1. Occasion, Vibe, Setti
 CRETSKENS_QUESTIONNAIRE_TEMPLATE = (
     "0. Dish description (free text from customer): []\n"
     "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
-    "2. Main protein (fish or seafood, poultry, red meat, or none): []\n"
-    "3. Cooking method (BBQ, grill, stew, or none): []\n"
-    "4. Spiciness (spicy or not spicy): []\n"
-    "5. Side dish (e.g. pasta, salad, or none): []"
+    "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+    "3. Cooking method (BBQ or grill, stew, or none): []\n"
+    "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []"
 )
 
 _DEFAULT_PROFILE = load_domain_profile(Path("profiles/brooklyn/domain_profile.yml"))
@@ -418,10 +417,9 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
         [
             "0. Dish description (free text from customer): vol-au-vent\n"
             "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
-            "2. Main protein (fish or seafood, poultry, red meat, or none): poultry\n"
-            "3. Cooking method (BBQ, grill, stew, or none): stew\n"
-            "4. Spiciness (spicy or not spicy): not spicy\n"
-            "5. Side dish (e.g. pasta, salad, or none): none"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
+            "3. Cooking method (BBQ or grill, stew, or none): stew\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none"
         ]
     )
     summarizer_llm = FakeLLM(["Klant eet vol-au-vent."])
@@ -449,19 +447,25 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
     assert any(
         result.text.startswith(line) for line in [*HANDOFF_NL, *HANDOFF_EN, *HANDOFF_FR]
     )
-    assert '"course_type": "hoofdgerecht"' in result.text
-    assert '"side_dish": "geen"' in result.text
+    assert '"foodpair_witvlees_gevogelte": "ja"' in result.text
+    assert '"foodpair_stoofgerecht": "ja"' in result.text
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None
     assert result.state["phase"] == "completed"
     assert result.state["feedback_status"] == "pending"
     assert json.loads(result.state["handoff_categories_v1"]) == {
-        "course_type": "hoofdgerecht",
-        "main_protein": "gevogelte",
-        "cooking_method": "stoofpotje",
-        "spiciness": "niet-pikant",
-        "side_dish": "geen",
+        "foodpair_aperitief": "nee",
+        "foodpair_vis_zeevruchten": "nee",
+        "foodpair_witvlees_gevogelte": "ja",
+        "foodpair_roodvlees": "nee",
+        "foodpair_wild": "nee",
+        "foodpair_bbq_grill": "nee",
+        "foodpair_stoofgerecht": "ja",
+        "foodpair_blauwschimmel_kaas": "nee",
+        "foodpair_zachte_kaas": "nee",
+        "foodpair_harde_kaas": "nee",
+        "foodpair_dessert": "nee",
     }
     assert question_llm.calls == []
 
@@ -472,10 +476,9 @@ def test_ask_stop_classification_completes_categorized_handoff_with_defaults():
         [
             "0. Dish description (free text from customer): Ik weet het nog niet\n"
             "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
-            "2. Main protein (fish or seafood, poultry, red meat, or none): []\n"
-            "3. Cooking method (BBQ, grill, stew, or none): []\n"
-            "4. Spiciness (spicy or not spicy): []\n"
-            "5. Side dish (e.g. pasta, salad, or none): []"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): []\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []"
         ]
     )
     summarizer_llm = FakeLLM(["Klant wil stoppen."])
@@ -502,36 +505,41 @@ def test_ask_stop_classification_completes_categorized_handoff_with_defaults():
     )
 
     assert result.response_type == "answer"
-    assert '"course_type": "niet-gespecificeerd"' in result.text
-    assert '"side_dish": "niet-gespecificeerd"' in result.text
+    assert '"foodpair_aperitief": "nee"' in result.text
+    assert '"foodpair_dessert": "nee"' in result.text
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None
     assert result.state["phase"] == "completed"
     assert json.loads(result.state["handoff_categories_v1"]) == {
-        "course_type": "niet-gespecificeerd",
-        "main_protein": "niet-gespecificeerd",
-        "cooking_method": "niet-gespecificeerd",
-        "spiciness": "niet-gespecificeerd",
-        "side_dish": "niet-gespecificeerd",
+        "foodpair_aperitief": "nee",
+        "foodpair_vis_zeevruchten": "nee",
+        "foodpair_witvlees_gevogelte": "nee",
+        "foodpair_roodvlees": "nee",
+        "foodpair_wild": "nee",
+        "foodpair_bbq_grill": "nee",
+        "foodpair_stoofgerecht": "nee",
+        "foodpair_blauwschimmel_kaas": "nee",
+        "foodpair_zachte_kaas": "nee",
+        "foodpair_harde_kaas": "nee",
+        "foodpair_dessert": "nee",
     }
     assert question_llm.calls == []
     assert len(relevance_classifier.calls) == 1
 
 
-def test_ask_categorized_handoff_normalizes_non_relevant_side_dish_immediately():
+def test_ask_categorized_handoff_sets_non_cheese_type_to_none():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(
         [
             "0. Dish description (free text from customer): vol-au-vent\n"
             "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
-            "2. Main protein (fish or seafood, poultry, red meat, or none): poultry\n"
-            "3. Cooking method (BBQ, grill, stew, or none): stew\n"
-            "4. Spiciness (spicy or not spicy): not spicy\n"
-            "5. Side dish (e.g. pasta, salad, or none): fries"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
+            "3. Cooking method (BBQ or grill, stew, or none): stew\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []"
         ]
     )
-    summarizer_llm = FakeLLM(["Klant eet vol-au-vent met frieten."])
+    summarizer_llm = FakeLLM(["Klant eet vol-au-vent."])
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -545,13 +553,12 @@ def test_ask_categorized_handoff_normalizes_non_relevant_side_dish_immediately()
         "questionnaire": (
             "0. Dish description (free text from customer): vol-au-vent\n"
             "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
-            "2. Main protein (fish or seafood, poultry, red meat, or none): poultry\n"
-            "3. Cooking method (BBQ, grill, stew, or none): stew\n"
-            "4. Spiciness (spicy or not spicy): not spicy\n"
-            "5. Side dish (e.g. pasta, salad, or none): []"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
+            "3. Cooking method (BBQ or grill, stew, or none): stew\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []"
         ),
         "summary": "",
-        "last_question": "Welk bijgerecht is erbij?",
+        "last_question": "Welk gerecht eten jullie?",
     }
 
     result = asyncio.run(
@@ -564,13 +571,54 @@ def test_ask_categorized_handoff_normalizes_non_relevant_side_dish_immediately()
     assert result.response_type == "answer"
     assert result.state["phase"] == "completed"
     assert (
-        "5. Side dish (e.g. pasta, salad, or none): niet-gespecificeerd"
+        "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none"
         in result.state["questionnaire"]
     )
-    assert json.loads(result.state["handoff_categories_v1"])["side_dish"] == (
-        "niet-gespecificeerd"
+    assert (
+        json.loads(result.state["handoff_categories_v1"])["foodpair_harde_kaas"]
+        == "nee"
     )
     assert question_llm.calls == []
+
+
+def test_ask_categorized_handoff_asks_cheese_followup_for_cheese_course():
+    question_llm = FakeLLM(["Welke soort kaas is het vooral?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): kaasplank\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): cheese course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): none\n"
+            "3. Cooking method (BBQ or grill, stew, or none): none\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant eet een kaasplank."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik eet een kaasplank",
+            state={
+                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Welk gerecht eten jullie?",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Welke soort kaas is het vooral?"
+    assert result.state["phase"] == "intake"
+    assert result.state["last_question"] == "Welke soort kaas is het vooral?"
+    assert result.state["handoff_categories_v1"] == ""
+    assert len(question_llm.calls) == 1
 
 
 def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
@@ -589,10 +637,9 @@ def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
         "questionnaire": (
             "0. Dish description (free text from customer): vol-au-vent\n"
             "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
-            "2. Main protein (fish or seafood, poultry, red meat, or none): poultry\n"
-            "3. Cooking method (BBQ, grill, stew, or none): stew\n"
-            "4. Spiciness (spicy or not spicy): not spicy\n"
-            "5. Side dish (e.g. pasta, salad, or none): none"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
+            "3. Cooking method (BBQ or grill, stew, or none): stew\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none"
         ),
         "summary": "Klant eet vol-au-vent.",
         "last_question": "Welk gerecht eten jullie?",
@@ -602,8 +649,12 @@ def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
         "post_summary_language": "",
         "boundary_violation_count": "0",
         "handoff_categories_v1": (
-            '{"course_type":"hoofdgerecht","main_protein":"gevogelte",'
-            '"cooking_method":"stoofpotje","spiciness":"niet-pikant","side_dish":"geen"}'
+            '{"foodpair_aperitief":"nee","foodpair_vis_zeevruchten":"nee",'
+            '"foodpair_witvlees_gevogelte":"ja","foodpair_roodvlees":"nee",'
+            '"foodpair_wild":"nee","foodpair_bbq_grill":"nee",'
+            '"foodpair_stoofgerecht":"ja","foodpair_blauwschimmel_kaas":"nee",'
+            '"foodpair_zachte_kaas":"nee","foodpair_harde_kaas":"nee",'
+            '"foodpair_dessert":"nee"}'
         ),
     }
 
@@ -613,8 +664,8 @@ def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
     assert any(
         result.text.startswith(line) for line in [*HANDOFF_NL, *HANDOFF_EN, *HANDOFF_FR]
     )
-    assert '"course_type": "hoofdgerecht"' in result.text
-    assert '"side_dish": "geen"' in result.text
+    assert '"foodpair_witvlees_gevogelte": "ja"' in result.text
+    assert '"foodpair_stoofgerecht": "ja"' in result.text
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None

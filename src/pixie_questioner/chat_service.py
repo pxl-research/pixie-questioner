@@ -167,12 +167,15 @@ class ChatService:
             ("none", "geen", "aucun", "aucune", "pas de", "zonder"),
         )
 
+    def _yes_no(self, value: bool) -> str:
+        return "ja" if value else "nee"
+
     def _canonical_course_type(self, value: str) -> str:
         if self._is_blank_questionnaire_value(value):
-            return "niet-gespecificeerd"
+            return "onbekend"
         normalized = self._normalize_text(value)
         if self._is_unspecified(normalized):
-            return "niet-gespecificeerd"
+            return "onbekend"
         if self._contains_any(normalized, ("aperitief", "aperitif", "starter")):
             return "aperitief"
         if self._contains_any(
@@ -184,19 +187,20 @@ class ChatService:
             return "kaasgerecht"
         if self._contains_any(normalized, ("dessert",)):
             return "dessert"
-        return "niet-gespecificeerd"
+        return "onbekend"
 
     def _canonical_main_protein(self, value: str) -> str:
         if self._is_blank_questionnaire_value(value):
-            return "niet-gespecificeerd"
+            return "onbekend"
         normalized = self._normalize_text(value)
         if self._is_unspecified(normalized):
-            return "niet-gespecificeerd"
+            return "onbekend"
         if self._contains_any(
             normalized,
             (
                 "fish",
                 "seafood",
+                "sea food",
                 "vis",
                 "zeevruchten",
                 "poisson",
@@ -204,11 +208,13 @@ class ChatService:
                 "fruits de mer",
             ),
         ):
-            return "vis-of-zeevruchten"
+            return "vis_zeevruchten"
         if self._contains_any(
             normalized,
             (
                 "poultry",
+                "white meat",
+                "witvlees",
                 "chicken",
                 "turkey",
                 "duck",
@@ -220,7 +226,17 @@ class ChatService:
                 "poulet",
             ),
         ):
-            return "gevogelte"
+            return "witvlees_gevogelte"
+        if self._contains_any(
+            normalized,
+            (
+                "wild",
+                "game",
+                "venison",
+                "gibier",
+            ),
+        ):
+            return "wild"
         if self._contains_any(
             normalized,
             (
@@ -230,104 +246,128 @@ class ChatService:
                 "steak",
                 "lamb",
                 "pork",
+                "varken",
+                "porc",
                 "rund",
                 "boeuf",
                 "agneau",
                 "veau",
             ),
         ):
-            return "rood-vlees"
+            return "roodvlees"
         if self._is_none_value(normalized):
             return "geen"
-        return "niet-gespecificeerd"
+        return "onbekend"
 
     def _canonical_cooking_method(self, value: str) -> str:
         if self._is_blank_questionnaire_value(value):
-            return "niet-gespecificeerd"
+            return "onbekend"
         normalized = self._normalize_text(value)
         if self._is_unspecified(normalized):
-            return "niet-gespecificeerd"
+            return "onbekend"
         if self._contains_any(normalized, ("bbq", "barbecue", "barbeque")):
-            return "bbq"
+            return "bbq_grill"
         if self._contains_any(normalized, ("grill", "grilled", "gegrild", "grille")):
-            return "grill"
+            return "bbq_grill"
         if self._contains_any(
             normalized,
-            ("stoofpot", "stoofpotje", "stoof", "stew", "ragout"),
+            ("stoofpot", "stoofpotje", "stoof", "stew", "ragout", "braise"),
         ):
-            return "stoofpotje"
+            return "stoofgerecht"
         if self._is_none_value(normalized):
             return "geen"
-        return "niet-gespecificeerd"
+        return "onbekend"
 
-    def _canonical_spiciness(self, value: str) -> str:
+    def _canonical_cheese_type(self, value: str) -> str:
         if self._is_blank_questionnaire_value(value):
-            return "niet-gespecificeerd"
+            return "onbekend"
         normalized = self._normalize_text(value)
         if self._is_unspecified(normalized):
-            return "niet-gespecificeerd"
+            return "onbekend"
         if self._contains_any(
             normalized,
             (
-                "niet pikant",
-                "not spicy",
-                "pas epice",
-                "pas epicee",
-                "non epice",
-                "non epicee",
+                "blauwschimmel",
+                "blue cheese",
+                "bleu",
+                "roquefort",
+                "gorgonzola",
+                "stilton",
             ),
         ):
-            return "niet-pikant"
+            return "blauwschimmel"
         if self._contains_any(
             normalized,
-            ("pikant", "spicy", "epice", "epicee"),
+            (
+                "zachte kaas",
+                "soft cheese",
+                "brie",
+                "camembert",
+                "chevre",
+                "goat cheese",
+            ),
         ):
-            return "pikant"
-        return "niet-gespecificeerd"
-
-    def _canonical_side_dish(self, value: str) -> str:
-        if self._is_blank_questionnaire_value(value):
-            return "niet-gespecificeerd"
-        normalized = self._normalize_text(value)
-        if self._is_unspecified(normalized):
-            return "niet-gespecificeerd"
-        if self._contains_any(normalized, ("pasta",)):
-            return "pasta"
-        if self._contains_any(normalized, ("salade", "salad")):
-            return "salade"
+            return "zachte"
+        if self._contains_any(
+            normalized,
+            (
+                "harde kaas",
+                "hard cheese",
+                "parmezaan",
+                "parmesan",
+                "pecorino",
+                "gruyere",
+                "comte",
+                "manchego",
+            ),
+        ):
+            return "harde"
         if self._is_none_value(normalized):
             return "geen"
-        return "niet-gespecificeerd"
+        return "onbekend"
 
-    def _normalize_side_dish_for_categorized_flow(self, questionnaire: str) -> str:
-        value = self._extract_questionnaire_field_value(questionnaire, 5)
-        if self._is_blank_questionnaire_value(value):
+    def _normalize_cheese_type_for_categorized_flow(self, questionnaire: str) -> str:
+        course_type = self._canonical_course_type(
+            self._extract_questionnaire_field_value(questionnaire, 1)
+        )
+        if course_type not in {"aperitief", "hoofdgerecht", "dessert"}:
             return questionnaire
-        if self._canonical_side_dish(value) != "niet-gespecificeerd":
+        cheese_type_value = self._extract_questionnaire_field_value(questionnaire, 4)
+        if not self._is_blank_questionnaire_value(cheese_type_value):
             return questionnaire
         return self._replace_questionnaire_field_value(
             questionnaire=questionnaire,
-            index=5,
-            new_value="niet-gespecificeerd",
+            index=4,
+            new_value="none",
         )
 
     def _build_handoff_categories_v1(self, questionnaire: str) -> str:
+        course_type = self._canonical_course_type(
+            self._extract_questionnaire_field_value(questionnaire, 1)
+        )
+        main_protein = self._canonical_main_protein(
+            self._extract_questionnaire_field_value(questionnaire, 2)
+        )
+        cooking_method = self._canonical_cooking_method(
+            self._extract_questionnaire_field_value(questionnaire, 3)
+        )
+        cheese_type = self._canonical_cheese_type(
+            self._extract_questionnaire_field_value(questionnaire, 4)
+        )
         categories = {
-            "course_type": self._canonical_course_type(
-                self._extract_questionnaire_field_value(questionnaire, 1)
+            "foodpair_aperitief": self._yes_no(course_type == "aperitief"),
+            "foodpair_vis_zeevruchten": self._yes_no(main_protein == "vis_zeevruchten"),
+            "foodpair_witvlees_gevogelte": self._yes_no(
+                main_protein == "witvlees_gevogelte"
             ),
-            "main_protein": self._canonical_main_protein(
-                self._extract_questionnaire_field_value(questionnaire, 2)
-            ),
-            "cooking_method": self._canonical_cooking_method(
-                self._extract_questionnaire_field_value(questionnaire, 3)
-            ),
-            "spiciness": self._canonical_spiciness(
-                self._extract_questionnaire_field_value(questionnaire, 4)
-            ),
-            "side_dish": self._canonical_side_dish(
-                self._extract_questionnaire_field_value(questionnaire, 5)
-            ),
+            "foodpair_roodvlees": self._yes_no(main_protein == "roodvlees"),
+            "foodpair_wild": self._yes_no(main_protein == "wild"),
+            "foodpair_bbq_grill": self._yes_no(cooking_method == "bbq_grill"),
+            "foodpair_stoofgerecht": self._yes_no(cooking_method == "stoofgerecht"),
+            "foodpair_blauwschimmel_kaas": self._yes_no(cheese_type == "blauwschimmel"),
+            "foodpair_zachte_kaas": self._yes_no(cheese_type == "zachte"),
+            "foodpair_harde_kaas": self._yes_no(cheese_type == "harde"),
+            "foodpair_dessert": self._yes_no(course_type == "dessert"),
         }
         return json.dumps(categories, ensure_ascii=False, separators=(",", ":"))
 
@@ -539,7 +579,7 @@ class ChatService:
             current_state, current_answer
         )
         if self._is_categorized_handoff_mode():
-            updated_questionnaire = self._normalize_side_dish_for_categorized_flow(
+            updated_questionnaire = self._normalize_cheese_type_for_categorized_flow(
                 updated_questionnaire
             )
         updated_summary = await self._update_summary(current_state, current_answer)

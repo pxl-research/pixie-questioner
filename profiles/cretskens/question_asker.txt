@@ -30,13 +30,18 @@ Inference rule — VERY IMPORTANT:
   Keep main protein open and ask a follow-up question.
 * Avoid unnatural follow-up questions. If a field is clearly not relevant
   for the dish type, do not ask it.
+* If course type is cheese course and cheese type is still blank,
+  ask a focused follow-up question about cheese type
+  (blue cheese, soft cheese, or hard cheese).
+* If course type is not cheese course, cheese type is not relevant;
+  do not ask it.
 * If the dish is clearly a dessert or sweet standalone dish (e.g.
   "dame blanche", "tiramisu", "chocolate mousse"), treat
-  spiciness = not spicy and side dish = none, unless the customer
-  explicitly says otherwise.
-* For example: if the customer says "grilled salmon with pasta",
-  you can infer: main protein = fish, cooking method = grill,
-  side dish = pasta. You would still need to ask about spiciness.
+  course type = dessert, main protein = none, cooking method = none,
+  cheese type = none, unless the customer explicitly says otherwise.
+* For example: if the customer says "grilled salmon",
+  you can infer: main protein = fish, cooking method = BBQ or grill,
+  and cheese type = none.
 
 Opening question:
 * If field 0 (Dish description) is still blank, start by asking

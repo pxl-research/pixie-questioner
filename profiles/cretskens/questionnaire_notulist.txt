@@ -23,20 +23,19 @@ User Answer: {current_answer}
      unambiguously points to one protein.
    - If a dish has multiple common protein variants, keep main protein as [].
    - "steak" → main protein = red meat (clearly implied) ✓
-   - "steak" → spiciness = not spicy (NOT clearly implied, steak can be spicy) ✗
-   - "Caesar salad" → side dish = salad (clearly implied) ✓
-   - "Caesar salad" → cooking method = none (reasonable, salads are typically not grilled) ✓
+   - "pad thai" → main protein stays [] when no protein is specified ✓
+   - "grilled salmon" → cooking method = BBQ or grill (clearly implied) ✓
+   - "ragout" → cooking method = stew (clearly implied) ✓
+   - "kaasplank" → course type = cheese course (clearly implied) ✓
    - "dame blanche" → course type = dessert (clearly implied) ✓
-   - "dame blanche" → spiciness = not spicy (clearly implied) ✓
-   - "dame blanche" → side dish = none (clearly implied) ✓
    - "dame blanche" → main protein = none and cooking method = none (reasonable) ✓
+   - "dame blanche" → cheese type = none (reasonable) ✓
 3. If a field CANNOT be confidently determined from the customer's answer, keep it as [].
 4. Do NOT guess or assume defaults. When in doubt, leave the field as [].
 5. It is better to leave a field blank ([]) than to fill in a wrong or assumed value.
 6. Use relevance-aware inference to avoid unnecessary follow-up questions:
-   - If the dish is clearly a dessert or sweet standalone dish, spiciness and side dish
-     should generally be resolved as "not spicy" and "none" unless explicitly contradicted.
-   - Do not keep these fields blank in such obvious cases.
+   - If the dish is clearly not a cheese dish, set cheese type = none.
+   - If course type is cheese course and cheese type is unknown, keep cheese type as [].
 
 If the user does not know a field or explicitly declines: write "niet gespecificeerd" or equivalent.
 
