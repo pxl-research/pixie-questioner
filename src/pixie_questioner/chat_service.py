@@ -37,6 +37,87 @@ from .chat.types import (
 )
 from .llm_client import LLMPromptInvoker
 
+_WINE_COUNTRY_ALIASES: dict[str, tuple[str, ...]] = {
+    "Australië": ("australia",),
+    "Chili": ("chile",),
+    "Frankrijk": ("france",),
+    "Italië": ("italie", "italy", "italia"),
+    "Luxemburg": ("luxembourg",),
+    "Oostenrijk": ("austria",),
+    "Portugal": (),
+    "Spanje": ("spain", "espana", "espania"),
+    "Verenigde Staten": ("united states", "usa", "us", "vs", "u s"),
+    "Zuid-Afrika": ("south africa", "south-africa"),
+}
+
+_WINE_REGION_TO_COUNTRY: dict[str, str] = {
+    "Alentejo": "Portugal",
+    "Alsace": "Frankrijk",
+    "Bergerac": "Frankrijk",
+    "Bordeaux": "Frankrijk",
+    "Bourgogne": "Frankrijk",
+    "Bourgogne (Chablis)": "Frankrijk",
+    "Californië": "Verenigde Staten",
+    "Central Valley": "Chili",
+    "Champagne": "Frankrijk",
+    "Corsica": "Frankrijk",
+    "Côte du Rhône": "Frankrijk",
+    "Côtes du Rhône": "Frankrijk",
+    "Côtes du Rhône, Plan de Dieu": "Frankrijk",
+    "Côtes du Rhône, Séguret": "Frankrijk",
+    "Côtes du Rhône, Vacqueyras": "Frankrijk",
+    "Elzas": "Frankrijk",
+    "Friuli-Venezia Giulia": "Italië",
+    "Haut-Médoc, Bordeaux": "Frankrijk",
+    "IGP Méditerranée": "Frankrijk",
+    "Languedoc": "Frankrijk",
+    "Languedoc-Roussillon": "Frankrijk",
+    "Loire (AOC Cheverny)": "Frankrijk",
+    "Moezel": "Luxemburg",
+    "Navarra": "Spanje",
+    "Neder-Oostenrijk": "Oostenrijk",
+    "Pays d’Oc": "Frankrijk",
+    "Penedès": "Spanje",
+    "Provence": "Frankrijk",
+    "Puglia": "Italië",
+    "Rioja": "Spanje",
+    "Setúbal": "Portugal",
+    "Sicilië": "Italië",
+    "Tejo / Bairrada": "Portugal",
+    "Toscane": "Italië",
+    "Valencia (Utiel-Requena)": "Spanje",
+    "Valle Central": "Chili",
+    "Veneto": "Italië",
+    "Victoria": "Australië",
+    "Vin de France": "Frankrijk",
+    "Vin de Pays d’Oc": "Frankrijk",
+    "Zuidoost-Australië": "Australië",
+}
+
+_WINE_REGION_ALIASES: dict[str, tuple[str, ...]] = {
+    "Bourgogne (Chablis)": ("bourgogne chablis", "chablis"),
+    "Californië": ("californie", "california"),
+    "Côte du Rhône": ("cote du rhone",),
+    "Côtes du Rhône": ("cotes du rhone",),
+    "Côtes du Rhône, Plan de Dieu": ("cotes du rhone plan de dieu",),
+    "Côtes du Rhône, Séguret": ("cotes du rhone seguret",),
+    "Côtes du Rhône, Vacqueyras": ("cotes du rhone vacqueyras",),
+    "Friuli-Venezia Giulia": ("friuli venezia giulia",),
+    "Haut-Médoc, Bordeaux": ("haut medoc bordeaux",),
+    "IGP Méditerranée": ("igp mediterranee",),
+    "Languedoc-Roussillon": ("languedoc roussillon",),
+    "Loire (AOC Cheverny)": ("loire aoc cheverny", "cheverny"),
+    "Neder-Oostenrijk": ("neder oostenrijk", "lower austria"),
+    "Pays d’Oc": ("pays doc", "pays d oc"),
+    "Penedès": ("penedes",),
+    "Setúbal": ("setubal",),
+    "Sicilië": ("sicilie", "sicily"),
+    "Tejo / Bairrada": ("tejo bairrada",),
+    "Valencia (Utiel-Requena)": ("valencia utiel requena", "utiel requena"),
+    "Vin de Pays d’Oc": ("vin de pays doc", "vin de pays d oc"),
+    "Zuidoost-Australië": ("zuidoost australie", "southeast australia"),
+}
+
 
 @dataclass
 class ChatService:
@@ -166,6 +247,54 @@ class ChatService:
             normalized_text,
             ("none", "geen", "aucun", "aucune", "pas de", "zonder"),
         )
+
+    def _is_no_preference(self, normalized_text: str) -> bool:
+        return self._contains_any(
+            normalized_text,
+            (
+                "geen voorkeur",
+                "maakt niet uit",
+                "maakt me niet uit",
+                "eender",
+                "whatever",
+                "any",
+                "no preference",
+                "doesnt matter",
+                "does not matter",
+                "niet van belang",
+                "ik weet het niet",
+                "geen idee",
+                "onbekend",
+            ),
+        )
+
+    def _match_alias(
+        self, normalized_text: str, aliases: dict[str, tuple[str, ...]]
+    ) -> str | None:
+        haystack = f" {normalized_text} "
+        best_match: str | None = None
+        best_length = 0
+        for canonical, candidate_aliases in aliases.items():
+            for alias in (canonical, *candidate_aliases):
+                normalized_alias = self._normalize_text(alias)
+                if not normalized_alias:
+                    continue
+                if f" {normalized_alias} " not in haystack:
+                    continue
+                alias_length = len(normalized_alias)
+                if alias_length > best_length:
+                    best_match = canonical
+                    best_length = alias_length
+        return best_match
+
+    def _match_country(self, normalized_text: str) -> str | None:
+        return self._match_alias(normalized_text, _WINE_COUNTRY_ALIASES)
+
+    def _match_region(self, normalized_text: str) -> str | None:
+        region_aliases: dict[str, tuple[str, ...]] = {}
+        for region in _WINE_REGION_TO_COUNTRY:
+            region_aliases[region] = _WINE_REGION_ALIASES.get(region, ())
+        return self._match_alias(normalized_text, region_aliases)
 
     def _canonical_course_type(self, value: str) -> str:
         if self._is_blank_questionnaire_value(value):
@@ -323,6 +452,50 @@ class ChatService:
             return "geen"
         return "onbekend"
 
+    def _canonical_wine_color(self, value: str) -> str | None:
+        if self._is_blank_questionnaire_value(value):
+            return None
+        normalized = self._normalize_text(value)
+        if self._is_unspecified(normalized) or self._is_no_preference(normalized):
+            return None
+        if self._contains_any(normalized, ("rose", "rose wijn", "roze", "rosé")):
+            return "rosé"
+        if self._contains_any(normalized, ("wit", "white", "blanc", "bianco")):
+            return "wit"
+        if self._contains_any(normalized, ("rood", "red", "rouge", "rosso")):
+            return "rood"
+        return None
+
+    def _extract_country_region(
+        self, questionnaire_value: str
+    ) -> tuple[str | None, str | None]:
+        if self._is_blank_questionnaire_value(questionnaire_value):
+            return None, None
+        normalized = self._normalize_text(questionnaire_value)
+        if self._is_unspecified(normalized) or self._is_no_preference(normalized):
+            return None, None
+        matched_region = self._match_region(normalized)
+        matched_country = self._match_country(normalized)
+        if matched_region is not None:
+            return _WINE_REGION_TO_COUNTRY[matched_region], matched_region
+        if matched_country is not None:
+            return matched_country, None
+        return None, None
+
+    def _parse_price_upper_bound(self, value: str) -> int | None:
+        if self._is_blank_questionnaire_value(value):
+            return None
+        normalized = self._normalize_text(value)
+        if self._is_unspecified(normalized) or self._is_no_preference(normalized):
+            return None
+        numeric_matches = re.findall(r"\d+(?:[.,]\d+)?", value)
+        if not numeric_matches:
+            return None
+        max_value = max(float(match.replace(",", ".")) for match in numeric_matches)
+        if max_value < 0:
+            return None
+        return int(max_value)
+
     def _normalize_cheese_type_for_categorized_flow(self, questionnaire: str) -> str:
         course_type = self._canonical_course_type(
             self._extract_questionnaire_field_value(questionnaire, 1)
@@ -364,10 +537,27 @@ class ChatService:
             "foodpair_harde_kaas": cheese_type == "harde",
             "foodpair_dessert": course_type == "dessert",
         }
-        true_categories = {
+        categories: dict[str, bool | str | int] = {
             key: True for key, is_true in category_flags.items() if is_true
         }
-        return json.dumps(true_categories, ensure_ascii=False, separators=(",", ":"))
+        wine_color = self._canonical_wine_color(
+            self._extract_questionnaire_field_value(questionnaire, 5)
+        )
+        if wine_color is not None:
+            categories["kleur"] = wine_color
+        land, regio = self._extract_country_region(
+            self._extract_questionnaire_field_value(questionnaire, 6)
+        )
+        if land is not None:
+            categories["land"] = land
+        if regio is not None:
+            categories["regio"] = regio
+        prijs = self._parse_price_upper_bound(
+            self._extract_questionnaire_field_value(questionnaire, 7)
+        )
+        if prijs is not None:
+            categories["prijs"] = prijs
+        return json.dumps(categories, ensure_ascii=False, separators=(",", ":"))
 
     def _format_handoff_categories_for_display(self, handoff_categories_v1: str) -> str:
         try:

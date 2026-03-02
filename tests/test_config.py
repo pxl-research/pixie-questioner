@@ -412,6 +412,14 @@ def test_cretskens_prompts_reduce_irrelevant_followup_questions() -> None:
     assert "If course type is cheese course" in profile.question_asker_prompt
     assert "do not ask it" in profile.question_asker_prompt
     assert (
+        "origin (country and/or region in one question)"
+        in profile.question_asker_prompt
+    )
+    assert 'If the customer says "geen voorkeur"' in profile.question_asker_prompt
+    assert (
+        "ask at most one extra clarification question" in profile.question_asker_prompt
+    )
+    assert (
         "For main protein, use a stricter threshold"
         in profile.questionnaire_notulist_prompt
     )
@@ -424,3 +432,10 @@ def test_cretskens_prompts_reduce_irrelevant_followup_questions() -> None:
         in profile.questionnaire_notulist_prompt
     )
     assert "cheese type = none" in profile.questionnaire_notulist_prompt
+    assert "Region priority:" in profile.questionnaire_notulist_prompt
+    assert "If both country and region are present but conflicting, region wins." in (
+        profile.questionnaire_notulist_prompt
+    )
+    assert "If the user gives a range, use the upper bound." in (
+        profile.questionnaire_notulist_prompt
+    )

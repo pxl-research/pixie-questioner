@@ -85,7 +85,10 @@ CRETSKENS_QUESTIONNAIRE_TEMPLATE = (
     "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
     "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
     "3. Cooking method (BBQ or grill, stew, or none): []\n"
-    "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []"
+    "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+    "5. Kleur van de wijn (wit, rood, rosé): []\n"
+    "6. Herkomst (land en/of regio): []\n"
+    "7. Maximum budget in euro: []"
 )
 
 _DEFAULT_PROFILE = load_domain_profile(Path("profiles/brooklyn/domain_profile.yml"))
@@ -419,7 +422,10 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
             "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
             "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
             "3. Cooking method (BBQ or grill, stew, or none): stew\n"
-            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): Bordeaux, Frankrijk\n"
+            "7. Maximum budget in euro: 20-30 euro"
         ]
     )
     summarizer_llm = FakeLLM(["Klant eet vol-au-vent."])
@@ -449,6 +455,10 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
     )
     assert '"foodpair_witvlees_gevogelte": true' in result.text
     assert '"foodpair_stoofgerecht": true' in result.text
+    assert '"kleur": "rood"' in result.text
+    assert '"land": "Frankrijk"' in result.text
+    assert '"regio": "Bordeaux"' in result.text
+    assert '"prijs": 30' in result.text
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None
@@ -457,6 +467,10 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
     assert json.loads(result.state["handoff_categories_v1"]) == {
         "foodpair_witvlees_gevogelte": True,
         "foodpair_stoofgerecht": True,
+        "kleur": "rood",
+        "land": "Frankrijk",
+        "regio": "Bordeaux",
+        "prijs": 30,
     }
     assert question_llm.calls == []
 
@@ -469,7 +483,10 @@ def test_ask_stop_classification_completes_categorized_handoff_with_defaults():
             "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
             "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
             "3. Cooking method (BBQ or grill, stew, or none): []\n"
-            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []"
         ]
     )
     summarizer_llm = FakeLLM(["Klant wil stoppen."])
@@ -514,7 +531,10 @@ def test_ask_categorized_handoff_sets_non_cheese_type_to_none():
             "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
             "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
             "3. Cooking method (BBQ or grill, stew, or none): stew\n"
-            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): niet gespecificeerd\n"
+            "6. Herkomst (land en/of regio): niet gespecificeerd\n"
+            "7. Maximum budget in euro: niet gespecificeerd"
         ]
     )
     summarizer_llm = FakeLLM(["Klant eet vol-au-vent."])
@@ -533,7 +553,10 @@ def test_ask_categorized_handoff_sets_non_cheese_type_to_none():
             "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
             "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
             "3. Cooking method (BBQ or grill, stew, or none): stew\n"
-            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []"
         ),
         "summary": "",
         "last_question": "Welk gerecht eten jullie?",
@@ -552,9 +575,12 @@ def test_ask_categorized_handoff_sets_non_cheese_type_to_none():
         "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none"
         in result.state["questionnaire"]
     )
-    assert "foodpair_harde_kaas" not in json.loads(
-        result.state["handoff_categories_v1"]
-    )
+    handoff = json.loads(result.state["handoff_categories_v1"])
+    assert "foodpair_harde_kaas" not in handoff
+    assert "kleur" not in handoff
+    assert "land" not in handoff
+    assert "regio" not in handoff
+    assert "prijs" not in handoff
     assert question_llm.calls == []
 
 
@@ -566,7 +592,10 @@ def test_ask_categorized_handoff_asks_cheese_followup_for_cheese_course():
             "1. Course type (aperitif, main course, cheese course, or dessert): cheese course\n"
             "2. Main protein (fish or seafood, poultry, red meat, wild, or none): none\n"
             "3. Cooking method (BBQ or grill, stew, or none): none\n"
-            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []"
         ]
     )
     summarizer_llm = FakeLLM(["Klant eet een kaasplank."])
@@ -598,6 +627,129 @@ def test_ask_categorized_handoff_asks_cheese_followup_for_cheese_course():
     assert len(question_llm.calls) == 1
 
 
+def test_ask_categorized_handoff_derives_country_from_region_only():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): rundstoofvlees\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): red meat\n"
+            "3. Cooking method (BBQ or grill, stew, or none): stew\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): Rioja\n"
+            "7. Maximum budget in euro: 25"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant eet rundstoofvlees."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Rundstoofvlees met rode wijn, liefst uit Rioja",
+            state={
+                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Welk gerecht eten jullie?",
+            },
+        )
+    )
+
+    handoff = json.loads(result.state["handoff_categories_v1"])
+    assert handoff["regio"] == "Rioja"
+    assert handoff["land"] == "Spanje"
+    assert handoff["prijs"] == 25
+
+
+def test_ask_categorized_handoff_region_wins_on_country_conflict():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): gegrilde zalm\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): fish or seafood\n"
+            "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+            "6. Herkomst (land en/of regio): Spanje, Bordeaux\n"
+            "7. Maximum budget in euro: 40"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant eet gegrilde zalm."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Zalm, wit, uit Spanje of Bordeaux",
+            state={
+                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Welk gerecht eten jullie?",
+            },
+        )
+    )
+
+    handoff = json.loads(result.state["handoff_categories_v1"])
+    assert handoff["regio"] == "Bordeaux"
+    assert handoff["land"] == "Frankrijk"
+    assert handoff["prijs"] == 40
+
+
+def test_ask_categorized_handoff_omits_unparseable_price():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): kaasplank\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): cheese course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): none\n"
+            "3. Cooking method (BBQ or grill, stew, or none): none\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): hard cheese\n"
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): Italië\n"
+            "7. Maximum budget in euro: niet gespecificeerd"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant eet kaas."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Geen budgetvoorkeur",
+            state={
+                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Wat is je maximum budget?",
+            },
+        )
+    )
+
+    handoff = json.loads(result.state["handoff_categories_v1"])
+    assert "prijs" not in handoff
+    assert handoff["kleur"] == "rood"
+    assert handoff["land"] == "Italië"
+
+
 def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(["Should not be used"])
@@ -616,7 +768,10 @@ def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
             "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
             "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
             "3. Cooking method (BBQ or grill, stew, or none): stew\n"
-            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): Bordeaux, Frankrijk\n"
+            "7. Maximum budget in euro: 30"
         ),
         "summary": "Klant eet vol-au-vent.",
         "last_question": "Welk gerecht eten jullie?",
@@ -626,7 +781,8 @@ def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
         "post_summary_language": "",
         "boundary_violation_count": "0",
         "handoff_categories_v1": (
-            '{"foodpair_witvlees_gevogelte":true,"foodpair_stoofgerecht":true}'
+            '{"foodpair_witvlees_gevogelte":true,"foodpair_stoofgerecht":true,'
+            '"kleur":"rood","land":"Frankrijk","regio":"Bordeaux","prijs":30}'
         ),
     }
 
@@ -638,6 +794,8 @@ def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
     )
     assert '"foodpair_witvlees_gevogelte": true' in result.text
     assert '"foodpair_stoofgerecht": true' in result.text
+    assert '"kleur": "rood"' in result.text
+    assert '"regio": "Bordeaux"' in result.text
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None

@@ -1,11 +1,12 @@
-Extract and update the customer's dish preferences into a structured summary.
+Extract and update the customer's dish and wine preferences into a structured summary.
 Formulate in a gender-neutral way.
 
 Topic:
 * dishes and meals for wine pairing
+* wine preferences: color, origin, and max budget
 
 Domain Guardrail:
-* You are a specialist on dishes and meals ONLY.
+* You are a specialist on dish context and wine preference constraints ONLY.
 
 Fields to update (please translate these and the field names in the language of the current answer):
 {questionnaire_template}
@@ -30,12 +31,81 @@ User Answer: {current_answer}
    - "dame blanche" → course type = dessert (clearly implied) ✓
    - "dame blanche" → main protein = none and cooking method = none (reasonable) ✓
    - "dame blanche" → cheese type = none (reasonable) ✓
+   - "rode wijn" → kleur = rood (clearly implied) ✓
+   - "Bordeaux uit Frankrijk" → regio = Bordeaux and land = Frankrijk ✓
+   - "tussen 20 en 30 euro" → max budget = 30 ✓
 3. If a field CANNOT be confidently determined from the customer's answer, keep it as [].
 4. Do NOT guess or assume defaults. When in doubt, leave the field as [].
 5. It is better to leave a field blank ([]) than to fill in a wrong or assumed value.
 6. Use relevance-aware inference to avoid unnecessary follow-up questions:
    - If the dish is clearly not a cheese dish, set cheese type = none.
    - If course type is cheese course and cheese type is unknown, keep cheese type as [].
+7. Wine color must normalize to exactly one of:
+   - wit
+   - rood
+   - rosé
+8. Country must normalize to exactly one of:
+   - Australië
+   - Chili
+   - Frankrijk
+   - Italië
+   - Luxemburg
+   - Oostenrijk
+   - Portugal
+   - Spanje
+   - Verenigde Staten
+   - Zuid-Afrika
+9. Region must normalize to exactly one of:
+   - Alentejo
+   - Alsace
+   - Bergerac
+   - Bordeaux
+   - Bourgogne
+   - Bourgogne (Chablis)
+   - Californië
+   - Central Valley
+   - Champagne
+   - Corsica
+   - Côte du Rhône
+   - Côtes du Rhône
+   - Côtes du Rhône, Plan de Dieu
+   - Côtes du Rhône, Séguret
+   - Côtes du Rhône, Vacqueyras
+   - Elzas
+   - Friuli-Venezia Giulia
+   - Haut-Médoc, Bordeaux
+   - IGP Méditerranée
+   - Languedoc
+   - Languedoc-Roussillon
+   - Loire (AOC Cheverny)
+   - Moezel
+   - Navarra
+   - Neder-Oostenrijk
+   - Pays d’Oc
+   - Penedès
+   - Provence
+   - Puglia
+   - Rioja
+   - Setúbal
+   - Sicilië
+   - Tejo / Bairrada
+   - Toscane
+   - Valencia (Utiel-Requena)
+   - Valle Central
+   - Veneto
+   - Victoria
+   - Vin de France
+   - Vin de Pays d’Oc
+   - Zuidoost-Australië
+10. Region priority:
+   - If both country and region are present but conflicting, region wins.
+   - If only region is present, derive country from region.
+11. Price field rule:
+   - Store a single max euro value.
+   - If the user gives a range, use the upper bound.
+12. For "geen voorkeur"/"maakt niet uit"/"ik weet het niet" on color, origin, or budget:
+   - fill that field with "niet gespecificeerd" (or equivalent),
+   - do not leave [].
 
 If the user does not know a field or explicitly declines: write "niet gespecificeerd" or equivalent.
 

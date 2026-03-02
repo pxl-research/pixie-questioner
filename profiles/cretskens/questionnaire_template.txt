@@ -3,3 +3,6 @@
 2. Main protein (fish or seafood, poultry, red meat, wild, or none): []
 3. Cooking method (BBQ or grill, stew, or none): []
 4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []
+5. Kleur van de wijn (wit, rood, rosé): []
+6. Herkomst (land en/of regio): []
+7. Maximum budget in euro: []
