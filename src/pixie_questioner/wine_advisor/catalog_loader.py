@@ -43,7 +43,9 @@ def _column_index_from_ref(cell_ref: str) -> int:
 def _load_shared_strings(archive: zipfile.ZipFile) -> list[str]:
     if "xl/sharedStrings.xml" not in archive.namelist():
         return []
-    root = ET.fromstring(archive.read("xl/sharedStrings.xml"))  # nosec B314  # noqa: S314
+    root = ET.fromstring(
+        archive.read("xl/sharedStrings.xml")
+    )  # nosec B314  # noqa: S314
     values: list[str] = []
     for shared_item in root.findall(f"{{{NS_MAIN}}}si"):
         tokens = [
@@ -54,7 +56,9 @@ def _load_shared_strings(archive: zipfile.ZipFile) -> list[str]:
 
 
 def _resolve_sheet_path(archive: zipfile.ZipFile) -> str:
-    workbook = ET.fromstring(archive.read("xl/workbook.xml"))  # nosec B314  # noqa: S314
+    workbook = ET.fromstring(
+        archive.read("xl/workbook.xml")
+    )  # nosec B314  # noqa: S314
     sheets = workbook.findall(f".//{{{NS_MAIN}}}sheet")
     if not sheets:
         raise RuntimeError("Wine catalog workbook has no sheets.")
@@ -66,7 +70,9 @@ def _resolve_sheet_path(archive: zipfile.ZipFile) -> str:
             break
 
     relation_id = selected.attrib.get(f"{{{NS_REL}}}id", "")
-    relations = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))  # nosec B314  # noqa: S314
+    relations = ET.fromstring(
+        archive.read("xl/_rels/workbook.xml.rels")
+    )  # nosec B314  # noqa: S314
     for relation in relations.findall(f"{{{NS_PACKAGE_REL}}}Relationship"):
         if relation.attrib.get("Id") != relation_id:
             continue
@@ -141,7 +147,9 @@ def load_wine_catalog(path: Path) -> list[WineCatalogRecord]:
         with zipfile.ZipFile(resolved_path) as archive:
             shared_strings = _load_shared_strings(archive)
             sheet_path = _resolve_sheet_path(archive)
-            worksheet = ET.fromstring(archive.read(sheet_path))  # nosec B314  # noqa: S314
+            worksheet = ET.fromstring(
+                archive.read(sheet_path)
+            )  # nosec B314  # noqa: S314
     except zipfile.BadZipFile as exc:
         raise RuntimeError(f"Invalid wine catalog file: {path}") from exc
 
