@@ -1,3 +1,4 @@
+# ruff: noqa: S101,S105,S106
 from pixie_questioner.chat.flow import (
     ensure_feedback_context,
     mark_feedback_completed,

@@ -215,7 +215,12 @@ def _extract_flags_from_mapping(parsed: dict[str, object]) -> dict[str, bool]:
     mappings: list[dict[str, object]] = [parsed]
     for value in parsed.values():
         if isinstance(value, dict):
-            mappings.append(value)
+            normalized_mapping = {
+                key: nested_value
+                for key, nested_value in value.items()
+                if isinstance(key, str)
+            }
+            mappings.append(normalized_mapping)
 
     flags: dict[str, bool] = {}
     for mapping in mappings:

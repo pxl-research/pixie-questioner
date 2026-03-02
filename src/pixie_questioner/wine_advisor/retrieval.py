@@ -37,16 +37,22 @@ def _record_corpus(record: WineCatalogRecord) -> str:
     )
 
 
-def _score_constraints(record: WineCatalogRecord, constraints: RetrievalConstraints) -> float:
+def _score_constraints(
+    record: WineCatalogRecord, constraints: RetrievalConstraints
+) -> float:
     score = 0.0
     if constraints.color:
-        score += 3.0 if record.color.casefold() == constraints.color.casefold() else -1.0
+        score += (
+            3.0 if record.color.casefold() == constraints.color.casefold() else -1.0
+        )
     if constraints.country:
         score += (
             3.0 if record.country.casefold() == constraints.country.casefold() else -1.0
         )
     if constraints.region:
-        score += 4.0 if record.region.casefold() == constraints.region.casefold() else -1.0
+        score += (
+            4.0 if record.region.casefold() == constraints.region.casefold() else -1.0
+        )
     if constraints.max_price_eur is not None:
         score += 2.0 if record.price_eur <= constraints.max_price_eur else -3.0
     return score

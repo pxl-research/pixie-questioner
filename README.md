@@ -1,8 +1,8 @@
 # pixie-questioner
 
-Pixie Questioner is a lightweight chat API for guided intake Q&A. The UI sends a
-`current_answer`, an opaque `state` blob, and a `session_id`, and receives a typed
-JSON response with the next question or a final summary.
+Pixie Questioner is a lightweight chat API for LLM-driven wine advising. The UI
+sends `current_answer`, an opaque `state` object, and a `session_id`, and receives
+either one next question or catalog-backed recommendations.
 
 ## Quickstart
 
@@ -21,14 +21,22 @@ Open `http://localhost:8000/docs` for the OpenAPI UI.
   - `session_id` (str)
   - `current_answer` (str)
   - `state` (object, default empty)
-- Response (next question): `{"type": "answer", "text": "...", "conversation_id": "...", "state": {...}}`.
-- Response (summary): `{"type": "summary", "text": "...", "summary": "...", "conversation_id": "...", "state": {...}}`.
+- Response (next question): `{"type": "question", "text": "...", "conversation_id": "...", "state": {...}}`.
+- Response (recommendations): `{"type": "recommendations", "text": "...", "recommendations": [...], "conversation_id": "...", "state": {...}}`.
 The `conversation_id` echoes the request `session_id`.
 Store the returned `state` and send it back on the next turn.
 On the first turn, send an empty object for `state`.
 Treat `state` as opaque; its contents are service-specific.
-When `type` is `summary`, `text` is the handoff message and `summary` contains the actual summary.
-When `type` is `answer`, the optional field `quick_replies` may be present with up to 6 `{label, value}` options.
+When `type` is `recommendations`, each recommendation item contains:
+- `name`
+- `price_eur`
+- `country`
+- `region`
+
+Behavior guarantees:
+- One question per turn while intake is active.
+- Intake stops after at most 6 questions.
+- Recommendations are selected from the configured wine catalog only.
 
 ### GET /health
 
@@ -57,12 +65,25 @@ Set environment variables in `.env.dev`:
 - `ADVANCED_AZURE_OPENAI_MODEL`
 - `ADVANCED_AZURE_OPENAI_TEMPERATURE`
 - `DOMAIN_PROFILE_PATH`
+- `WINE_CATALOG_PATH` (optional; fallback: `profiles/cretskens/cretskens_wijnen_reduced.xlsx`)
 - `AUDIT_API_URL` (optional)
 - `AUDIT_API_KEY` (optional)
 - `AUDIT_PROFILE` (optional)
 - `AUDIT_TIMEOUT_SECONDS` (optional, default 5)
 
-`DOMAIN_PROFILE_PATH` points to a YAML domain profile that defines:
+`WINE_CATALOG_PATH` points to the XLSX catalog with required columns:
+- `barcode`
+- `naam`
+- `prijs`
+- `land`
+- `regio`
+- `kleur`
+- `druiven_beschrijving`
+- `geur_beschrijving`
+- `smaak_beschrijving`
+- `foodpair_beschrijving`
+
+`DOMAIN_PROFILE_PATH` still points to a YAML domain profile that defines:
 - prompt file paths (question asker, notulist, template, summarizer, relevance classifier)
 - localized runtime copy (handoff, feedback, off-topic, goodbye)
 - quick replies and normalization tokens

@@ -1,3 +1,4 @@
+# ruff: noqa: S101,S105,S106
 from __future__ import annotations
 
 import asyncio
@@ -75,33 +76,33 @@ def _build_catalog_xlsx(path: Path) -> None:
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
         f'<sheetData>{"".join(sheet_rows)}</sheetData>'
-        '</worksheet>'
+        "</worksheet>"
     )
     workbook_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<workbook '
+        "<workbook "
         'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
         '<sheets><sheet name="wijnen" sheetId="1" r:id="rId1"/></sheets>'
-        '</workbook>'
+        "</workbook>"
     )
     workbook_rels_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        '<Relationship '
+        "<Relationship "
         'Id="rId1" '
         'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
         'Target="worksheets/sheet1.xml"/>'
-        '</Relationships>'
+        "</Relationships>"
     )
     root_rels_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        '<Relationship '
+        "<Relationship "
         'Id="rId1" '
         'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
         'Target="xl/workbook.xml"/>'
-        '</Relationships>'
+        "</Relationships>"
     )
     content_types_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -112,7 +113,7 @@ def _build_catalog_xlsx(path: Path) -> None:
         'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
         '<Override PartName="/xl/worksheets/sheet1.xml" '
         'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-        '</Types>'
+        "</Types>"
     )
 
     with ZipFile(path, "w") as archive:

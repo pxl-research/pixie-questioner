@@ -1,3 +1,4 @@
+# ruff: noqa: S101,S105,S106
 from __future__ import annotations
 
 from pixie_questioner.wine_advisor.catalog_models import WineCatalogRecord

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosec B405
 import zipfile
 from pathlib import Path
 
@@ -43,7 +43,7 @@ def _column_index_from_ref(cell_ref: str) -> int:
 def _load_shared_strings(archive: zipfile.ZipFile) -> list[str]:
     if "xl/sharedStrings.xml" not in archive.namelist():
         return []
-    root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+    root = ET.fromstring(archive.read("xl/sharedStrings.xml"))  # nosec B314  # noqa: S314
     values: list[str] = []
     for shared_item in root.findall(f"{{{NS_MAIN}}}si"):
         tokens = [
@@ -54,7 +54,7 @@ def _load_shared_strings(archive: zipfile.ZipFile) -> list[str]:
 
 
 def _resolve_sheet_path(archive: zipfile.ZipFile) -> str:
-    workbook = ET.fromstring(archive.read("xl/workbook.xml"))
+    workbook = ET.fromstring(archive.read("xl/workbook.xml"))  # nosec B314  # noqa: S314
     sheets = workbook.findall(f".//{{{NS_MAIN}}}sheet")
     if not sheets:
         raise RuntimeError("Wine catalog workbook has no sheets.")
@@ -66,7 +66,7 @@ def _resolve_sheet_path(archive: zipfile.ZipFile) -> str:
             break
 
     relation_id = selected.attrib.get(f"{{{NS_REL}}}id", "")
-    relations = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+    relations = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))  # nosec B314  # noqa: S314
     for relation in relations.findall(f"{{{NS_PACKAGE_REL}}}Relationship"):
         if relation.attrib.get("Id") != relation_id:
             continue
@@ -108,10 +108,10 @@ def _row_values(row: ET.Element, shared_strings: list[str]) -> list[str]:
 
 
 def _build_header_index(headers: list[str]) -> dict[str, int]:
-    indexed_headers = {header.strip().casefold(): idx for idx, header in enumerate(headers)}
-    missing = [
-        column for column in REQUIRED_COLUMNS if column not in indexed_headers
-    ]
+    indexed_headers = {
+        header.strip().casefold(): idx for idx, header in enumerate(headers)
+    }
+    missing = [column for column in REQUIRED_COLUMNS if column not in indexed_headers]
     if missing:
         raise RuntimeError(f"Missing required columns: {', '.join(missing)}")
     return indexed_headers
@@ -122,9 +122,7 @@ def _price_from_cell(raw_price: str, row_number: int) -> float:
     try:
         return float(normalized)
     except ValueError as exc:
-        raise RuntimeError(
-            f"Invalid price at row {row_number}: {raw_price!r}"
-        ) from exc
+        raise RuntimeError(f"Invalid price at row {row_number}: {raw_price!r}") from exc
 
 
 def _value_at(values: list[str], header_index: dict[str, int], key: str) -> str:
@@ -143,7 +141,7 @@ def load_wine_catalog(path: Path) -> list[WineCatalogRecord]:
         with zipfile.ZipFile(resolved_path) as archive:
             shared_strings = _load_shared_strings(archive)
             sheet_path = _resolve_sheet_path(archive)
-            worksheet = ET.fromstring(archive.read(sheet_path))
+            worksheet = ET.fromstring(archive.read(sheet_path))  # nosec B314  # noqa: S314
     except zipfile.BadZipFile as exc:
         raise RuntimeError(f"Invalid wine catalog file: {path}") from exc
 
@@ -163,14 +161,20 @@ def load_wine_catalog(path: Path) -> list[WineCatalogRecord]:
             WineCatalogRecord(
                 barcode=barcode,
                 name=_value_at(values, header_index, "naam"),
-                price_eur=_price_from_cell(_value_at(values, header_index, "prijs"), row_number),
+                price_eur=_price_from_cell(
+                    _value_at(values, header_index, "prijs"), row_number
+                ),
                 country=_value_at(values, header_index, "land"),
                 region=_value_at(values, header_index, "regio"),
                 color=_value_at(values, header_index, "kleur"),
-                grape_description=_value_at(values, header_index, "druiven_beschrijving"),
+                grape_description=_value_at(
+                    values, header_index, "druiven_beschrijving"
+                ),
                 aroma_description=_value_at(values, header_index, "geur_beschrijving"),
                 taste_description=_value_at(values, header_index, "smaak_beschrijving"),
-                foodpair_description=_value_at(values, header_index, "foodpair_beschrijving"),
+                foodpair_description=_value_at(
+                    values, header_index, "foodpair_beschrijving"
+                ),
             )
         )
 

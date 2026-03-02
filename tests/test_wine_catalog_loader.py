@@ -1,12 +1,17 @@
+# ruff: noqa: S101,S105,S106
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from xml.sax.saxutils import escape
 from zipfile import ZipFile
 
 import pytest
 
-from pixie_questioner.wine_advisor.catalog_loader import REQUIRED_COLUMNS, load_wine_catalog
+from pixie_questioner.wine_advisor.catalog_loader import (
+    REQUIRED_COLUMNS,
+    load_wine_catalog,
+)
 
 
 def _column_label(index: int) -> str:
@@ -22,15 +27,13 @@ def _cell_xml(cell_ref: str, value: str | float) -> str:
     if isinstance(value, (int, float)):
         return f'<c r="{cell_ref}"><v>{value}</v></c>'
     escaped = escape(str(value))
-    return (
-        f'<c r="{cell_ref}" t="inlineStr"><is><t>{escaped}</t></is></c>'
-    )
+    return f'<c r="{cell_ref}" t="inlineStr"><is><t>{escaped}</t></is></c>'
 
 
 def _build_xlsx(path: Path, headers: list[str], rows: list[list[str | float]]) -> None:
     sheet_rows: list[str] = []
 
-    def _row_xml(row_index: int, values: list[str | float]) -> str:
+    def _row_xml(row_index: int, values: Sequence[str | float]) -> str:
         cells = [
             _cell_xml(f"{_column_label(column_index)}{row_index}", value)
             for column_index, value in enumerate(values)
@@ -45,36 +48,36 @@ def _build_xlsx(path: Path, headers: list[str], rows: list[list[str | float]]) -
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
         f'<sheetData>{"".join(sheet_rows)}</sheetData>'
-        '</worksheet>'
+        "</worksheet>"
     )
 
     workbook_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<workbook '
+        "<workbook "
         'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
         '<sheets><sheet name="wijnen" sheetId="1" r:id="rId1"/></sheets>'
-        '</workbook>'
+        "</workbook>"
     )
 
     workbook_rels_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        '<Relationship '
+        "<Relationship "
         'Id="rId1" '
         'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
         'Target="worksheets/sheet1.xml"/>'
-        '</Relationships>'
+        "</Relationships>"
     )
 
     root_rels_xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        '<Relationship '
+        "<Relationship "
         'Id="rId1" '
         'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
         'Target="xl/workbook.xml"/>'
-        '</Relationships>'
+        "</Relationships>"
     )
 
     content_types_xml = (
@@ -86,7 +89,7 @@ def _build_xlsx(path: Path, headers: list[str], rows: list[list[str | float]]) -
         'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
         '<Override PartName="/xl/worksheets/sheet1.xml" '
         'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-        '</Types>'
+        "</Types>"
     )
 
     with ZipFile(path, "w") as archive:
@@ -143,7 +146,9 @@ def test_load_wine_catalog_missing_required_columns_raises(tmp_path: Path) -> No
     _build_xlsx(
         catalog_path,
         headers=headers,
-        rows=[["123", "Wijn", 9.0, "Frankrijk", "rood", "Merlot", "fruit", "droog", "vis"]],
+        rows=[
+            ["123", "Wijn", 9.0, "Frankrijk", "rood", "Merlot", "fruit", "droog", "vis"]
+        ],
     )
 
     with pytest.raises(RuntimeError, match="Missing required columns"):

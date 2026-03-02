@@ -1,3 +1,4 @@
+# ruff: noqa: S101,S105,S106
 import asyncio
 import json
 from dataclasses import replace

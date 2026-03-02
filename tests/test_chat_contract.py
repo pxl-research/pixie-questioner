@@ -1,6 +1,5 @@
+# ruff: noqa: S101,S105,S106
 from __future__ import annotations
-
-from typing import cast
 
 from pydantic import TypeAdapter
 

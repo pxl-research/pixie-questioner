@@ -178,7 +178,9 @@ async def _post_audit_event(request: ChatRequest, result: WineAdvisorResult) -> 
         )
 
 
-def _build_chat_response(request: ChatRequest, result: WineAdvisorResult) -> ChatResponse:
+def _build_chat_response(
+    request: ChatRequest, result: WineAdvisorResult
+) -> ChatResponse:
     if result.response_type == "recommendations":
         recommendations = result.recommendations or []
         return ChatRecommendationsResponse(
