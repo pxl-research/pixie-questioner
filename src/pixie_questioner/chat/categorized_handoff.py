@@ -109,6 +109,23 @@ AROMA_TASTE_KEY_ORDER: tuple[str, ...] = (
     "smaak_romig",
 )
 
+_NORMALIZED_AROMA_KEYS: dict[str, tuple[str, ...]] = {}
+for _key in AROMA_TASTE_KEY_ORDER:
+    _normalized = re.sub(r"[^a-z0-9]+", "_", _key.casefold()).strip("_")
+    _NORMALIZED_AROMA_KEYS[_normalized] = (_key,)
+
+_AROMA_SUFFIX_MAP: dict[str, tuple[str, ...]] = {}
+for _key in AROMA_TASTE_KEY_ORDER:
+    _suffix = _key.split("_", maxsplit=1)[1]
+    _AROMA_SUFFIX_MAP.setdefault(_suffix, tuple())
+    _AROMA_SUFFIX_MAP[_suffix] = (*_AROMA_SUFFIX_MAP[_suffix], _key)
+
+for _ambiguous_key in ("kruidig",):
+    if _ambiguous_key in _AROMA_SUFFIX_MAP:
+        _AROMA_SUFFIX_MAP[_ambiguous_key] = tuple(
+            sorted(set(_AROMA_SUFFIX_MAP[_ambiguous_key]))
+        )
+
 
 def extract_questionnaire_field_value(questionnaire: str, index: int) -> str:
     match = re.search(rf"(?m)^\s*{index}\.\s*[^:\n]*:[^\S\n]*(.*?)$", questionnaire)
@@ -180,6 +197,17 @@ def _extract_bool_value(raw_value: object) -> bool | None:
     return None
 
 
+def _candidate_aroma_keys(raw_key: str) -> tuple[str, ...]:
+    normalized_key = re.sub(r"[^a-z0-9]+", "_", raw_key.casefold()).strip("_")
+    direct = _NORMALIZED_AROMA_KEYS.get(normalized_key)
+    if direct is not None:
+        return direct
+    suffix = _AROMA_SUFFIX_MAP.get(normalized_key)
+    if suffix is not None:
+        return suffix
+    return ()
+
+
 def _extract_flags_from_mapping(parsed: dict[str, object]) -> dict[str, bool]:
     if not parsed:
         return {}
@@ -191,29 +219,26 @@ def _extract_flags_from_mapping(parsed: dict[str, object]) -> dict[str, bool]:
 
     flags: dict[str, bool] = {}
     for mapping in mappings:
-        for key in AROMA_TASTE_KEY_ORDER:
-            if key in flags:
+        for raw_key, raw_value in mapping.items():
+            if not isinstance(raw_key, str):
                 continue
-            bool_value = _extract_bool_value(mapping.get(key))
+            bool_value = _extract_bool_value(raw_value)
             if bool_value is not None:
-                flags[key] = bool_value
+                for candidate_key in _candidate_aroma_keys(raw_key):
+                    flags[candidate_key] = bool_value
     return flags
 
 
 def _extract_flags_from_text(value: str) -> dict[str, bool]:
-    key_pattern = "|".join(re.escape(key) for key in AROMA_TASTE_KEY_ORDER)
     pattern = re.compile(
-        rf"(?P<key>{key_pattern})\s*[:=]\s*(?P<bool>true|false)",
+        r"(?P<key>[a-z0-9_\-/]+)\s*[:=]\s*(?P<bool>true|false)",
         flags=re.IGNORECASE,
     )
     flags: dict[str, bool] = {}
     for match in pattern.finditer(value):
-        matched_key = match.group("key").strip().casefold()
         bool_value = match.group("bool").strip().casefold() == "true"
-        for key in AROMA_TASTE_KEY_ORDER:
-            if key.casefold() == matched_key:
-                flags[key] = bool_value
-                break
+        for candidate_key in _candidate_aroma_keys(match.group("key")):
+            flags[candidate_key] = bool_value
     return flags
 
 

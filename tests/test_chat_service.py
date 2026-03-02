@@ -1009,6 +1009,53 @@ def test_ask_categorized_handoff_retries_unstructured_aroma_classifier_output():
     assert len(aroma_llm.calls) == 2
 
 
+def test_ask_categorized_handoff_maps_generic_kruidig_key():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): gegrilde kip\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
+            "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+            "6. Herkomst (land en/of regio): Frankrijk\n"
+            "7. Maximum budget in euro: 20\n"
+            "8. Gewenste geur/smaak (vrije tekst): kruidig"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant eet gegrilde kip."])
+    aroma_llm = FakeLLM(['{"kruidig":true}'])
+    handoff_llm = FakeLLM(
+        ['{"foodpair_witvlees_gevogelte":true,"foodpair_bbq_grill":true}']
+    )
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
+        handoff_classifier=_make_handoff_classifier(handoff_llm),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="kruidig",
+            state={
+                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Welke geur of smaak zoek je?",
+            },
+        )
+    )
+
+    handoff = json.loads(result.state["handoff_categories_v1"])
+    assert handoff["geur_kruidig"] is True
+    assert handoff["smaak_kruidig"] is True
+
+
 def test_ask_completed_categorized_handoff_fallback_classifies_text_field8():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(["Should not be used"])
