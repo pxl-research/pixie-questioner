@@ -93,6 +93,7 @@ class WineAdvisorService:
     recommendation_intro: str = "Dit zijn passende opties uit de catalogus."
     max_turns: int = 6
     candidate_limit: int = 0
+    debug_mode_allowed: bool = True
 
     def __post_init__(self) -> None:
         if not self.catalog_records:
@@ -129,12 +130,16 @@ class WineAdvisorService:
             if raw_meal_mode in {"pairing", "drinking_only", MEAL_MODE_UNKNOWN}
             else MEAL_MODE_UNKNOWN
         )
-        debug_enabled = _to_bool(state.get("debug_mode"), False)
+        requested_debug_enabled = _to_bool(state.get("debug_mode"), False)
         debug_trace: list[dict[str, Any]] = []
         raw_debug = state.get("debug")
         if isinstance(raw_debug, dict):
-            debug_enabled = _to_bool(raw_debug.get("enabled"), debug_enabled)
-            debug_trace = _to_debug_trace(raw_debug.get("trace"))
+            requested_debug_enabled = _to_bool(
+                raw_debug.get("enabled"), requested_debug_enabled
+            )
+            if self.debug_mode_allowed:
+                debug_trace = _to_debug_trace(raw_debug.get("trace"))
+        debug_enabled = self.debug_mode_allowed and requested_debug_enabled
         last_question = state.get("last_question")
         working_context = state.get("working_context")
         return WineAdvisorState(

@@ -27,6 +27,8 @@ The `conversation_id` echoes the request `session_id`.
 Store the returned `state` and send it back on the next turn.
 On the first turn, send an empty object for `state`.
 Treat `state` as opaque; its contents are service-specific.
+Optional: set `state.debug_mode=true` to request compact debug traces in `state.debug.trace`
+when backend debug mode is enabled.
 When `type` is `recommendations`, each recommendation item contains:
 - `name`
 - `price_eur`
@@ -66,6 +68,7 @@ Set environment variables in `.env.dev`:
 - `ADVANCED_AZURE_OPENAI_TEMPERATURE`
 - `DOMAIN_PROFILE_PATH`
 - `WINE_CATALOG_PATH` (optional; fallback: `profiles/cretskens/cretskens_wijnen_reduced.xlsx`)
+- `WINE_ADVISOR_DEBUG_ENABLED` (optional; default `true`, set `false` to disable debug traces server-side)
 - `AUDIT_API_URL` (optional)
 - `AUDIT_API_KEY` (optional)
 - `AUDIT_PROFILE` (optional)

@@ -493,3 +493,34 @@ def test_ask_debug_mode_stores_ranker_trace_for_recommendations() -> None:
     assert trace[0]["ranker_explanation"] == (
         "Balanced match on acidity, texture and budget."
     )
+
+
+def test_ask_debug_mode_is_ignored_when_backend_debug_disabled() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="question",
+                question_text="Welke kleur wijn heb je liefst?",
+                meal_mode="drinking_only",
+                query_hints="",
+                explanation="Missing color preference.",
+            )
+        ]
+    )
+    ranker = StubRanker([])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        debug_mode_allowed=False,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Gewoon los drinken",
+            state={"debug_mode": True},
+        )
+    )
+
+    assert result.response_type == "question"
+    assert "debug" not in result.state

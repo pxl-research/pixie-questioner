@@ -116,6 +116,7 @@ wine_advisor_service = WineAdvisorService(
     catalog_records=catalog_records,
     turn_controller=turn_controller,
     ranker=ranker,
+    debug_mode_allowed=settings.wine_advisor_debug_enabled,
 )
 audit_client: AuditClient | None = None
 if settings.audit_api_url:

@@ -462,6 +462,9 @@ class Settings(BaseSettings):
     )
     domain_profile_path: Path = Field(alias="DOMAIN_PROFILE_PATH")
     wine_catalog_path_env: Path | None = Field(default=None, alias="WINE_CATALOG_PATH")
+    wine_advisor_debug_enabled: bool = Field(
+        default=True, alias="WINE_ADVISOR_DEBUG_ENABLED"
+    )
     audit_api_url: str | None = Field(default=None, alias="AUDIT_API_URL")
     audit_api_key: str | None = Field(default=None, alias="AUDIT_API_KEY")
     audit_profile: str | None = Field(default=None, alias="AUDIT_PROFILE")

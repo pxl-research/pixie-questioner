@@ -164,6 +164,21 @@ def test_get_settings_uses_default_wine_catalog_path(
     config.get_settings.cache_clear()
 
 
+def test_get_settings_can_disable_wine_advisor_debug(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    profile_path = _write_default_profile_assets(tmp_path)
+
+    _set_required_env(monkeypatch, profile_path)
+    monkeypatch.setenv("WINE_ADVISOR_DEBUG_ENABLED", "false")
+    config.get_settings.cache_clear()
+    settings = config.get_settings()
+
+    assert settings.wine_advisor_debug_enabled is False
+    config.get_settings.cache_clear()
+
+
 def test_domain_profile_missing_prompt_file_raises(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
