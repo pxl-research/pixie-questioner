@@ -1,4 +1,5 @@
 import asyncio
+import json
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -79,6 +80,14 @@ def _make_summarizer(llm):
 
 
 QUESTIONNAIRE_TEMPLATE = "0. Initial user question: []\n1. Occasion, Vibe, Setting: []"
+CRETSKENS_QUESTIONNAIRE_TEMPLATE = (
+    "0. Dish description (free text from customer): []\n"
+    "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+    "2. Main protein (fish or seafood, poultry, red meat, or none): []\n"
+    "3. Cooking method (BBQ, grill, stew, or none): []\n"
+    "4. Spiciness (spicy or not spicy): []\n"
+    "5. Side dish (e.g. pasta, salad, or none): []"
+)
 
 _DEFAULT_PROFILE = load_domain_profile(Path("profiles/brooklyn/domain_profile.yml"))
 _DEFAULT_POLICY = _DEFAULT_PROFILE.chat_domain_policy
@@ -401,6 +410,212 @@ def test_ask_returns_summary_when_questionnaire_complete():
         {"label": "Nee", "value": "no"},
     ]
     assert question_llm.calls == []
+
+
+def test_ask_returns_categorized_handoff_when_questionnaire_complete():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): vol-au-vent\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, or none): poultry\n"
+            "3. Cooking method (BBQ, grill, stew, or none): stew\n"
+            "4. Spiciness (spicy or not spicy): not spicy\n"
+            "5. Side dish (e.g. pasta, salad, or none): none"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant eet vol-au-vent."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="We eten vol-au-vent",
+            state={
+                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Welk gerecht eten jullie?",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text in [*HANDOFF_NL, *HANDOFF_EN, *HANDOFF_FR]
+    assert result.summary is None
+    assert result.follow_up_question is None
+    assert result.quick_replies is None
+    assert result.state["phase"] == "completed"
+    assert result.state["feedback_status"] == "pending"
+    assert json.loads(result.state["handoff_categories_v1"]) == {
+        "course_type": "hoofdgerecht",
+        "main_protein": "gevogelte",
+        "cooking_method": "stoofpotje",
+        "spiciness": "niet-pikant",
+        "side_dish": "geen",
+    }
+    assert question_llm.calls == []
+
+
+def test_ask_stop_classification_completes_categorized_handoff_with_defaults():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): Ik weet het nog niet\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+            "2. Main protein (fish or seafood, poultry, red meat, or none): []\n"
+            "3. Cooking method (BBQ, grill, stew, or none): []\n"
+            "4. Spiciness (spicy or not spicy): []\n"
+            "5. Side dish (e.g. pasta, salad, or none): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant wil stoppen."])
+    relevance_classifier = StubRelevanceClassifier(["stop"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        answer_relevance_classifier=relevance_classifier,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik wil stoppen",
+            state={
+                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Welk gerecht eten jullie?",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.summary is None
+    assert result.follow_up_question is None
+    assert result.quick_replies is None
+    assert result.state["phase"] == "completed"
+    assert json.loads(result.state["handoff_categories_v1"]) == {
+        "course_type": "niet-gespecificeerd",
+        "main_protein": "niet-gespecificeerd",
+        "cooking_method": "niet-gespecificeerd",
+        "spiciness": "niet-gespecificeerd",
+        "side_dish": "niet-gespecificeerd",
+    }
+    assert question_llm.calls == []
+    assert len(relevance_classifier.calls) == 1
+
+
+def test_ask_categorized_handoff_normalizes_non_relevant_side_dish_immediately():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): vol-au-vent\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, or none): poultry\n"
+            "3. Cooking method (BBQ, grill, stew, or none): stew\n"
+            "4. Spiciness (spicy or not spicy): not spicy\n"
+            "5. Side dish (e.g. pasta, salad, or none): fries"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant eet vol-au-vent met frieten."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    state = {
+        "questionnaire": (
+            "0. Dish description (free text from customer): vol-au-vent\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, or none): poultry\n"
+            "3. Cooking method (BBQ, grill, stew, or none): stew\n"
+            "4. Spiciness (spicy or not spicy): not spicy\n"
+            "5. Side dish (e.g. pasta, salad, or none): []"
+        ),
+        "summary": "",
+        "last_question": "Welk bijgerecht is erbij?",
+    }
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Met frieten",
+            state=state,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.state["phase"] == "completed"
+    assert (
+        "5. Side dish (e.g. pasta, salad, or none): niet-gespecificeerd"
+        in result.state["questionnaire"]
+    )
+    assert json.loads(result.state["handoff_categories_v1"])["side_dish"] == (
+        "niet-gespecificeerd"
+    )
+    assert question_llm.calls == []
+
+
+def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+    completed_state = {
+        "questionnaire": (
+            "0. Dish description (free text from customer): vol-au-vent\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, or none): poultry\n"
+            "3. Cooking method (BBQ, grill, stew, or none): stew\n"
+            "4. Spiciness (spicy or not spicy): not spicy\n"
+            "5. Side dish (e.g. pasta, salad, or none): none"
+        ),
+        "summary": "Klant eet vol-au-vent.",
+        "last_question": "Welk gerecht eten jullie?",
+        "phase": "completed",
+        "feedback_status": "pending",
+        "final_summary": "",
+        "post_summary_language": "",
+        "boundary_violation_count": "0",
+        "handoff_categories_v1": (
+            '{"course_type":"hoofdgerecht","main_protein":"gevogelte",'
+            '"cooking_method":"stoofpotje","spiciness":"niet-pikant","side_dish":"geen"}'
+        ),
+    }
+
+    result = asyncio.run(service.ask(current_answer="Nog iets", state=completed_state))
+
+    assert result.response_type == "answer"
+    assert result.text in [*HANDOFF_NL, *HANDOFF_EN, *HANDOFF_FR]
+    assert result.summary is None
+    assert result.follow_up_question is None
+    assert result.quick_replies is None
+    assert result.state["phase"] == "completed"
+    assert (
+        result.state["handoff_categories_v1"]
+        == completed_state["handoff_categories_v1"]
+    )
+    assert question_llm.calls == []
+    assert notulist_llm.calls == []
+    assert summarizer_llm.calls == []
 
 
 def test_ask_enters_feedback_flow_on_stop_classification():

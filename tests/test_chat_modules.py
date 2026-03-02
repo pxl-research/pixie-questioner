@@ -127,6 +127,7 @@ def test_state_codec_parse_and_serialize_roundtrip() -> None:
             "final_summary": "",
             "post_summary_language": "",
             "boundary_violation_count": "2",
+            "handoff_categories_v1": '{"course_type":"hoofdgerecht"}',
         },
         questionnaire_template="0. Initial user question: []",
         detect_language=lambda _text: "en",
@@ -137,6 +138,7 @@ def test_state_codec_parse_and_serialize_roundtrip() -> None:
     assert serialized["phase"] == "awaiting_feedback"
     assert serialized["post_summary_language"] == "en"
     assert serialized["boundary_violation_count"] == "2"
+    assert serialized["handoff_categories_v1"] == '{"course_type":"hoofdgerecht"}'
 
 
 def test_relevance_classifier_parses_labels_and_negation() -> None:

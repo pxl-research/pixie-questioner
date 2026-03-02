@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import re
+import unicodedata
 from dataclasses import dataclass
 
 from .chat.flow import (
     ensure_feedback_context,
     mark_feedback_completed,
+    to_categorized_handoff_completed_state,
     to_feedback_state,
     to_intake_state_with_next_question,
     to_off_topic_redirect_state,
@@ -107,6 +111,250 @@ class ChatService:
             summary=summary,
         )
 
+    def _is_categorized_handoff_mode(self) -> bool:
+        return self.domain_policy.completion_mode == "categorized_handoff"
+
+    def _extract_questionnaire_field_value(self, questionnaire: str, index: int) -> str:
+        match = re.search(rf"(?m)^\s*{index}\.\s*[^:\n]*:[^\S\n]*(.*?)$", questionnaire)
+        if match:
+            return match.group(1).strip()
+        return ""
+
+    def _replace_questionnaire_field_value(
+        self, questionnaire: str, index: int, new_value: str
+    ) -> str:
+        pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:[^\S\n]*).*$")
+        updated, count = pattern.subn(
+            lambda match: f"{match.group(1)}{new_value}",
+            questionnaire,
+            count=1,
+        )
+        if count == 0:
+            return questionnaire
+        return updated
+
+    def _is_blank_questionnaire_value(self, value: str) -> bool:
+        stripped = value.strip().strip("[]").strip()
+        return not stripped
+
+    def _normalize_text(self, value: str) -> str:
+        lowered = value.casefold()
+        deaccented = "".join(
+            char
+            for char in unicodedata.normalize("NFKD", lowered)
+            if not unicodedata.combining(char)
+        )
+        return re.sub(r"[^a-z0-9]+", " ", deaccented).strip()
+
+    def _contains_any(self, normalized_text: str, candidates: tuple[str, ...]) -> bool:
+        haystack = f" {normalized_text} "
+        return any(f" {candidate} " in haystack for candidate in candidates)
+
+    def _is_unspecified(self, normalized_text: str) -> bool:
+        return self._contains_any(
+            normalized_text,
+            (
+                "niet gespecificeerd",
+                "not specified",
+                "non specifie",
+                "unspecified",
+            ),
+        )
+
+    def _is_none_value(self, normalized_text: str) -> bool:
+        return self._contains_any(
+            normalized_text,
+            ("none", "geen", "aucun", "aucune", "pas de", "zonder"),
+        )
+
+    def _canonical_course_type(self, value: str) -> str:
+        if self._is_blank_questionnaire_value(value):
+            return "niet-gespecificeerd"
+        normalized = self._normalize_text(value)
+        if self._is_unspecified(normalized):
+            return "niet-gespecificeerd"
+        if self._contains_any(normalized, ("aperitief", "aperitif", "starter")):
+            return "aperitief"
+        if self._contains_any(
+            normalized,
+            ("hoofdgerecht", "main course", "plat principal"),
+        ):
+            return "hoofdgerecht"
+        if self._contains_any(normalized, ("kaasgerecht", "cheese", "fromage")):
+            return "kaasgerecht"
+        if self._contains_any(normalized, ("dessert",)):
+            return "dessert"
+        return "niet-gespecificeerd"
+
+    def _canonical_main_protein(self, value: str) -> str:
+        if self._is_blank_questionnaire_value(value):
+            return "niet-gespecificeerd"
+        normalized = self._normalize_text(value)
+        if self._is_unspecified(normalized):
+            return "niet-gespecificeerd"
+        if self._contains_any(
+            normalized,
+            (
+                "fish",
+                "seafood",
+                "vis",
+                "zeevruchten",
+                "poisson",
+                "fruit de mer",
+                "fruits de mer",
+            ),
+        ):
+            return "vis-of-zeevruchten"
+        if self._contains_any(
+            normalized,
+            (
+                "poultry",
+                "chicken",
+                "turkey",
+                "duck",
+                "gevogelte",
+                "kip",
+                "kalkoen",
+                "eend",
+                "volaille",
+                "poulet",
+            ),
+        ):
+            return "gevogelte"
+        if self._contains_any(
+            normalized,
+            (
+                "red meat",
+                "rood vlees",
+                "beef",
+                "steak",
+                "lamb",
+                "pork",
+                "rund",
+                "boeuf",
+                "agneau",
+                "veau",
+            ),
+        ):
+            return "rood-vlees"
+        if self._is_none_value(normalized):
+            return "geen"
+        return "niet-gespecificeerd"
+
+    def _canonical_cooking_method(self, value: str) -> str:
+        if self._is_blank_questionnaire_value(value):
+            return "niet-gespecificeerd"
+        normalized = self._normalize_text(value)
+        if self._is_unspecified(normalized):
+            return "niet-gespecificeerd"
+        if self._contains_any(normalized, ("bbq", "barbecue", "barbeque")):
+            return "bbq"
+        if self._contains_any(normalized, ("grill", "grilled", "gegrild", "grille")):
+            return "grill"
+        if self._contains_any(
+            normalized,
+            ("stoofpot", "stoofpotje", "stoof", "stew", "ragout"),
+        ):
+            return "stoofpotje"
+        if self._is_none_value(normalized):
+            return "geen"
+        return "niet-gespecificeerd"
+
+    def _canonical_spiciness(self, value: str) -> str:
+        if self._is_blank_questionnaire_value(value):
+            return "niet-gespecificeerd"
+        normalized = self._normalize_text(value)
+        if self._is_unspecified(normalized):
+            return "niet-gespecificeerd"
+        if self._contains_any(
+            normalized,
+            (
+                "niet pikant",
+                "not spicy",
+                "pas epice",
+                "pas epicee",
+                "non epice",
+                "non epicee",
+            ),
+        ):
+            return "niet-pikant"
+        if self._contains_any(
+            normalized,
+            ("pikant", "spicy", "epice", "epicee"),
+        ):
+            return "pikant"
+        return "niet-gespecificeerd"
+
+    def _canonical_side_dish(self, value: str) -> str:
+        if self._is_blank_questionnaire_value(value):
+            return "niet-gespecificeerd"
+        normalized = self._normalize_text(value)
+        if self._is_unspecified(normalized):
+            return "niet-gespecificeerd"
+        if self._contains_any(normalized, ("pasta",)):
+            return "pasta"
+        if self._contains_any(normalized, ("salade", "salad")):
+            return "salade"
+        if self._is_none_value(normalized):
+            return "geen"
+        return "niet-gespecificeerd"
+
+    def _normalize_side_dish_for_categorized_flow(self, questionnaire: str) -> str:
+        value = self._extract_questionnaire_field_value(questionnaire, 5)
+        if self._is_blank_questionnaire_value(value):
+            return questionnaire
+        if self._canonical_side_dish(value) != "niet-gespecificeerd":
+            return questionnaire
+        return self._replace_questionnaire_field_value(
+            questionnaire=questionnaire,
+            index=5,
+            new_value="niet-gespecificeerd",
+        )
+
+    def _build_handoff_categories_v1(self, questionnaire: str) -> str:
+        categories = {
+            "course_type": self._canonical_course_type(
+                self._extract_questionnaire_field_value(questionnaire, 1)
+            ),
+            "main_protein": self._canonical_main_protein(
+                self._extract_questionnaire_field_value(questionnaire, 2)
+            ),
+            "cooking_method": self._canonical_cooking_method(
+                self._extract_questionnaire_field_value(questionnaire, 3)
+            ),
+            "spiciness": self._canonical_spiciness(
+                self._extract_questionnaire_field_value(questionnaire, 4)
+            ),
+            "side_dish": self._canonical_side_dish(
+                self._extract_questionnaire_field_value(questionnaire, 5)
+            ),
+        }
+        return json.dumps(categories, ensure_ascii=False, separators=(",", ":"))
+
+    def _build_categorized_completion_result(
+        self,
+        current_state: ChatState,
+        current_answer: str,
+        updated_questionnaire: str,
+        updated_summary: str,
+    ) -> ChatResult:
+        language = self._language.detect_preferred(
+            current_answer=current_answer,
+            previous_summary=updated_summary,
+        )
+        completed_state = to_categorized_handoff_completed_state(
+            state=current_state,
+            updated_questionnaire=updated_questionnaire,
+            updated_summary=updated_summary,
+            handoff_categories_v1=self._build_handoff_categories_v1(
+                updated_questionnaire
+            ),
+        )
+        return self._answer_result(
+            text=self._messages.handoff(language),
+            state=completed_state,
+        )
+
     # -- Phase handlers --------------------------------------------------------
 
     def _resolve_goodbye_language(
@@ -151,7 +399,30 @@ class ChatService:
             summary=summary_text,
         )
 
-    def _handle_completed_phase(self, current_state: ChatState) -> ChatResult:
+    def _handle_completed_phase(
+        self, current_state: ChatState, current_answer: str
+    ) -> ChatResult:
+        if self._is_categorized_handoff_mode():
+            handoff_categories_v1 = (
+                current_state.handoff_categories_v1
+                if current_state.handoff_categories_v1.strip()
+                else self._build_handoff_categories_v1(current_state.questionnaire)
+            )
+            language = self._language.detect_preferred(
+                current_answer=current_answer,
+                previous_summary=current_state.summary,
+            )
+            completed_state = to_categorized_handoff_completed_state(
+                state=current_state,
+                updated_questionnaire=current_state.questionnaire,
+                updated_summary=current_state.summary,
+                handoff_categories_v1=handoff_categories_v1,
+            )
+            return self._answer_result(
+                text=self._messages.handoff(language),
+                state=completed_state,
+            )
+
         completed_state, summary_text, language = ensure_feedback_context(
             current_state,
             detect_language=self._language.detect,
@@ -250,9 +521,20 @@ class ChatService:
         updated_questionnaire = await self._update_questionnaire(
             current_state, current_answer
         )
+        if self._is_categorized_handoff_mode():
+            updated_questionnaire = self._normalize_side_dish_for_categorized_flow(
+                updated_questionnaire
+            )
         updated_summary = await self._update_summary(current_state, current_answer)
 
         if self._questionnaire_complete(updated_questionnaire) or force_complete:
+            if self._is_categorized_handoff_mode():
+                return self._build_categorized_completion_result(
+                    current_state=current_state,
+                    current_answer=current_answer,
+                    updated_questionnaire=updated_questionnaire,
+                    updated_summary=updated_summary,
+                )
             language = self._language.detect(updated_summary)
             feedback_state = to_feedback_state(
                 state=current_state,
@@ -315,6 +597,6 @@ class ChatService:
             return self._handle_awaiting_feedback_phase(current_state, current_answer)
 
         if current_state.phase == PHASE_COMPLETED:
-            return self._handle_completed_phase(current_state)
+            return self._handle_completed_phase(current_state, current_answer)
 
         return await self._handle_intake_phase(current_state, current_answer)

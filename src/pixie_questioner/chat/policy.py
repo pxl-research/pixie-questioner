@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -25,5 +26,6 @@ class ChatDomainPolicy:
     feedback_yes_tokens: frozenset[str]
     feedback_no_tokens: frozenset[str]
     completion_token: str
+    completion_mode: Literal["summary_feedback", "categorized_handoff"]
     off_topic_termination_threshold: int
     term_replacements: dict[str, tuple[tuple[str, str], ...]]

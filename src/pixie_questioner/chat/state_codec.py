@@ -209,6 +209,7 @@ def parse_state(
     boundary_violation_count = _parse_boundary_violation_count(
         _read_state_string(state, "boundary_violation_count", "0")
     )
+    handoff_categories_v1 = _read_state_string(state, "handoff_categories_v1", "")
     phase, feedback_status, final_summary, post_summary_language = (
         _normalize_phase_context(
             phase=phase,
@@ -219,7 +220,6 @@ def parse_state(
             detect_language=detect_language,
         )
     )
-
     return ChatState(
         questionnaire=questionnaire,
         summary=summary,
@@ -229,6 +229,7 @@ def parse_state(
         final_summary=final_summary,
         post_summary_language=post_summary_language,
         boundary_violation_count=boundary_violation_count,
+        handoff_categories_v1=handoff_categories_v1,
     )
 
 
@@ -242,4 +243,5 @@ def serialize_state(state: ChatState) -> dict[str, str]:
         "final_summary": state.final_summary,
         "post_summary_language": state.post_summary_language,
         "boundary_violation_count": str(state.boundary_violation_count),
+        "handoff_categories_v1": state.handoff_categories_v1,
     }

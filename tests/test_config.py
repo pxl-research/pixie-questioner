@@ -125,6 +125,7 @@ def test_get_settings_loads_domain_profile(
     assert profile.relevance_classifier_prompt.startswith("Return ON_TOPIC")
     assert profile.off_topic_termination_threshold == 3
     assert profile.completion_token == "READY"
+    assert profile.completion_mode == "summary_feedback"
     assert profile.language_codes == ("nl", "en", "fr", "de")
     config.get_settings.cache_clear()
 
@@ -336,6 +337,7 @@ def test_profile_without_extends_still_works(tmp_path: Path) -> None:
 
     assert profile.language_codes == ("nl", "en", "fr", "de")
     assert profile.completion_token == "READY"
+    assert profile.completion_mode == "summary_feedback"
 
 
 def test_profile_classifier_prompt_resolves_topic_from_base(tmp_path: Path) -> None:
@@ -384,10 +386,16 @@ def test_profile_domain_overrides_base_values(tmp_path: Path) -> None:
     # Override behavior in domain profile
     domain_profile_path = domain_dir / "domain_profile.yml"
     content = domain_profile_path.read_text(encoding="utf-8")
-    content += "\nbehavior:\n  completion_token: SHOP_DONE\n  off_topic_termination_threshold: 5\n"
+    content += (
+        "\nbehavior:\n"
+        "  completion_token: SHOP_DONE\n"
+        "  off_topic_termination_threshold: 5\n"
+        "  completion_mode: categorized_handoff\n"
+    )
     domain_profile_path.write_text(content, encoding="utf-8")
 
     profile = config.load_domain_profile(domain_profile_path)
 
     assert profile.completion_token == "SHOP_DONE"
     assert profile.off_topic_termination_threshold == 5
+    assert profile.completion_mode == "categorized_handoff"

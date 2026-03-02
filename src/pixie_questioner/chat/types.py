@@ -43,3 +43,4 @@ class ChatState:
     final_summary: str = ""
     post_summary_language: str = ""
     boundary_violation_count: int = 0
+    handoff_categories_v1: str = ""

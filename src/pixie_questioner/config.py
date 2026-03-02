@@ -67,6 +67,7 @@ class ResolvedDomainProfile:
     feedback_yes_tokens: frozenset[str]
     feedback_no_tokens: frozenset[str]
     completion_token: str
+    completion_mode: Literal["summary_feedback", "categorized_handoff"]
     off_topic_termination_threshold: int
     term_replacements: dict[str, tuple[tuple[str, str], ...]]
 
@@ -85,6 +86,7 @@ class ResolvedDomainProfile:
             feedback_yes_tokens=self.feedback_yes_tokens,
             feedback_no_tokens=self.feedback_no_tokens,
             completion_token=self.completion_token,
+            completion_mode=self.completion_mode,
             off_topic_termination_threshold=self.off_topic_termination_threshold,
             term_replacements=self.term_replacements,
         )
@@ -135,6 +137,9 @@ class DomainProfileTokens(BaseModel):
 
 class DomainProfileBehavior(BaseModel):
     completion_token: str = Field(default="")
+    completion_mode: Literal["summary_feedback", "categorized_handoff"] = Field(
+        default="summary_feedback"
+    )
     off_topic_termination_threshold: int = Field(default=2, ge=1)
 
 
@@ -411,6 +416,7 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
             if token.strip()
         ),
         completion_token=profile.behavior.completion_token,
+        completion_mode=profile.behavior.completion_mode,
         off_topic_termination_threshold=profile.behavior.off_topic_termination_threshold,
         term_replacements=term_replacements,
     )

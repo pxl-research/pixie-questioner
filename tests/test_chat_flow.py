@@ -1,6 +1,7 @@
 from pixie_questioner.chat.flow import (
     ensure_feedback_context,
     mark_feedback_completed,
+    to_categorized_handoff_completed_state,
     to_feedback_state,
     to_off_topic_redirect_state,
     to_terminated_state,
@@ -100,3 +101,32 @@ def test_feedback_helpers_complete_and_fill_missing_context() -> None:
     assert enriched.post_summary_language == "de"
     assert completed.phase == PHASE_COMPLETED
     assert completed.feedback_status == "yes"
+
+
+def test_to_categorized_handoff_completed_state_sets_phase_and_payload() -> None:
+    initial = ChatState(
+        questionnaire="q",
+        summary="s",
+        last_question="last question",
+        phase=PHASE_INTAKE,
+        feedback_status="yes",
+        final_summary="old-final",
+        post_summary_language="fr",
+        boundary_violation_count=4,
+    )
+
+    completed = to_categorized_handoff_completed_state(
+        state=initial,
+        updated_questionnaire="new q",
+        updated_summary="new summary",
+        handoff_categories_v1='{"course_type":"hoofdgerecht"}',
+    )
+
+    assert completed.phase == PHASE_COMPLETED
+    assert completed.questionnaire == "new q"
+    assert completed.summary == "new summary"
+    assert completed.feedback_status == "pending"
+    assert completed.final_summary == ""
+    assert completed.post_summary_language == ""
+    assert completed.handoff_categories_v1 == '{"course_type":"hoofdgerecht"}'
+    assert completed.boundary_violation_count == 0

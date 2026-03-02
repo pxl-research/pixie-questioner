@@ -238,6 +238,49 @@ def test_chat_audit_omits_blank_location_metadata(monkeypatch, tmp_path: Path) -
     assert "metadata" not in audit_payload
 
 
+def test_chat_categorized_handoff_answer_omits_summary_in_audit(
+    monkeypatch, tmp_path: Path
+) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    result = ChatResult(
+        text="Dank je wel, dit geeft een mooi beeld van je gerecht:",
+        response_type="answer",
+        state={
+            "phase": "completed",
+            "handoff_categories_v1": '{"course_type":"hoofdgerecht"}',
+        },
+        summary=None,
+    )
+    chat_stub = StubChatService(result)
+    audit_stub = StubAuditClient()
+    main.chat_service = chat_stub
+    main.audit_client = audit_stub
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "session-categorized",
+            "current_answer": "stop",
+            "state": {"location": "Genk"},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["type"] == "answer"
+    assert "summary" not in payload
+    assert audit_stub.calls
+    audit_payload = audit_stub.calls[0]
+    assert audit_payload["messages"] == [
+        {"role": "user", "content": "stop"},
+        {
+            "role": "assistant",
+            "content": "Dank je wel, dit geeft een mooi beeld van je gerecht:",
+        },
+    ]
+
+
 def test_chat_returns_answer(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     state = {
