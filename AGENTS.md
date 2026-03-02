@@ -148,6 +148,14 @@ def parse_state(state):
 - **Keep it compact**: avoid unnecessary micro-helpers.
 - **Minimize new files**: only add files when structurally required.
 
+## Size Constraints
+
+Apply these constraints to runtime code in `src/` and `apps/api/`:
+
+- Max **500 lines** per file
+- Max **50 lines** per function/method
+- Max **10 methods** per class
+
 ---
 
 ## Tests
