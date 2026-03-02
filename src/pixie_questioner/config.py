@@ -13,6 +13,11 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .chat.policy import ChatDomainPolicy, ChatQuickReply
+from .profile_prompt_loader import (
+    inject_questionnaire_template,
+    load_profile_prompts,
+    substitute_prompt_variables,
+)
 
 
 def load_prompt(path: Path) -> str:
@@ -40,13 +45,6 @@ def _normalize_localized_lines(
             )
         normalized[code] = lines
     return normalized
-
-
-def _resolve_prompt_path(base_dir: Path, prompt_path: str) -> Path:
-    candidate = Path(prompt_path).expanduser()
-    if candidate.is_absolute():
-        return candidate
-    return base_dir / candidate
 
 
 @dataclass(frozen=True)
@@ -276,11 +274,11 @@ def _load_yaml_file(path: Path) -> dict[str, Any]:
     return loaded
 
 
-def load_domain_profile(path: Path) -> ResolvedDomainProfile:
+def _prepare_profile_payload(
+    path: Path,
+) -> tuple[DomainProfileFile, dict[str, dict[str, str]], Path, Path | None]:
     resolved_path = path.expanduser()
     loaded = _load_yaml_file(resolved_path)
-
-    # Handle profile inheritance via ``extends``.
     extends = loaded.pop("extends", None)
     variables: dict[str, dict[str, str]] = loaded.pop("variables", {})
 
@@ -293,7 +291,6 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         base_loaded.pop("variables", None)
         loaded = _deep_merge(base_loaded, loaded)
 
-    # Resolve template variables in messages.
     if variables and "messages" in loaded:
         loaded["messages"] = _resolve_message_variables(loaded["messages"], variables)
 
@@ -301,85 +298,12 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         profile = DomainProfileFile.model_validate(loaded)
     except ValidationError as exc:
         raise RuntimeError(f"Invalid domain profile configuration: {exc}") from exc
+    return profile, variables, resolved_path.resolve().parent, base_dir
 
-    profile_dir = resolved_path.resolve().parent
-    prompt_paths = profile.prompts
 
-    question_asker_prompt = load_prompt(
-        _resolve_prompt_path(profile_dir, prompt_paths.question_asker_path)
-    )
-    # Resolve questionnaire_notulist_path: domain dir first, then base dir.
-    notulist_path = prompt_paths.questionnaire_notulist_path
-    if notulist_path:
-        notulist_candidate = _resolve_prompt_path(profile_dir, notulist_path)
-        if not notulist_candidate.exists() and base_dir is not None:
-            notulist_candidate = _resolve_prompt_path(base_dir, notulist_path)
-    else:
-        notulist_candidate = _resolve_prompt_path(
-            profile_dir, "questionnaire_notulist.txt"
-        )
-    questionnaire_notulist_prompt = load_prompt(notulist_candidate)
-    questionnaire_template = load_prompt(
-        _resolve_prompt_path(profile_dir, prompt_paths.questionnaire_template_path)
-    )
-
-    # Inject questionnaire field names into the notulist prompt so the LLM
-    # knows which fields exist.  Strip the ": []" suffixes so the empty
-    # brackets are not echoed back as default values — the actual current
-    # state already arrives via the {summary} placeholder at runtime.
-    if "{questionnaire_template}" in questionnaire_notulist_prompt:
-        field_names_only = re.sub(r":\s*\[\]", "", questionnaire_template.strip())
-        questionnaire_notulist_prompt = questionnaire_notulist_prompt.replace(
-            "{questionnaire_template}", field_names_only
-        )
-
-    # Resolve relevance_classifier_path: domain dir first, then base dir.
-    classifier_path = prompt_paths.relevance_classifier_path
-    if classifier_path:
-        candidate = _resolve_prompt_path(profile_dir, classifier_path)
-        if not candidate.exists() and base_dir is not None:
-            candidate = _resolve_prompt_path(base_dir, classifier_path)
-        classifier_full = candidate
-    else:
-        classifier_full = _resolve_prompt_path(profile_dir, "relevance_classifier.txt")
-    relevance_classifier_prompt = load_prompt(classifier_full)
-
-    aroma_taste_classifier_prompt = ""
-    aroma_classifier_path = prompt_paths.aroma_taste_classifier_path
-    if aroma_classifier_path:
-        aroma_candidate = _resolve_prompt_path(profile_dir, aroma_classifier_path)
-        if not aroma_candidate.exists() and base_dir is not None:
-            aroma_candidate = _resolve_prompt_path(base_dir, aroma_classifier_path)
-        aroma_taste_classifier_prompt = load_prompt(aroma_candidate)
-
-    handoff_classifier_prompt = ""
-    handoff_classifier_path = prompt_paths.handoff_classifier_path
-    if handoff_classifier_path:
-        handoff_candidate = _resolve_prompt_path(profile_dir, handoff_classifier_path)
-        if not handoff_candidate.exists() and base_dir is not None:
-            handoff_candidate = _resolve_prompt_path(base_dir, handoff_classifier_path)
-        handoff_classifier_prompt = load_prompt(handoff_candidate)
-
-    # Substitute profile variables (e.g. {topic}) in prompts.
-    # Use English values as the prompts are written in English.
-    if variables:
-        en_vars = {
-            var_name: lang_values.get("en", next(iter(lang_values.values()), ""))
-            for var_name, lang_values in variables.items()
-        }
-        relevance_classifier_prompt = _substitute_variables(
-            relevance_classifier_prompt, en_vars
-        )
-        questionnaire_notulist_prompt = _substitute_variables(
-            questionnaire_notulist_prompt, en_vars
-        )
-        aroma_taste_classifier_prompt = _substitute_variables(
-            aroma_taste_classifier_prompt, en_vars
-        )
-        handoff_classifier_prompt = _substitute_variables(
-            handoff_classifier_prompt, en_vars
-        )
-
+def _build_language_codes_and_names(
+    profile: DomainProfileFile,
+) -> tuple[tuple[str, ...], dict[str, str]]:
     normalized_base = tuple(
         dict.fromkeys(_normalize_language_code(code) for code in profile.languages.base)
     )
@@ -398,19 +322,43 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
     language_names.setdefault("en", "English")
     for language_code in language_codes:
         language_names.setdefault(language_code, language_code.upper())
+    return language_codes, language_names
 
-    quick_replies = {
+
+def _build_quick_replies(
+    profile: DomainProfileFile,
+) -> dict[str, tuple[ChatQuickReply, ...]]:
+    return {
         _normalize_language_code(language): tuple(
             ChatQuickReply(label=item.label, value=item.value)
             for item in localized_quick_replies
         )
         for language, localized_quick_replies in profile.quick_replies.items()
     }
-    term_replacements = {
+
+
+def _build_term_replacements(
+    profile: DomainProfileFile,
+) -> dict[str, tuple[tuple[str, str], ...]]:
+    return {
         _normalize_language_code(language): tuple(values.items())
         for language, values in profile.term_replacements.items()
     }
 
+
+def _to_resolved_domain_profile(
+    profile: DomainProfileFile,
+    question_asker_prompt: str,
+    questionnaire_notulist_prompt: str,
+    questionnaire_template: str,
+    relevance_classifier_prompt: str,
+    aroma_taste_classifier_prompt: str,
+    handoff_classifier_prompt: str,
+    language_codes: tuple[str, ...],
+    language_names: dict[str, str],
+    quick_replies: dict[str, tuple[ChatQuickReply, ...]],
+    term_replacements: dict[str, tuple[tuple[str, str], ...]],
+) -> ResolvedDomainProfile:
     return ResolvedDomainProfile(
         question_asker_prompt=question_asker_prompt,
         questionnaire_notulist_prompt=questionnaire_notulist_prompt,
@@ -446,6 +394,56 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         completion_token=profile.behavior.completion_token,
         completion_mode=profile.behavior.completion_mode,
         off_topic_termination_threshold=profile.behavior.off_topic_termination_threshold,
+        term_replacements=term_replacements,
+    )
+
+
+def load_domain_profile(path: Path) -> ResolvedDomainProfile:
+    profile, variables, profile_dir, base_dir = _prepare_profile_payload(path)
+    (
+        question_asker_prompt,
+        questionnaire_notulist_prompt,
+        questionnaire_template,
+        relevance_classifier_prompt,
+        aroma_taste_classifier_prompt,
+        handoff_classifier_prompt,
+    ) = load_profile_prompts(
+        profile=profile,
+        profile_dir=profile_dir,
+        base_dir=base_dir,
+        load_prompt=load_prompt,
+    )
+    questionnaire_notulist_prompt = inject_questionnaire_template(
+        questionnaire_notulist_prompt,
+        questionnaire_template,
+    )
+    (
+        relevance_classifier_prompt,
+        questionnaire_notulist_prompt,
+        aroma_taste_classifier_prompt,
+        handoff_classifier_prompt,
+    ) = substitute_prompt_variables(
+        variables=variables,
+        relevance_classifier_prompt=relevance_classifier_prompt,
+        questionnaire_notulist_prompt=questionnaire_notulist_prompt,
+        aroma_taste_classifier_prompt=aroma_taste_classifier_prompt,
+        handoff_classifier_prompt=handoff_classifier_prompt,
+        substitute_variables=_substitute_variables,
+    )
+    language_codes, language_names = _build_language_codes_and_names(profile)
+    quick_replies = _build_quick_replies(profile)
+    term_replacements = _build_term_replacements(profile)
+    return _to_resolved_domain_profile(
+        profile=profile,
+        question_asker_prompt=question_asker_prompt,
+        questionnaire_notulist_prompt=questionnaire_notulist_prompt,
+        questionnaire_template=questionnaire_template,
+        relevance_classifier_prompt=relevance_classifier_prompt,
+        aroma_taste_classifier_prompt=aroma_taste_classifier_prompt,
+        handoff_classifier_prompt=handoff_classifier_prompt,
+        language_codes=language_codes,
+        language_names=language_names,
+        quick_replies=quick_replies,
         term_replacements=term_replacements,
     )
 

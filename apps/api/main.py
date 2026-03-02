@@ -11,6 +11,7 @@ from pydantic import ValidationError
 
 from pixie_questioner.audit_client import AuditClient
 from pixie_questioner.azure_openai_llm import AzureOpenAILLM
+from pixie_questioner.chat.types import ChatResult
 from pixie_questioner.chat.relevance import LLMAnswerRelevanceClassifier
 from pixie_questioner.chat_service import ChatService
 from pixie_questioner.config import get_settings
@@ -135,6 +136,67 @@ def _extract_audit_location(state: dict[str, str]) -> str | None:
     return normalized
 
 
+async def _post_audit_event(request: ChatRequest, result: ChatResult) -> None:
+    if audit_client is None:
+        return
+    try:
+        metadata: AuditEventMetadata | None = None
+        audit_location = _extract_audit_location(request.state)
+        if audit_location is not None:
+            metadata = AuditEventMetadata(location=audit_location)
+
+        payload = AuditEventPayload(
+            conversation_id=request.session_id,
+            profile=audit_client.profile,
+            messages=_build_audit_messages(
+                request.current_answer,
+                result.text,
+                result.summary,
+            ),
+            metadata=metadata,
+        )
+        await audit_client.post_event(payload.model_dump(exclude_none=True))
+    except ValidationError as exc:
+        logger.warning(
+            "Skipped audit event due to invalid payload (%s): %s",
+            AUDIT_EVENT_CONTRACT_VERSION,
+            exc,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to post audit event (%s): %s",
+            AUDIT_EVENT_CONTRACT_VERSION,
+            exc,
+        )
+
+
+def _build_chat_response(request: ChatRequest, result: ChatResult) -> ChatResponse:
+    if result.response_type == "summary":
+        if result.summary is None:
+            raise RuntimeError("Summary response requires a summary payload.")
+        return ChatSummaryResponse(
+            type="summary",
+            text=result.text,
+            summary=result.summary,
+            follow_up_question=result.follow_up_question,
+            conversation_id=request.session_id,
+            state=result.state,
+        )
+    return ChatAnswerResponse(
+        type="answer",
+        text=result.text,
+        summary=result.summary,
+        follow_up_question=result.follow_up_question,
+        quick_replies=(
+            [QuickReplyOption(**item) for item in result.quick_replies]
+            if result.quick_replies is not None
+            else None
+        ),
+        conversation_id=request.session_id,
+        state=result.state,
+    )
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -151,59 +213,5 @@ async def chat(request: ChatRequest, response: Response):
         state=request.state,
     )
     response.headers["X-Pixie-Chat-Contract"] = CHAT_CONTRACT_VERSION
-    if audit_client is not None:
-        try:
-            metadata: AuditEventMetadata | None = None
-            audit_location = _extract_audit_location(request.state)
-            if audit_location is not None:
-                metadata = AuditEventMetadata(location=audit_location)
-
-            payload = AuditEventPayload(
-                conversation_id=request.session_id,
-                profile=audit_client.profile,
-                messages=_build_audit_messages(
-                    request.current_answer,
-                    result.text,
-                    result.summary,
-                ),
-                metadata=metadata,
-            )
-            await audit_client.post_event(payload.model_dump(exclude_none=True))
-        except ValidationError as exc:
-            logger.warning(
-                "Skipped audit event due to invalid payload (%s): %s",
-                AUDIT_EVENT_CONTRACT_VERSION,
-                exc,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to post audit event (%s): %s",
-                AUDIT_EVENT_CONTRACT_VERSION,
-                exc,
-            )
-    if result.response_type == "summary":
-        if result.summary is None:
-            raise RuntimeError("Summary response requires a summary payload.")
-        summary_response = ChatSummaryResponse(
-            type="summary",
-            text=result.text,
-            summary=result.summary,
-            follow_up_question=result.follow_up_question,
-            conversation_id=request.session_id,
-            state=result.state,
-        )
-        return summary_response
-    answer_response = ChatAnswerResponse(
-        type="answer",
-        text=result.text,
-        summary=result.summary,
-        follow_up_question=result.follow_up_question,
-        quick_replies=(
-            [QuickReplyOption(**item) for item in result.quick_replies]
-            if result.quick_replies is not None
-            else None
-        ),
-        conversation_id=request.session_id,
-        state=result.state,
-    )
-    return answer_response
+    await _post_audit_event(request, result)
+    return _build_chat_response(request, result)
