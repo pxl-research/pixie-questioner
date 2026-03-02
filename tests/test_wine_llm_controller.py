@@ -161,6 +161,30 @@ def test_ranker_accepts_valid_unique_candidate_barcodes() -> None:
     assert selected == ["c3", "c1", "c2"]
 
 
+def test_ranker_can_return_selection_explanation() -> None:
+    ranker = LLMWineRanker(
+        llm=FakeLLM(
+            [
+                '{"barcodes":["c1","c3"],"selection_explanation":"Best fit on food pairing and freshness."}'
+            ]
+        ),
+        system_prompt_template="{candidate_catalog_rows}",
+    )
+
+    selection = asyncio.run(
+        ranker.select_with_explanation(
+            working_context="Klant eet vol-au-vent en wil frisse stijl",
+            candidate_records=_candidate_records(),
+            candidate_barcodes=["c1", "c2", "c3"],
+            min_count=1,
+            max_count=3,
+        )
+    )
+
+    assert selection.barcodes == ["c1", "c3"]
+    assert selection.explanation == "Best fit on food pairing and freshness."
+
+
 def test_ranker_raises_when_two_attempts_are_invalid() -> None:
     llm = FakeLLM(
         [

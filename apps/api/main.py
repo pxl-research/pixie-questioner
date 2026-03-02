@@ -52,6 +52,7 @@ Rules:
   question_text: string (required when action is question)
   meal_mode: "pairing" | "drinking_only" | "unknown"
   query_hints: concise search hints
+  decision_explanation: short factual reason for this action (no hidden reasoning)
 
 Current meal mode guess:
 {current_meal_mode}
@@ -74,7 +75,9 @@ Turn:
 
 RANKER_PROMPT = """
 Select the best candidate barcodes for this customer.
-Return only JSON with key "barcodes" containing an ordered array.
+Return only JSON with keys:
+- barcodes: ordered array
+- selection_explanation: short factual reason for this shortlist
 Use only candidate barcodes from the catalog rows below.
 
 Working context:

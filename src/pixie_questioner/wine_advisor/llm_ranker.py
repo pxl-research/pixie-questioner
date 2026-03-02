@@ -16,6 +16,13 @@ _JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", flags=re.DOTALL)
 
 class _RankerPayload(BaseModel):
     barcodes: list[str]
+    selection_explanation: str = ""
+
+
+@dataclass(frozen=True)
+class RankerSelection:
+    barcodes: list[str]
+    explanation: str = ""
 
 
 @dataclass
@@ -70,7 +77,7 @@ class LLMWineRanker:
             )
         return "\n".join(lines)
 
-    def _parse_payload(self, content: str) -> list[str]:
+    def _parse_payload(self, content: str) -> RankerSelection:
         try:
             raw_payload = json.loads(content)
         except json.JSONDecodeError:
@@ -82,7 +89,10 @@ class LLMWineRanker:
             payload = _RankerPayload.model_validate(raw_payload)
         except ValidationError as exc:
             raise RuntimeError("Invalid ranker payload") from exc
-        return payload.barcodes
+        return RankerSelection(
+            barcodes=payload.barcodes,
+            explanation=payload.selection_explanation.strip(),
+        )
 
     def _dedupe_preserving_order(self, barcodes: list[str]) -> list[str]:
         seen: set[str] = set()
@@ -125,7 +135,7 @@ class LLMWineRanker:
         min_count: int,
         max_count: int,
         retry_reason: str,
-    ) -> list[str]:
+    ) -> RankerSelection:
         prompt = self._render_prompt(
             working_context=working_context,
             candidate_catalog_rows=candidate_catalog_rows,
@@ -139,7 +149,7 @@ class LLMWineRanker:
         )
         return self._parse_payload(extract_llm_content(response))
 
-    async def select_barcodes(
+    async def select_with_explanation(
         self,
         *,
         working_context: str,
@@ -147,10 +157,10 @@ class LLMWineRanker:
         candidate_barcodes: list[str],
         min_count: int,
         max_count: int,
-    ) -> list[str]:
+    ) -> RankerSelection:
         candidates = self._dedupe_preserving_order(candidate_barcodes)
         if not candidates:
-            return []
+            return RankerSelection(barcodes=[], explanation="")
         candidate_catalog_rows = self._serialize_catalog_rows(candidate_records)
         if not candidate_catalog_rows:
             raise RuntimeError("No candidate catalog rows available.")
@@ -165,13 +175,16 @@ class LLMWineRanker:
                 retry_reason="",
             )
         except Exception:
-            first_attempt = []
+            first_attempt = RankerSelection(barcodes=[], explanation="")
 
         first_valid, reason = self._validate_selection(
-            first_attempt, candidates, min_count, max_count
+            first_attempt.barcodes, candidates, min_count, max_count
         )
         if first_valid is not None:
-            return first_valid
+            return RankerSelection(
+                barcodes=first_valid,
+                explanation=first_attempt.explanation,
+            )
 
         try:
             second_attempt = await self._invoke_ranker(
@@ -183,12 +196,33 @@ class LLMWineRanker:
                 retry_reason=reason,
             )
         except Exception:
-            second_attempt = []
+            second_attempt = RankerSelection(barcodes=[], explanation="")
 
         second_valid, _ = self._validate_selection(
-            second_attempt, candidates, min_count, max_count
+            second_attempt.barcodes, candidates, min_count, max_count
         )
         if second_valid is not None:
-            return second_valid
+            return RankerSelection(
+                barcodes=second_valid,
+                explanation=second_attempt.explanation,
+            )
 
         raise RuntimeError("Ranker failed to return a valid barcode selection.")
+
+    async def select_barcodes(
+        self,
+        *,
+        working_context: str,
+        candidate_records: list[WineCatalogRecord],
+        candidate_barcodes: list[str],
+        min_count: int,
+        max_count: int,
+    ) -> list[str]:
+        selection = await self.select_with_explanation(
+            working_context=working_context,
+            candidate_records=candidate_records,
+            candidate_barcodes=candidate_barcodes,
+            min_count=min_count,
+            max_count=max_count,
+        )
+        return selection.barcodes

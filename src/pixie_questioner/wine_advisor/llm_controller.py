@@ -19,6 +19,7 @@ class _TurnDecisionPayload(BaseModel):
     question_text: str | None = None
     meal_mode: Literal["pairing", "drinking_only", "unknown"] = "unknown"
     query_hints: str = ""
+    decision_explanation: str = ""
 
     @model_validator(mode="after")
     def validate_question_for_question_action(self) -> "_TurnDecisionPayload":
@@ -33,6 +34,7 @@ class TurnDecision:
     question_text: str
     meal_mode: Literal["pairing", "drinking_only", "unknown"]
     query_hints: str
+    explanation: str = ""
 
 
 @dataclass
@@ -107,4 +109,5 @@ class LLMTurnController:
             question_text=question_text,
             meal_mode=payload.meal_mode,
             query_hints=payload.query_hints.strip(),
+            explanation=payload.decision_explanation.strip(),
         )

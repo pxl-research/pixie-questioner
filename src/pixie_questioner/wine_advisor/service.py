@@ -31,6 +31,22 @@ def _to_string_list(value: Any) -> list[str]:
     return [item for item in value if isinstance(item, str) and item.strip()]
 
 
+def _to_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    return default
+
+
+def _to_debug_trace(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    trace: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            trace.append(dict(item))
+    return trace
+
+
 def _to_chat_history(value: Any) -> list[ConversationTurn]:
     if not isinstance(value, list):
         return []
@@ -113,6 +129,12 @@ class WineAdvisorService:
             if raw_meal_mode in {"pairing", "drinking_only", MEAL_MODE_UNKNOWN}
             else MEAL_MODE_UNKNOWN
         )
+        debug_enabled = _to_bool(state.get("debug_mode"), False)
+        debug_trace: list[dict[str, Any]] = []
+        raw_debug = state.get("debug")
+        if isinstance(raw_debug, dict):
+            debug_enabled = _to_bool(raw_debug.get("enabled"), debug_enabled)
+            debug_trace = _to_debug_trace(raw_debug.get("trace"))
         last_question = state.get("last_question")
         working_context = state.get("working_context")
         return WineAdvisorState(
@@ -124,10 +146,12 @@ class WineAdvisorService:
             chat_history=_to_chat_history(state.get("chat_history")),
             candidate_barcodes=_to_string_list(state.get("candidate_barcodes")),
             selected_barcodes=_to_string_list(state.get("selected_barcodes")),
+            debug_enabled=debug_enabled,
+            debug_trace=debug_trace,
         )
 
     def _serialize_state(self, state: WineAdvisorState) -> dict[str, Any]:
-        return {
+        serialized: dict[str, Any] = {
             "phase": state.phase,
             "turn_count": state.turn_count,
             "last_question": state.last_question,
@@ -139,6 +163,19 @@ class WineAdvisorService:
             "candidate_barcodes": list(state.candidate_barcodes),
             "selected_barcodes": list(state.selected_barcodes),
         }
+        if state.debug_enabled or state.debug_trace:
+            serialized["debug"] = {
+                "enabled": state.debug_enabled,
+                "trace": list(state.debug_trace),
+            }
+        return serialized
+
+    def _append_debug_event(
+        self,
+        trace: list[dict[str, Any]],
+        event: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        return [*trace, event][-20:]
 
     def _recommendations_for_barcodes(
         self,
@@ -235,16 +272,35 @@ class WineAdvisorService:
         should_recommend = (
             decision.action == "recommend" or next_turn_count >= self.max_turns
         )
+        next_debug_trace = list(parsed_state.debug_trace)
+        debug_event: dict[str, Any] = {
+            "turn": next_turn_count,
+            "action": decision.action,
+            "meal_mode": decision.meal_mode,
+            "controller_explanation": decision.explanation,
+        }
         if should_recommend:
             min_count = 3 if len(candidate_barcodes) >= 3 else 1
             max_count = min(5, len(candidate_barcodes))
-            selected = await self.ranker.select_barcodes(
-                working_context=working_context,
-                candidate_records=candidate_records,
-                candidate_barcodes=candidate_barcodes,
-                min_count=min_count,
-                max_count=max_count,
-            )
+            ranker_explanation = ""
+            if hasattr(self.ranker, "select_with_explanation"):
+                selection = await self.ranker.select_with_explanation(
+                    working_context=working_context,
+                    candidate_records=candidate_records,
+                    candidate_barcodes=candidate_barcodes,
+                    min_count=min_count,
+                    max_count=max_count,
+                )
+                selected = selection.barcodes
+                ranker_explanation = selection.explanation
+            else:
+                selected = await self.ranker.select_barcodes(
+                    working_context=working_context,
+                    candidate_records=candidate_records,
+                    candidate_barcodes=candidate_barcodes,
+                    min_count=min_count,
+                    max_count=max_count,
+                )
             normalized = self._normalize_selected(
                 selected,
                 candidate_barcodes,
@@ -254,6 +310,12 @@ class WineAdvisorService:
             recommendations = self._recommendations_for_barcodes(normalized)
             if not recommendations:
                 raise RuntimeError("Ranker selected barcodes without matching records.")
+            if parsed_state.debug_enabled:
+                debug_event["selected_barcodes"] = list(normalized)
+                debug_event["ranker_explanation"] = ranker_explanation
+                next_debug_trace = self._append_debug_event(
+                    next_debug_trace, debug_event
+                )
             completed = WineAdvisorState(
                 phase=PHASE_COMPLETED,
                 turn_count=next_turn_count,
@@ -265,6 +327,8 @@ class WineAdvisorService:
                 ),
                 candidate_barcodes=candidate_barcodes,
                 selected_barcodes=[item.barcode for item in recommendations],
+                debug_enabled=parsed_state.debug_enabled,
+                debug_trace=next_debug_trace,
             )
             return WineAdvisorResult(
                 text=self._format_recommendation_text(recommendations),
@@ -280,6 +344,9 @@ class WineAdvisorService:
             parsed_state.chat_history, "user", current_answer
         )
         next_history = _append_history(next_history, "assistant", question_text)
+        if parsed_state.debug_enabled:
+            debug_event["question_text"] = question_text
+            next_debug_trace = self._append_debug_event(next_debug_trace, debug_event)
         updated = WineAdvisorState(
             phase=PHASE_INTAKE,
             turn_count=next_turn_count,
@@ -289,6 +356,8 @@ class WineAdvisorService:
             chat_history=next_history,
             candidate_barcodes=candidate_barcodes,
             selected_barcodes=[],
+            debug_enabled=parsed_state.debug_enabled,
+            debug_trace=next_debug_trace,
         )
         return WineAdvisorResult(
             text=question_text,

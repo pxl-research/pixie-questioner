@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 
 from pixie_questioner.wine_advisor.catalog_models import WineCatalogRecord
 from pixie_questioner.wine_advisor.llm_controller import TurnDecision
@@ -40,9 +41,18 @@ class StubController:
         return self.decisions.pop(0)
 
 
+@dataclass(frozen=True)
+class _StubRankerSelection:
+    barcodes: list[str]
+    explanation: str
+
+
 class StubRanker:
-    def __init__(self, selections: list[list[str]]) -> None:
+    def __init__(
+        self, selections: list[list[str]], explanations: list[str] | None = None
+    ) -> None:
         self.selections = list(selections)
+        self.explanations = list(explanations or [])
         self.calls: list[dict[str, object]] = []
 
     async def select_barcodes(
@@ -66,6 +76,27 @@ class StubRanker:
         if not self.selections:
             return []
         return self.selections.pop(0)
+
+    async def select_with_explanation(
+        self,
+        *,
+        working_context: str,
+        candidate_records: list[WineCatalogRecord],
+        candidate_barcodes: list[str],
+        min_count: int,
+        max_count: int,
+    ) -> _StubRankerSelection:
+        selected = await self.select_barcodes(
+            working_context=working_context,
+            candidate_records=candidate_records,
+            candidate_barcodes=candidate_barcodes,
+            min_count=min_count,
+            max_count=max_count,
+        )
+        explanation = ""
+        if self.explanations:
+            explanation = self.explanations.pop(0)
+        return _StubRankerSelection(barcodes=selected, explanation=explanation)
 
 
 def _catalog() -> list[WineCatalogRecord]:
@@ -380,3 +411,85 @@ def test_ask_passes_full_catalog_records_to_ranker() -> None:
     assert isinstance(candidate_barcodes, list)
     assert len(candidate_records) == len(_catalog())
     assert candidate_barcodes == ["w1", "w2", "w3", "w4"]
+
+
+def test_ask_debug_mode_stores_controller_trace_for_question() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="question",
+                question_text="Welke kleur wijn heb je liefst?",
+                meal_mode="drinking_only",
+                query_hints="",
+                explanation="Meal mode is drinking_only and color preference is missing.",
+            )
+        ]
+    )
+    ranker = StubRanker([])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Gewoon los drinken",
+            state={"debug_mode": True},
+        )
+    )
+
+    assert result.response_type == "question"
+    debug = result.state["debug"]
+    assert debug["enabled"] is True
+    trace = debug["trace"]
+    assert isinstance(trace, list)
+    assert trace[0]["action"] == "question"
+    assert trace[0]["controller_explanation"] == (
+        "Meal mode is drinking_only and color preference is missing."
+    )
+
+
+def test_ask_debug_mode_stores_ranker_trace_for_recommendations() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="vol-au-vent romig",
+                explanation="Dish and wine preferences are sufficient for a shortlist.",
+            )
+        ]
+    )
+    ranker = StubRanker(
+        [["w1", "w2", "w3"]],
+        explanations=["Balanced match on acidity, texture and budget."],
+    )
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Geef suggesties",
+            state={
+                "debug_mode": True,
+                "turn_count": 2,
+                "meal_mode": "pairing",
+                "working_context": "Vol-au-vent, budget rond 15 euro, liever wit.",
+            },
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    debug = result.state["debug"]
+    trace = debug["trace"]
+    assert isinstance(trace, list)
+    assert trace[0]["action"] == "recommend"
+    assert trace[0]["selected_barcodes"] == ["w1", "w2", "w3"]
+    assert trace[0]["ranker_explanation"] == (
+        "Balanced match on acidity, texture and budget."
+    )
