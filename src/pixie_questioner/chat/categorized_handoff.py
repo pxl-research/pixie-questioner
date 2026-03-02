@@ -159,18 +159,19 @@ def parse_json_object(value: str) -> dict[str, object]:
 def parse_aroma_taste_flags(value: str) -> dict[str, bool]:
     if is_blank_questionnaire_value(value):
         return {}
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError:
+    parsed = parse_json_object(value)
+    if not parsed:
         return {}
-    if not isinstance(parsed, dict):
-        return {}
-
     flags: dict[str, bool] = {}
     for key in AROMA_TASTE_KEY_ORDER:
         raw_value = parsed.get(key)
         if isinstance(raw_value, bool):
             flags[key] = raw_value
+            continue
+        if isinstance(raw_value, str):
+            normalized = raw_value.strip().casefold()
+            if normalized in {"true", "false"}:
+                flags[key] = normalized == "true"
     return flags
 
 
