@@ -2,48 +2,47 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-CHAT_CONTRACT_VERSION = "chat-v1.1.0"
+CHAT_CONTRACT_VERSION = "chat-v2.0.0"
 AUDIT_EVENT_CONTRACT_VERSION = "audit-event-v1.0.0"
 
 
 class ChatRequest(BaseModel):
     session_id: str = Field(..., min_length=1)
     current_answer: str = Field(..., min_length=1)
-    state: dict[str, str] = Field(default_factory=dict)
+    state: dict[str, Any] = Field(default_factory=dict)
 
 
-class QuickReplyOption(BaseModel):
+class ChatRecommendation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    label: str = Field(..., min_length=1)
-    value: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    price_eur: float
+    country: str = Field(..., min_length=1)
+    region: str = Field(..., min_length=1)
 
 
-class ChatAnswerResponse(BaseModel):
-    type: Literal["answer"]
+class ChatQuestionResponse(BaseModel):
+    type: Literal["question"]
     text: str
-    summary: str | None = None
-    follow_up_question: str | None = None
-    quick_replies: list[QuickReplyOption] | None = Field(default=None, max_length=6)
     conversation_id: str
-    state: dict[str, str]
+    state: dict[str, Any]
 
 
-class ChatSummaryResponse(BaseModel):
-    type: Literal["summary"]
+class ChatRecommendationsResponse(BaseModel):
+    type: Literal["recommendations"]
     text: str
-    summary: str
-    follow_up_question: str | None = None
+    recommendations: list[ChatRecommendation] = Field(min_length=1, max_length=5)
     conversation_id: str
-    state: dict[str, str]
+    state: dict[str, Any]
 
 
 ChatResponse = Annotated[
-    ChatAnswerResponse | ChatSummaryResponse, Field(discriminator="type")
+    ChatQuestionResponse | ChatRecommendationsResponse,
+    Field(discriminator="type"),
 ]
 
 
