@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from dataclasses import dataclass
@@ -150,7 +151,10 @@ def parse_json_object(value: str) -> dict[str, object]:
         try:
             parsed = json.loads(candidate)
         except json.JSONDecodeError:
-            continue
+            try:
+                parsed = ast.literal_eval(candidate)
+            except (ValueError, SyntaxError):
+                continue
         if isinstance(parsed, dict):
             return parsed
     return {}
@@ -160,18 +164,56 @@ def parse_aroma_taste_flags(value: str) -> dict[str, bool]:
     if is_blank_questionnaire_value(value):
         return {}
     parsed = parse_json_object(value)
+    flags = _extract_flags_from_mapping(parsed)
+    if flags:
+        return flags
+    return _extract_flags_from_text(value)
+
+
+def _extract_bool_value(raw_value: object) -> bool | None:
+    if isinstance(raw_value, bool):
+        return raw_value
+    if isinstance(raw_value, str):
+        normalized = raw_value.strip().casefold().strip('"').strip("'")
+        if normalized in {"true", "false"}:
+            return normalized == "true"
+    return None
+
+
+def _extract_flags_from_mapping(parsed: dict[str, object]) -> dict[str, bool]:
     if not parsed:
         return {}
+
+    mappings: list[dict[str, object]] = [parsed]
+    for value in parsed.values():
+        if isinstance(value, dict):
+            mappings.append(value)
+
     flags: dict[str, bool] = {}
-    for key in AROMA_TASTE_KEY_ORDER:
-        raw_value = parsed.get(key)
-        if isinstance(raw_value, bool):
-            flags[key] = raw_value
-            continue
-        if isinstance(raw_value, str):
-            normalized = raw_value.strip().casefold()
-            if normalized in {"true", "false"}:
-                flags[key] = normalized == "true"
+    for mapping in mappings:
+        for key in AROMA_TASTE_KEY_ORDER:
+            if key in flags:
+                continue
+            bool_value = _extract_bool_value(mapping.get(key))
+            if bool_value is not None:
+                flags[key] = bool_value
+    return flags
+
+
+def _extract_flags_from_text(value: str) -> dict[str, bool]:
+    key_pattern = "|".join(re.escape(key) for key in AROMA_TASTE_KEY_ORDER)
+    pattern = re.compile(
+        rf"(?P<key>{key_pattern})\s*[:=]\s*(?P<bool>true|false)",
+        flags=re.IGNORECASE,
+    )
+    flags: dict[str, bool] = {}
+    for match in pattern.finditer(value):
+        matched_key = match.group("key").strip().casefold()
+        bool_value = match.group("bool").strip().casefold() == "true"
+        for key in AROMA_TASTE_KEY_ORDER:
+            if key.casefold() == matched_key:
+                flags[key] = bool_value
+                break
     return flags
 
 
@@ -264,9 +306,10 @@ class CategorizedHandoffBuilder:
 
     async def build_handoff_categories_v1(self, questionnaire: str) -> str:
         categories = await self._classify_handoff_core_categories(questionnaire)
-        aroma_taste_flags = parse_aroma_taste_flags(
-            extract_questionnaire_field_value(questionnaire, 8)
-        )
+        field_value = extract_questionnaire_field_value(questionnaire, 8)
+        aroma_taste_flags = parse_aroma_taste_flags(field_value)
+        if not aroma_taste_flags and not is_blank_questionnaire_value(field_value):
+            aroma_taste_flags = await self._classify_aroma_taste_flags(field_value)
         for key in AROMA_TASTE_KEY_ORDER:
             if key in aroma_taste_flags:
                 categories[key] = aroma_taste_flags[key]
@@ -304,4 +347,19 @@ class CategorizedHandoffBuilder:
             )
         except Exception:
             return {}
-        return parse_aroma_taste_flags(classified)
+        parsed = parse_aroma_taste_flags(classified)
+        if parsed:
+            return parsed
+        strict_summary = (
+            f"{allowed_keys}\n"
+            "Return strict JSON only with exact allowed keys and boolean values."
+        )
+        try:
+            retried = await self.aroma_taste_classifier.generate(
+                current_question="Return strict JSON aroma and taste flags.",
+                current_answer=value,
+                summary=strict_summary,
+            )
+        except Exception:
+            return {}
+        return parse_aroma_taste_flags(retried)
