@@ -127,6 +127,7 @@ def test_get_settings_loads_domain_profile(
     assert profile.completion_token == "READY"
     assert profile.completion_mode == "summary_feedback"
     assert profile.aroma_taste_classifier_prompt == ""
+    assert profile.handoff_classifier_prompt == ""
     assert profile.language_codes == ("nl", "en", "fr", "de")
     config.get_settings.cache_clear()
 
@@ -457,3 +458,4 @@ def test_cretskens_prompts_reduce_irrelevant_followup_questions() -> None:
         profile.aroma_taste_classifier_prompt
     )
     assert "the latest statement wins." in profile.aroma_taste_classifier_prompt
+    assert "include only keys that are true." in profile.handoff_classifier_prompt

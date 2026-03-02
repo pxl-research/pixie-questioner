@@ -87,6 +87,14 @@ def _make_aroma_taste_classifier(llm):
     )
 
 
+def _make_handoff_classifier(llm):
+    return LLMPromptInvoker(
+        llm=llm,
+        system_prompt_template="K:{summary}\nQ:{current_question}\nA:{current_answer}",
+        error_label="Handoff classifier",
+    )
+
+
 QUESTIONNAIRE_TEMPLATE = "0. Initial user question: []\n1. Occasion, Vibe, Setting: []"
 CRETSKENS_QUESTIONNAIRE_TEMPLATE = (
     "0. Dish description (free text from customer): []\n"
@@ -440,6 +448,15 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
     )
     summarizer_llm = FakeLLM(["Klant eet vol-au-vent."])
     aroma_llm = FakeLLM(['{"geur_citrus":true,"smaak_zoet":false}'])
+    handoff_llm = FakeLLM(
+        [
+            (
+                '{"foodpair_witvlees_gevogelte":true,'
+                '"foodpair_stoofgerecht":true,"kleur":"rood",'
+                '"land":"Frankrijk","regio":"Bordeaux","prijs":30}'
+            )
+        ]
+    )
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -448,6 +465,7 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
         aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
+        handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
 
     result = asyncio.run(
@@ -490,6 +508,7 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
     }
     assert question_llm.calls == []
     assert len(aroma_llm.calls) == 1
+    assert len(handoff_llm.calls) == 1
 
 
 def test_ask_stop_classification_completes_categorized_handoff_with_defaults():
@@ -508,6 +527,7 @@ def test_ask_stop_classification_completes_categorized_handoff_with_defaults():
         ]
     )
     summarizer_llm = FakeLLM(["Klant wil stoppen."])
+    handoff_llm = FakeLLM(["{}"])
     relevance_classifier = StubRelevanceClassifier(["stop"])
     service = ChatService(
         llm=question_llm,
@@ -517,6 +537,7 @@ def test_ask_stop_classification_completes_categorized_handoff_with_defaults():
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
         answer_relevance_classifier=relevance_classifier,
+        handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
 
     result = asyncio.run(
@@ -541,8 +562,8 @@ def test_ask_stop_classification_completes_categorized_handoff_with_defaults():
     assert len(relevance_classifier.calls) == 1
 
 
-def test_ask_categorized_handoff_sets_non_cheese_type_to_none():
-    question_llm = FakeLLM(["Should not be used"])
+def test_ask_categorized_handoff_does_not_force_cheese_type_when_blank():
+    question_llm = FakeLLM(["Welke soort kaas is het vooral?"])
     notulist_llm = FakeLLM(
         [
             "0. Dish description (free text from customer): vol-au-vent\n"
@@ -590,20 +611,14 @@ def test_ask_categorized_handoff_sets_non_cheese_type_to_none():
     )
 
     assert result.response_type == "answer"
-    assert result.state["phase"] == "completed"
+    assert result.text == "Welke soort kaas is het vooral?"
+    assert result.state["phase"] == "intake"
     assert (
-        "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none"
+        "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []"
         in result.state["questionnaire"]
     )
-    handoff = json.loads(result.state["handoff_categories_v1"])
-    assert "foodpair_harde_kaas" not in handoff
-    assert "kleur" not in handoff
-    assert "land" not in handoff
-    assert "regio" not in handoff
-    assert "prijs" not in handoff
-    assert "geur_citrus" not in handoff
-    assert "smaak_zoet" not in handoff
-    assert question_llm.calls == []
+    assert result.state["handoff_categories_v1"] == ""
+    assert len(question_llm.calls) == 1
 
 
 def test_ask_categorized_handoff_asks_cheese_followup_for_cheese_course():
@@ -667,6 +682,14 @@ def test_ask_categorized_handoff_derives_country_from_region_only():
     )
     summarizer_llm = FakeLLM(["Klant eet rundstoofvlees."])
     aroma_llm = FakeLLM(['{"smaak_fruitig":true,"smaak_fris_zuur":true}'])
+    handoff_llm = FakeLLM(
+        [
+            (
+                '{"foodpair_roodvlees":true,"foodpair_stoofgerecht":true,'
+                '"regio":"Rioja","land":"Frankrijk","prijs":25}'
+            )
+        ]
+    )
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -675,6 +698,7 @@ def test_ask_categorized_handoff_derives_country_from_region_only():
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
         aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
+        handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
 
     result = asyncio.run(
@@ -713,6 +737,14 @@ def test_ask_categorized_handoff_region_wins_on_country_conflict():
     )
     summarizer_llm = FakeLLM(["Klant eet gegrilde zalm."])
     aroma_llm = FakeLLM(['{"smaak_kruidig":true,"smaak_bruisend":true}'])
+    handoff_llm = FakeLLM(
+        [
+            (
+                '{"foodpair_vis_zeevruchten":true,"foodpair_bbq_grill":true,'
+                '"regio":"Bordeaux","land":"Spanje","prijs":40}'
+            )
+        ]
+    )
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -721,6 +753,7 @@ def test_ask_categorized_handoff_region_wins_on_country_conflict():
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
         aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
+        handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
 
     result = asyncio.run(
@@ -759,6 +792,9 @@ def test_ask_categorized_handoff_aroma_taste_last_statement_wins():
     )
     summarizer_llm = FakeLLM(["Klant eet gegrilde kip."])
     aroma_llm = FakeLLM(['{"smaak_fruitig":true}'])
+    handoff_llm = FakeLLM(
+        ['{"foodpair_witvlees_gevogelte":true,"foodpair_bbq_grill":true}']
+    )
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -767,6 +803,7 @@ def test_ask_categorized_handoff_aroma_taste_last_statement_wins():
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
         aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
+        handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
 
     result = asyncio.run(
@@ -802,6 +839,9 @@ def test_ask_categorized_handoff_ignores_invalid_aroma_classifier_output():
     )
     summarizer_llm = FakeLLM(["Klant eet gegrilde kip."])
     aroma_llm = FakeLLM(["geen geldig json antwoord"])
+    handoff_llm = FakeLLM(
+        ['{"foodpair_witvlees_gevogelte":true,"foodpair_bbq_grill":true}']
+    )
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -810,6 +850,7 @@ def test_ask_categorized_handoff_ignores_invalid_aroma_classifier_output():
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
         aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
+        handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
 
     result = asyncio.run(
@@ -844,6 +885,9 @@ def test_ask_categorized_handoff_omits_unparseable_price():
         ]
     )
     summarizer_llm = FakeLLM(["Klant eet kaas."])
+    handoff_llm = FakeLLM(
+        ['{"foodpair_harde_kaas":true,"kleur":"rood","land":"Italië"}']
+    )
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -851,6 +895,7 @@ def test_ask_categorized_handoff_omits_unparseable_price():
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
 
     result = asyncio.run(

@@ -58,6 +58,15 @@ aroma_taste_classifier = (
     if domain_profile.aroma_taste_classifier_prompt.strip()
     else None
 )
+handoff_classifier = (
+    LLMPromptInvoker(
+        llm=llm,
+        system_prompt_template=domain_profile.handoff_classifier_prompt,
+        error_label="Handoff classifier",
+    )
+    if domain_profile.handoff_classifier_prompt.strip()
+    else None
+)
 chat_service = ChatService(
     llm=llm,
     question_asker_prompt=domain_profile.question_asker_prompt,
@@ -70,6 +79,7 @@ chat_service = ChatService(
         system_prompt_template=domain_profile.relevance_classifier_prompt,
     ),
     aroma_taste_classifier=aroma_taste_classifier,
+    handoff_classifier=handoff_classifier,
 )
 audit_client: AuditClient | None = None
 if settings.audit_api_url:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-import unicodedata
 from dataclasses import dataclass
 
 from .chat.flow import (
@@ -37,18 +36,35 @@ from .chat.types import (
 )
 from .llm_client import LLMPromptInvoker
 
-_WINE_COUNTRY_ALIASES: dict[str, tuple[str, ...]] = {
-    "Australië": ("australia",),
-    "Chili": ("chile",),
-    "Frankrijk": ("france",),
-    "Italië": ("italie", "italy", "italia"),
-    "Luxemburg": ("luxembourg",),
-    "Oostenrijk": ("austria",),
-    "Portugal": (),
-    "Spanje": ("spain", "espana", "espania"),
-    "Verenigde Staten": ("united states", "usa", "us", "vs", "u s"),
-    "Zuid-Afrika": ("south africa", "south-africa"),
-}
+_FOODPAIR_KEY_ORDER: tuple[str, ...] = (
+    "foodpair_aperitief",
+    "foodpair_vis_zeevruchten",
+    "foodpair_witvlees_gevogelte",
+    "foodpair_roodvlees",
+    "foodpair_wild",
+    "foodpair_bbq_grill",
+    "foodpair_stoofgerecht",
+    "foodpair_blauwschimmel_kaas",
+    "foodpair_zachte_kaas",
+    "foodpair_harde_kaas",
+    "foodpair_dessert",
+)
+
+_WINE_COLOR_VALUES = frozenset(("wit", "rood", "rosé"))
+_WINE_COUNTRY_VALUES = frozenset(
+    (
+        "Australië",
+        "Chili",
+        "Frankrijk",
+        "Italië",
+        "Luxemburg",
+        "Oostenrijk",
+        "Portugal",
+        "Spanje",
+        "Verenigde Staten",
+        "Zuid-Afrika",
+    )
+)
 
 _WINE_REGION_TO_COUNTRY: dict[str, str] = {
     "Alentejo": "Portugal",
@@ -94,29 +110,7 @@ _WINE_REGION_TO_COUNTRY: dict[str, str] = {
     "Zuidoost-Australië": "Australië",
 }
 
-_WINE_REGION_ALIASES: dict[str, tuple[str, ...]] = {
-    "Bourgogne (Chablis)": ("bourgogne chablis", "chablis"),
-    "Californië": ("californie", "california"),
-    "Côte du Rhône": ("cote du rhone",),
-    "Côtes du Rhône": ("cotes du rhone",),
-    "Côtes du Rhône, Plan de Dieu": ("cotes du rhone plan de dieu",),
-    "Côtes du Rhône, Séguret": ("cotes du rhone seguret",),
-    "Côtes du Rhône, Vacqueyras": ("cotes du rhone vacqueyras",),
-    "Friuli-Venezia Giulia": ("friuli venezia giulia",),
-    "Haut-Médoc, Bordeaux": ("haut medoc bordeaux",),
-    "IGP Méditerranée": ("igp mediterranee",),
-    "Languedoc-Roussillon": ("languedoc roussillon",),
-    "Loire (AOC Cheverny)": ("loire aoc cheverny", "cheverny"),
-    "Neder-Oostenrijk": ("neder oostenrijk", "lower austria"),
-    "Pays d’Oc": ("pays doc", "pays d oc"),
-    "Penedès": ("penedes",),
-    "Setúbal": ("setubal",),
-    "Sicilië": ("sicilie", "sicily"),
-    "Tejo / Bairrada": ("tejo bairrada",),
-    "Valencia (Utiel-Requena)": ("valencia utiel requena", "utiel requena"),
-    "Vin de Pays d’Oc": ("vin de pays doc", "vin de pays d oc"),
-    "Zuidoost-Australië": ("zuidoost australie", "southeast australia"),
-}
+_WINE_REGION_VALUES = frozenset(_WINE_REGION_TO_COUNTRY)
 
 _AROMA_TASTE_KEY_ORDER: tuple[str, ...] = (
     "geur_citrus",
@@ -153,6 +147,7 @@ class ChatService:
     domain_policy: ChatDomainPolicy
     answer_relevance_classifier: AnswerRelevanceClassifierProtocol | None = None
     aroma_taste_classifier: LLMPromptInvoker | None = None
+    handoff_classifier: LLMPromptInvoker | None = None
 
     def __post_init__(self) -> None:
         if not self.questionnaire_template.strip():
@@ -243,289 +238,85 @@ class ChatService:
         stripped = value.strip().strip("[]").strip()
         return not stripped
 
-    def _normalize_text(self, value: str) -> str:
-        lowered = value.casefold()
-        deaccented = "".join(
-            char
-            for char in unicodedata.normalize("NFKD", lowered)
-            if not unicodedata.combining(char)
+    def _parse_json_object(self, value: str) -> dict[str, object]:
+        stripped = value.strip()
+        if not stripped:
+            return {}
+        candidates = [stripped]
+        if "{" in stripped and "}" in stripped:
+            start = stripped.find("{")
+            end = stripped.rfind("}") + 1
+            candidates.append(stripped[start:end])
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+        return {}
+
+    def _sanitize_handoff_core_categories(
+        self, raw_categories: dict[str, object]
+    ) -> dict[str, bool | str | int]:
+        categories: dict[str, bool | str | int] = {}
+        for key in _FOODPAIR_KEY_ORDER:
+            if raw_categories.get(key) is True:
+                categories[key] = True
+
+        kleur = raw_categories.get("kleur")
+        if isinstance(kleur, str) and kleur in _WINE_COLOR_VALUES:
+            categories["kleur"] = kleur
+
+        regio = raw_categories.get("regio")
+        if isinstance(regio, str) and regio in _WINE_REGION_VALUES:
+            categories["regio"] = regio
+            categories["land"] = _WINE_REGION_TO_COUNTRY[regio]
+        else:
+            land = raw_categories.get("land")
+            if isinstance(land, str) and land in _WINE_COUNTRY_VALUES:
+                categories["land"] = land
+
+        prijs = raw_categories.get("prijs")
+        if isinstance(prijs, int) and not isinstance(prijs, bool) and prijs >= 0:
+            categories["prijs"] = prijs
+        return categories
+
+    async def _classify_handoff_core_categories(
+        self, questionnaire: str
+    ) -> dict[str, bool | str | int]:
+        if self.handoff_classifier is None:
+            return {}
+        allowed_foodpair = "\n".join(f"- {key}" for key in _FOODPAIR_KEY_ORDER)
+        allowed_countries = "\n".join(
+            f"- {country}" for country in sorted(_WINE_COUNTRY_VALUES)
         )
-        return re.sub(r"[^a-z0-9]+", " ", deaccented).strip()
-
-    def _contains_any(self, normalized_text: str, candidates: tuple[str, ...]) -> bool:
-        haystack = f" {normalized_text} "
-        return any(f" {candidate} " in haystack for candidate in candidates)
-
-    def _is_unspecified(self, normalized_text: str) -> bool:
-        return self._contains_any(
-            normalized_text,
-            (
-                "niet gespecificeerd",
-                "not specified",
-                "non specifie",
-                "unspecified",
-            ),
+        allowed_regions = "\n".join(
+            f"- {region}" for region in sorted(_WINE_REGION_VALUES)
         )
-
-    def _is_none_value(self, normalized_text: str) -> bool:
-        return self._contains_any(
-            normalized_text,
-            ("none", "geen", "aucun", "aucune", "pas de", "zonder"),
+        rules = (
+            "Allowed foodpair keys (boolean true only when applicable):\n"
+            f"{allowed_foodpair}\n"
+            "Allowed color values: wit, rood, rosé\n"
+            "Allowed country values:\n"
+            f"{allowed_countries}\n"
+            "Allowed region values:\n"
+            f"{allowed_regions}\n"
+            "Price must be a non-negative integer."
         )
-
-    def _is_no_preference(self, normalized_text: str) -> bool:
-        return self._contains_any(
-            normalized_text,
-            (
-                "geen voorkeur",
-                "maakt niet uit",
-                "maakt me niet uit",
-                "eender",
-                "whatever",
-                "any",
-                "no preference",
-                "doesnt matter",
-                "does not matter",
-                "niet van belang",
-                "ik weet het niet",
-                "geen idee",
-                "onbekend",
-            ),
-        )
-
-    def _match_alias(
-        self, normalized_text: str, aliases: dict[str, tuple[str, ...]]
-    ) -> str | None:
-        haystack = f" {normalized_text} "
-        best_match: str | None = None
-        best_length = 0
-        for canonical, candidate_aliases in aliases.items():
-            for alias in (canonical, *candidate_aliases):
-                normalized_alias = self._normalize_text(alias)
-                if not normalized_alias:
-                    continue
-                if f" {normalized_alias} " not in haystack:
-                    continue
-                alias_length = len(normalized_alias)
-                if alias_length > best_length:
-                    best_match = canonical
-                    best_length = alias_length
-        return best_match
-
-    def _match_country(self, normalized_text: str) -> str | None:
-        return self._match_alias(normalized_text, _WINE_COUNTRY_ALIASES)
-
-    def _match_region(self, normalized_text: str) -> str | None:
-        region_aliases: dict[str, tuple[str, ...]] = {}
-        for region in _WINE_REGION_TO_COUNTRY:
-            region_aliases[region] = _WINE_REGION_ALIASES.get(region, ())
-        return self._match_alias(normalized_text, region_aliases)
-
-    def _canonical_course_type(self, value: str) -> str:
-        if self._is_blank_questionnaire_value(value):
-            return "onbekend"
-        normalized = self._normalize_text(value)
-        if self._is_unspecified(normalized):
-            return "onbekend"
-        if self._contains_any(normalized, ("aperitief", "aperitif", "starter")):
-            return "aperitief"
-        if self._contains_any(
-            normalized,
-            ("hoofdgerecht", "main course", "plat principal"),
-        ):
-            return "hoofdgerecht"
-        if self._contains_any(normalized, ("kaasgerecht", "cheese", "fromage")):
-            return "kaasgerecht"
-        if self._contains_any(normalized, ("dessert",)):
-            return "dessert"
-        return "onbekend"
-
-    def _canonical_main_protein(self, value: str) -> str:
-        if self._is_blank_questionnaire_value(value):
-            return "onbekend"
-        normalized = self._normalize_text(value)
-        if self._is_unspecified(normalized):
-            return "onbekend"
-        if self._contains_any(
-            normalized,
-            (
-                "fish",
-                "seafood",
-                "sea food",
-                "vis",
-                "zeevruchten",
-                "poisson",
-                "fruit de mer",
-                "fruits de mer",
-            ),
-        ):
-            return "vis_zeevruchten"
-        if self._contains_any(
-            normalized,
-            (
-                "poultry",
-                "white meat",
-                "witvlees",
-                "chicken",
-                "turkey",
-                "duck",
-                "gevogelte",
-                "kip",
-                "kalkoen",
-                "eend",
-                "volaille",
-                "poulet",
-            ),
-        ):
-            return "witvlees_gevogelte"
-        if self._contains_any(
-            normalized,
-            (
-                "wild",
-                "game",
-                "venison",
-                "gibier",
-            ),
-        ):
-            return "wild"
-        if self._contains_any(
-            normalized,
-            (
-                "red meat",
-                "rood vlees",
-                "beef",
-                "steak",
-                "lamb",
-                "pork",
-                "varken",
-                "porc",
-                "rund",
-                "boeuf",
-                "agneau",
-                "veau",
-            ),
-        ):
-            return "roodvlees"
-        if self._is_none_value(normalized):
-            return "geen"
-        return "onbekend"
-
-    def _canonical_cooking_method(self, value: str) -> str:
-        if self._is_blank_questionnaire_value(value):
-            return "onbekend"
-        normalized = self._normalize_text(value)
-        if self._is_unspecified(normalized):
-            return "onbekend"
-        if self._contains_any(normalized, ("bbq", "barbecue", "barbeque")):
-            return "bbq_grill"
-        if self._contains_any(normalized, ("grill", "grilled", "gegrild", "grille")):
-            return "bbq_grill"
-        if self._contains_any(
-            normalized,
-            ("stoofpot", "stoofpotje", "stoof", "stew", "ragout", "braise"),
-        ):
-            return "stoofgerecht"
-        if self._is_none_value(normalized):
-            return "geen"
-        return "onbekend"
-
-    def _canonical_cheese_type(self, value: str) -> str:
-        if self._is_blank_questionnaire_value(value):
-            return "onbekend"
-        normalized = self._normalize_text(value)
-        if self._is_unspecified(normalized):
-            return "onbekend"
-        if self._contains_any(
-            normalized,
-            (
-                "blauwschimmel",
-                "blue cheese",
-                "bleu",
-                "roquefort",
-                "gorgonzola",
-                "stilton",
-            ),
-        ):
-            return "blauwschimmel"
-        if self._contains_any(
-            normalized,
-            (
-                "zachte kaas",
-                "soft cheese",
-                "brie",
-                "camembert",
-                "chevre",
-                "goat cheese",
-            ),
-        ):
-            return "zachte"
-        if self._contains_any(
-            normalized,
-            (
-                "harde kaas",
-                "hard cheese",
-                "parmezaan",
-                "parmesan",
-                "pecorino",
-                "gruyere",
-                "comte",
-                "manchego",
-            ),
-        ):
-            return "harde"
-        if self._is_none_value(normalized):
-            return "geen"
-        return "onbekend"
-
-    def _canonical_wine_color(self, value: str) -> str | None:
-        if self._is_blank_questionnaire_value(value):
-            return None
-        normalized = self._normalize_text(value)
-        if self._is_unspecified(normalized) or self._is_no_preference(normalized):
-            return None
-        if self._contains_any(normalized, ("rose", "rose wijn", "roze", "rosé")):
-            return "rosé"
-        if self._contains_any(normalized, ("wit", "white", "blanc", "bianco")):
-            return "wit"
-        if self._contains_any(normalized, ("rood", "red", "rouge", "rosso")):
-            return "rood"
-        return None
-
-    def _extract_country_region(
-        self, questionnaire_value: str
-    ) -> tuple[str | None, str | None]:
-        if self._is_blank_questionnaire_value(questionnaire_value):
-            return None, None
-        normalized = self._normalize_text(questionnaire_value)
-        if self._is_unspecified(normalized) or self._is_no_preference(normalized):
-            return None, None
-        matched_region = self._match_region(normalized)
-        matched_country = self._match_country(normalized)
-        if matched_region is not None:
-            return _WINE_REGION_TO_COUNTRY[matched_region], matched_region
-        if matched_country is not None:
-            return matched_country, None
-        return None, None
-
-    def _parse_price_upper_bound(self, value: str) -> int | None:
-        if self._is_blank_questionnaire_value(value):
-            return None
-        normalized = self._normalize_text(value)
-        if self._is_unspecified(normalized) or self._is_no_preference(normalized):
-            return None
-        numeric_matches = re.findall(r"\d+(?:[.,]\d+)?", value)
-        if not numeric_matches:
-            return None
-        max_value = max(float(match.replace(",", ".")) for match in numeric_matches)
-        if max_value < 0:
-            return None
-        return int(max_value)
+        try:
+            classifier_output = await self.handoff_classifier.generate(
+                current_question="Build categorized handoff JSON.",
+                current_answer=questionnaire,
+                summary=rules,
+            )
+        except Exception:
+            return {}
+        parsed = self._parse_json_object(classifier_output)
+        return self._sanitize_handoff_core_categories(parsed)
 
     def _parse_aroma_taste_flags(self, value: str) -> dict[str, bool]:
         if self._is_blank_questionnaire_value(value):
-            return {}
-        normalized = self._normalize_text(value)
-        if self._is_unspecified(normalized) or self._is_no_preference(normalized):
             return {}
         try:
             parsed = json.loads(value)
@@ -564,9 +355,6 @@ class ChatService:
         field_value = self._extract_questionnaire_field_value(questionnaire, 8)
         if self._is_blank_questionnaire_value(field_value):
             return questionnaire
-        normalized = self._normalize_text(field_value)
-        if self._is_unspecified(normalized) or self._is_no_preference(normalized):
-            return questionnaire
 
         parsed_flags = self._parse_aroma_taste_flags(field_value)
         if parsed_flags:
@@ -588,67 +376,8 @@ class ChatService:
     def _extract_aroma_taste_flags(self, value: str) -> dict[str, bool]:
         return self._parse_aroma_taste_flags(value)
 
-    def _normalize_cheese_type_for_categorized_flow(self, questionnaire: str) -> str:
-        course_type = self._canonical_course_type(
-            self._extract_questionnaire_field_value(questionnaire, 1)
-        )
-        if course_type not in {"aperitief", "hoofdgerecht", "dessert"}:
-            return questionnaire
-        cheese_type_value = self._extract_questionnaire_field_value(questionnaire, 4)
-        if not self._is_blank_questionnaire_value(cheese_type_value):
-            return questionnaire
-        return self._replace_questionnaire_field_value(
-            questionnaire=questionnaire,
-            index=4,
-            new_value="none",
-        )
-
-    def _build_handoff_categories_v1(self, questionnaire: str) -> str:
-        course_type = self._canonical_course_type(
-            self._extract_questionnaire_field_value(questionnaire, 1)
-        )
-        main_protein = self._canonical_main_protein(
-            self._extract_questionnaire_field_value(questionnaire, 2)
-        )
-        cooking_method = self._canonical_cooking_method(
-            self._extract_questionnaire_field_value(questionnaire, 3)
-        )
-        cheese_type = self._canonical_cheese_type(
-            self._extract_questionnaire_field_value(questionnaire, 4)
-        )
-        category_flags = {
-            "foodpair_aperitief": course_type == "aperitief",
-            "foodpair_vis_zeevruchten": main_protein == "vis_zeevruchten",
-            "foodpair_witvlees_gevogelte": main_protein == "witvlees_gevogelte",
-            "foodpair_roodvlees": main_protein == "roodvlees",
-            "foodpair_wild": main_protein == "wild",
-            "foodpair_bbq_grill": cooking_method == "bbq_grill",
-            "foodpair_stoofgerecht": cooking_method == "stoofgerecht",
-            "foodpair_blauwschimmel_kaas": cheese_type == "blauwschimmel",
-            "foodpair_zachte_kaas": cheese_type == "zachte",
-            "foodpair_harde_kaas": cheese_type == "harde",
-            "foodpair_dessert": course_type == "dessert",
-        }
-        categories: dict[str, bool | str | int] = {
-            key: True for key, is_true in category_flags.items() if is_true
-        }
-        wine_color = self._canonical_wine_color(
-            self._extract_questionnaire_field_value(questionnaire, 5)
-        )
-        if wine_color is not None:
-            categories["kleur"] = wine_color
-        land, regio = self._extract_country_region(
-            self._extract_questionnaire_field_value(questionnaire, 6)
-        )
-        if land is not None:
-            categories["land"] = land
-        if regio is not None:
-            categories["regio"] = regio
-        prijs = self._parse_price_upper_bound(
-            self._extract_questionnaire_field_value(questionnaire, 7)
-        )
-        if prijs is not None:
-            categories["prijs"] = prijs
+    async def _build_handoff_categories_v1(self, questionnaire: str) -> str:
+        categories = await self._classify_handoff_core_categories(questionnaire)
         aroma_taste_flags = self._extract_aroma_taste_flags(
             self._extract_questionnaire_field_value(questionnaire, 8)
         )
@@ -673,7 +402,7 @@ class ChatService:
         formatted = self._format_handoff_categories_for_display(handoff_categories_v1)
         return f"{handoff_line}\n{formatted}"
 
-    def _build_categorized_completion_result(
+    async def _build_categorized_completion_result(
         self,
         current_state: ChatState,
         current_answer: str,
@@ -684,7 +413,9 @@ class ChatService:
             current_answer=current_answer,
             previous_summary=updated_summary,
         )
-        handoff_categories_v1 = self._build_handoff_categories_v1(updated_questionnaire)
+        handoff_categories_v1 = await self._build_handoff_categories_v1(
+            updated_questionnaire
+        )
         completed_state = to_categorized_handoff_completed_state(
             state=current_state,
             updated_questionnaire=updated_questionnaire,
@@ -740,14 +471,16 @@ class ChatService:
             summary=summary_text,
         )
 
-    def _handle_completed_phase(
+    async def _handle_completed_phase(
         self, current_state: ChatState, current_answer: str
     ) -> ChatResult:
         if self._is_categorized_handoff_mode():
             handoff_categories_v1 = (
                 current_state.handoff_categories_v1
                 if current_state.handoff_categories_v1.strip()
-                else self._build_handoff_categories_v1(current_state.questionnaire)
+                else await self._build_handoff_categories_v1(
+                    current_state.questionnaire
+                )
             )
             language = self._language.detect_preferred(
                 current_answer=current_answer,
@@ -865,9 +598,6 @@ class ChatService:
             current_state, current_answer
         )
         if self._is_categorized_handoff_mode():
-            updated_questionnaire = self._normalize_cheese_type_for_categorized_flow(
-                updated_questionnaire
-            )
             updated_questionnaire = (
                 await self._normalize_aroma_taste_for_categorized_flow(
                     updated_questionnaire
@@ -877,7 +607,7 @@ class ChatService:
 
         if self._questionnaire_complete(updated_questionnaire) or force_complete:
             if self._is_categorized_handoff_mode():
-                return self._build_categorized_completion_result(
+                return await self._build_categorized_completion_result(
                     current_state=current_state,
                     current_answer=current_answer,
                     updated_questionnaire=updated_questionnaire,
@@ -945,6 +675,6 @@ class ChatService:
             return self._handle_awaiting_feedback_phase(current_state, current_answer)
 
         if current_state.phase == PHASE_COMPLETED:
-            return self._handle_completed_phase(current_state, current_answer)
+            return await self._handle_completed_phase(current_state, current_answer)
 
         return await self._handle_intake_phase(current_state, current_answer)

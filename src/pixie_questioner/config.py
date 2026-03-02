@@ -56,6 +56,7 @@ class ResolvedDomainProfile:
     questionnaire_template: str
     relevance_classifier_prompt: str
     aroma_taste_classifier_prompt: str
+    handoff_classifier_prompt: str
     language_codes: tuple[str, ...]
     language_names: dict[str, str]
     handoff_lines: dict[str, tuple[str, ...]]
@@ -116,6 +117,7 @@ class DomainProfilePrompts(BaseModel):
     questionnaire_template_path: str
     relevance_classifier_path: str = Field(default="")
     aroma_taste_classifier_path: str = Field(default="")
+    handoff_classifier_path: str = Field(default="")
 
 
 class DomainProfileMessages(BaseModel):
@@ -350,6 +352,14 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
             aroma_candidate = _resolve_prompt_path(base_dir, aroma_classifier_path)
         aroma_taste_classifier_prompt = load_prompt(aroma_candidate)
 
+    handoff_classifier_prompt = ""
+    handoff_classifier_path = prompt_paths.handoff_classifier_path
+    if handoff_classifier_path:
+        handoff_candidate = _resolve_prompt_path(profile_dir, handoff_classifier_path)
+        if not handoff_candidate.exists() and base_dir is not None:
+            handoff_candidate = _resolve_prompt_path(base_dir, handoff_classifier_path)
+        handoff_classifier_prompt = load_prompt(handoff_candidate)
+
     # Substitute profile variables (e.g. {topic}) in prompts.
     # Use English values as the prompts are written in English.
     if variables:
@@ -365,6 +375,9 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         )
         aroma_taste_classifier_prompt = _substitute_variables(
             aroma_taste_classifier_prompt, en_vars
+        )
+        handoff_classifier_prompt = _substitute_variables(
+            handoff_classifier_prompt, en_vars
         )
 
     normalized_base = tuple(
@@ -404,6 +417,7 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         questionnaire_template=questionnaire_template,
         relevance_classifier_prompt=relevance_classifier_prompt,
         aroma_taste_classifier_prompt=aroma_taste_classifier_prompt,
+        handoff_classifier_prompt=handoff_classifier_prompt,
         language_codes=language_codes,
         language_names=language_names,
         handoff_lines=_normalize_localized_lines(profile.messages.handoff),
