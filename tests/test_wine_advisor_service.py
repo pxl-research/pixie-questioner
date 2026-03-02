@@ -20,6 +20,9 @@ class StubController:
         working_context: str,
         turn_count: int,
         max_turns: int,
+        current_meal_mode: str,
+        last_question: str,
+        conversation_history: str,
     ) -> TurnDecision:
         self.calls.append(
             {
@@ -27,6 +30,9 @@ class StubController:
                 "working_context": working_context,
                 "turn_count": turn_count,
                 "max_turns": max_turns,
+                "current_meal_mode": current_meal_mode,
+                "last_question": last_question,
+                "conversation_history": conversation_history,
             }
         )
         if not self.decisions:

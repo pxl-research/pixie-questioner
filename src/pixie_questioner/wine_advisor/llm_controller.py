@@ -46,12 +46,18 @@ class LLMTurnController:
         working_context: str,
         turn_count: int,
         max_turns: int,
+        current_meal_mode: str,
+        last_question: str,
+        conversation_history: str,
     ) -> str:
         prompt = self.system_prompt_template
         prompt = prompt.replace("{current_answer}", current_answer)
         prompt = prompt.replace("{working_context}", working_context)
         prompt = prompt.replace("{turn_count}", str(turn_count))
         prompt = prompt.replace("{max_turns}", str(max_turns))
+        prompt = prompt.replace("{current_meal_mode}", current_meal_mode)
+        prompt = prompt.replace("{last_question}", last_question)
+        prompt = prompt.replace("{conversation_history}", conversation_history)
         return prompt
 
     def _parse_payload(self, content: str) -> _TurnDecisionPayload:
@@ -74,12 +80,18 @@ class LLMTurnController:
         working_context: str,
         turn_count: int,
         max_turns: int,
+        current_meal_mode: str = "unknown",
+        last_question: str = "",
+        conversation_history: str = "",
     ) -> TurnDecision:
         prompt = self._render_prompt(
             current_answer=current_answer,
             working_context=working_context,
             turn_count=turn_count,
             max_turns=max_turns,
+            current_meal_mode=current_meal_mode,
+            last_question=last_question,
+            conversation_history=conversation_history,
         )
         response = await resolve_llm_client(self.llm).ainvoke(
             [{"role": "system", "content": prompt}]

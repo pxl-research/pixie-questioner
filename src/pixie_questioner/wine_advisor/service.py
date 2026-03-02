@@ -62,6 +62,13 @@ def _append_history(
     return [*history, ConversationTurn(role=role, text=normalized)]
 
 
+def _history_to_prompt(history: list[ConversationTurn], max_items: int = 8) -> str:
+    if not history:
+        return ""
+    recent = history[-max_items:]
+    return "\n".join(f"{turn.role}: {turn.text}" for turn in recent)
+
+
 @dataclass
 class WineAdvisorService:
     catalog_records: list[WineCatalogRecord]
@@ -215,6 +222,9 @@ class WineAdvisorService:
             working_context=working_context,
             turn_count=next_turn_count,
             max_turns=self.max_turns,
+            current_meal_mode=parsed_state.meal_mode,
+            last_question=parsed_state.last_question,
+            conversation_history=_history_to_prompt(parsed_state.chat_history),
         )
 
         candidate_records = self._candidate_records()

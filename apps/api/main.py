@@ -39,13 +39,28 @@ Decide if you need ONE next question or if you can recommend now.
 Rules:
 - Ask at most one question in this turn.
 - If this is the first turn, always choose action "question".
-- For dish pairing requests, ask at least one follow-up preference question before recommending.
-- If enough information is available after follow-up, choose action "recommend".
+- Do not recommend until wine preference information is available:
+  color OR budget OR preferred style/aroma/taste OR origin (country/region),
+  unless the customer explicitly states no preference.
+- If meal_mode is "drinking_only", ask only wine preference questions
+  (never dish/taste-of-dish questions).
+- If meal_mode is "pairing", first clarify dish context only when still unclear,
+  then ask the highest-value missing wine preference question.
+- Recommend only when the context is specific enough for a confident shortlist.
 - Return only JSON with keys:
   action: "question" or "recommend"
   question_text: string (required when action is question)
   meal_mode: "pairing" | "drinking_only" | "unknown"
   query_hints: concise search hints
+
+Current meal mode guess:
+{current_meal_mode}
+
+Last assistant question:
+{last_question}
+
+Recent conversation history:
+{conversation_history}
 
 Working context:
 {working_context}

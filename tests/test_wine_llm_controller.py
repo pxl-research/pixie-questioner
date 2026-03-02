@@ -89,6 +89,42 @@ def test_turn_controller_returns_structured_decision() -> None:
     assert decision.meal_mode == "pairing"
 
 
+def test_turn_controller_includes_stateful_context_in_prompt() -> None:
+    llm = FakeLLM(
+        [
+            '{"action":"question","question_text":"Wat is je budget?","meal_mode":"drinking_only","query_hints":"budget"}'
+        ]
+    )
+    controller = LLMTurnController(
+        llm=llm,
+        system_prompt_template=(
+            "mode={current_meal_mode};last={last_question};history={conversation_history};"
+            "ctx={working_context};answer={current_answer};turn={turn_count};max={max_turns}"
+        ),
+    )
+
+    _ = asyncio.run(
+        controller.decide(
+            current_answer="Gewoon los",
+            working_context="Ik zoek een wijn",
+            turn_count=2,
+            max_turns=6,
+            current_meal_mode="drinking_only",
+            last_question="Wil je los drinken of bij eten?",
+            conversation_history=(
+                "user: Ik zoek een wijn\n"
+                "assistant: Wil je los drinken of bij eten?\n"
+                "user: Gewoon los"
+            ),
+        )
+    )
+
+    prompt = llm.calls[0][0]["content"]
+    assert "mode=drinking_only" in prompt
+    assert "last=Wil je los drinken of bij eten?" in prompt
+    assert "history=user: Ik zoek een wijn" in prompt
+
+
 def test_turn_controller_raises_on_invalid_payload() -> None:
     controller = LLMTurnController(
         llm=FakeLLM(["geen json payload"]),
