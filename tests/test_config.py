@@ -132,6 +132,37 @@ def test_get_settings_loads_domain_profile(
     config.get_settings.cache_clear()
 
 
+def test_get_settings_prefers_env_wine_catalog_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    profile_path = _write_default_profile_assets(tmp_path)
+    catalog_path = tmp_path / "catalog.xlsx"
+
+    _set_required_env(monkeypatch, profile_path)
+    monkeypatch.setenv("WINE_CATALOG_PATH", str(catalog_path))
+    config.get_settings.cache_clear()
+    settings = config.get_settings()
+
+    assert settings.wine_catalog_path == catalog_path
+    config.get_settings.cache_clear()
+
+
+def test_get_settings_uses_default_wine_catalog_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    profile_path = _write_default_profile_assets(tmp_path)
+
+    _set_required_env(monkeypatch, profile_path)
+    monkeypatch.delenv("WINE_CATALOG_PATH", raising=False)
+    config.get_settings.cache_clear()
+    settings = config.get_settings()
+
+    assert settings.wine_catalog_path == config.DEFAULT_WINE_CATALOG_PATH
+    config.get_settings.cache_clear()
+
+
 def test_domain_profile_missing_prompt_file_raises(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

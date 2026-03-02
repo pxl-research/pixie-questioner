@@ -19,6 +19,8 @@ from .profile_prompt_loader import (
     substitute_prompt_variables,
 )
 
+DEFAULT_WINE_CATALOG_PATH = Path("profiles/cretskens/cretskens_wijnen_reduced.xlsx")
+
 
 def load_prompt(path: Path) -> str:
     try:
@@ -459,6 +461,7 @@ class Settings(BaseSettings):
         default=0.2, alias="ADVANCED_AZURE_OPENAI_TEMPERATURE"
     )
     domain_profile_path: Path = Field(alias="DOMAIN_PROFILE_PATH")
+    wine_catalog_path_env: Path | None = Field(default=None, alias="WINE_CATALOG_PATH")
     audit_api_url: str | None = Field(default=None, alias="AUDIT_API_URL")
     audit_api_key: str | None = Field(default=None, alias="AUDIT_API_KEY")
     audit_profile: str | None = Field(default=None, alias="AUDIT_PROFILE")
@@ -467,6 +470,12 @@ class Settings(BaseSettings):
     @property
     def domain_profile(self) -> ResolvedDomainProfile:
         return load_domain_profile(self.domain_profile_path)
+
+    @property
+    def wine_catalog_path(self) -> Path:
+        if self.wine_catalog_path_env is not None:
+            return self.wine_catalog_path_env
+        return DEFAULT_WINE_CATALOG_PATH
 
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.dev"),
