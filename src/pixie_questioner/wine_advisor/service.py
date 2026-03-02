@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from .catalog_models import WineCatalogRecord
-from .retrieval import rank_catalog_records
 from .types import (
     ConversationTurn,
     MEAL_MODE_UNKNOWN,
@@ -68,10 +67,9 @@ class WineAdvisorService:
     catalog_records: list[WineCatalogRecord]
     turn_controller: Any
     ranker: Any
-    fallback_question: str = "Voor welk gerecht zoek je wijn?"
     recommendation_intro: str = "Dit zijn passende opties uit de catalogus."
     max_turns: int = 6
-    candidate_limit: int = 20
+    candidate_limit: int = 0
 
     def __post_init__(self) -> None:
         if not self.catalog_records:
@@ -79,6 +77,21 @@ class WineAdvisorService:
         self._catalog_by_barcode = {
             record.barcode: record for record in self.catalog_records if record.barcode
         }
+
+    def _format_recommendation_text(
+        self,
+        recommendations: list[WineCatalogRecommendation],
+    ) -> str:
+        if not recommendations:
+            return self.recommendation_intro
+        lines = [self.recommendation_intro, ""]
+        for index, recommendation in enumerate(recommendations, start=1):
+            lines.append(
+                f"{index}. {recommendation.name} - "
+                f"EUR {recommendation.price_eur:.2f} "
+                f"({recommendation.country}, {recommendation.region})"
+            )
+        return "\n".join(lines)
 
     def _parse_state(self, state: dict[str, Any] | None) -> WineAdvisorState:
         if not state:
@@ -146,8 +159,10 @@ class WineAdvisorService:
         ]
         return "\n".join(parts)
 
-    def _fallback_candidates(self, count: int) -> list[str]:
-        return [record.barcode for record in self.catalog_records[:count]]
+    def _candidate_records(self) -> list[WineCatalogRecord]:
+        if self.candidate_limit <= 0:
+            return list(self.catalog_records)
+        return list(self.catalog_records[: self.candidate_limit])
 
     def _normalize_selected(
         self,
@@ -160,13 +175,17 @@ class WineAdvisorService:
         seen: set[str] = set()
         candidate_set = set(candidates)
         for barcode in selected:
-            if barcode in seen or barcode not in candidate_set:
-                continue
+            if barcode in seen:
+                raise RuntimeError("Ranker returned duplicate barcodes.")
+            if barcode not in candidate_set:
+                raise RuntimeError("Ranker returned unknown barcodes.")
             seen.add(barcode)
             deduped.append(barcode)
-        if min_count <= len(deduped) <= max_count:
-            return deduped
-        return candidates[:max_count]
+        if len(deduped) < min_count:
+            raise RuntimeError("Ranker returned too few barcodes.")
+        if len(deduped) > max_count:
+            raise RuntimeError("Ranker returned too many barcodes.")
+        return deduped
 
     async def ask(
         self,
@@ -180,7 +199,7 @@ class WineAdvisorService:
                 parsed_state.selected_barcodes
             )
             return WineAdvisorResult(
-                text=self.recommendation_intro,
+                text=self._format_recommendation_text(recommendations),
                 response_type="recommendations",
                 state=self._serialize_state(parsed_state),
                 recommendations=recommendations,
@@ -198,19 +217,10 @@ class WineAdvisorService:
             max_turns=self.max_turns,
         )
 
-        query = " ".join([working_context, decision.query_hints]).strip()
-        ranked_candidates = rank_catalog_records(
-            self.catalog_records,
-            query=query,
-            limit=self.candidate_limit,
-        )
-        candidate_barcodes = [
-            record.barcode for record in ranked_candidates if record.barcode
-        ]
+        candidate_records = self._candidate_records()
+        candidate_barcodes = [record.barcode for record in candidate_records]
         if not candidate_barcodes:
-            candidate_barcodes = self._fallback_candidates(
-                min(5, len(self.catalog_records))
-            )
+            raise RuntimeError("No candidate barcodes available for ranker.")
 
         should_recommend = (
             decision.action == "recommend" or next_turn_count >= self.max_turns
@@ -220,6 +230,7 @@ class WineAdvisorService:
             max_count = min(5, len(candidate_barcodes))
             selected = await self.ranker.select_barcodes(
                 working_context=working_context,
+                candidate_records=candidate_records,
                 candidate_barcodes=candidate_barcodes,
                 min_count=min_count,
                 max_count=max_count,
@@ -232,9 +243,7 @@ class WineAdvisorService:
             )
             recommendations = self._recommendations_for_barcodes(normalized)
             if not recommendations:
-                recommendations = self._recommendations_for_barcodes(
-                    candidate_barcodes[:1]
-                )
+                raise RuntimeError("Ranker selected barcodes without matching records.")
             completed = WineAdvisorState(
                 phase=PHASE_COMPLETED,
                 turn_count=next_turn_count,
@@ -248,13 +257,15 @@ class WineAdvisorService:
                 selected_barcodes=[item.barcode for item in recommendations],
             )
             return WineAdvisorResult(
-                text=self.recommendation_intro,
+                text=self._format_recommendation_text(recommendations),
                 response_type="recommendations",
                 state=self._serialize_state(completed),
                 recommendations=recommendations,
             )
 
-        question_text = decision.question_text.strip() or self.fallback_question
+        question_text = decision.question_text.strip()
+        if not question_text:
+            raise RuntimeError("Turn controller returned an empty question.")
         next_history = _append_history(
             parsed_state.chat_history, "user", current_answer
         )

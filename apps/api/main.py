@@ -38,7 +38,9 @@ Decide if you need ONE next question or if you can recommend now.
 
 Rules:
 - Ask at most one question in this turn.
-- If enough information is available, choose action "recommend".
+- If this is the first turn, always choose action "question".
+- For dish pairing requests, ask at least one follow-up preference question before recommending.
+- If enough information is available after follow-up, choose action "recommend".
 - Return only JSON with keys:
   action: "question" or "recommend"
   question_text: string (required when action is question)
@@ -58,10 +60,13 @@ Turn:
 RANKER_PROMPT = """
 Select the best candidate barcodes for this customer.
 Return only JSON with key "barcodes" containing an ordered array.
-Use only candidate barcodes.
+Use only candidate barcodes from the catalog rows below.
 
 Working context:
 {working_context}
+
+Candidate catalog rows (one JSON object per line):
+{candidate_catalog_rows}
 
 Candidate barcodes:
 {candidate_barcodes}
@@ -84,7 +89,6 @@ catalog_records = load_wine_catalog(settings.wine_catalog_path)
 turn_controller = LLMTurnController(
     llm=llm,
     system_prompt_template=TURN_CONTROLLER_PROMPT,
-    fallback_question="Voor welk gerecht zoek je wijn?",
 )
 ranker = LLMWineRanker(
     llm=llm,

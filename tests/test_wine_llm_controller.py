@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from pixie_questioner.wine_advisor.llm_controller import LLMTurnController
 from pixie_questioner.wine_advisor.llm_ranker import LLMWineRanker
+from pixie_questioner.wine_advisor.catalog_models import WineCatalogRecord
 
 
 class FakeLLM:
@@ -19,6 +22,47 @@ class FakeLLM:
         return self.responses.pop(0)
 
 
+def _candidate_records() -> list[WineCatalogRecord]:
+    return [
+        WineCatalogRecord(
+            barcode="c1",
+            name="Wijn 1",
+            price_eur=10.0,
+            country="Frankrijk",
+            region="Rhône",
+            color="rood",
+            grape_description="Syrah",
+            aroma_description="Kruidig",
+            taste_description="Vol",
+            foodpair_description="Rund",
+        ),
+        WineCatalogRecord(
+            barcode="c2",
+            name="Wijn 2",
+            price_eur=11.0,
+            country="Italië",
+            region="Toscane",
+            color="wit",
+            grape_description="Trebbiano",
+            aroma_description="Citrus",
+            taste_description="Fris",
+            foodpair_description="Vis",
+        ),
+        WineCatalogRecord(
+            barcode="c3",
+            name="Wijn 3",
+            price_eur=12.0,
+            country="Spanje",
+            region="Rioja",
+            color="rood",
+            grape_description="Tempranillo",
+            aroma_description="Donker fruit",
+            taste_description="Droog",
+            foodpair_description="Lam",
+        ),
+    ]
+
+
 def test_turn_controller_returns_structured_decision() -> None:
     controller = LLMTurnController(
         llm=FakeLLM(
@@ -29,7 +73,6 @@ def test_turn_controller_returns_structured_decision() -> None:
         system_prompt_template=(
             "context={working_context};answer={current_answer};turn={turn_count};max={max_turns}"
         ),
-        fallback_question="Voor welk gerecht zoek je wijn?",
     )
 
     decision = asyncio.run(
@@ -46,24 +89,21 @@ def test_turn_controller_returns_structured_decision() -> None:
     assert decision.meal_mode == "pairing"
 
 
-def test_turn_controller_uses_fallback_question_on_invalid_payload() -> None:
+def test_turn_controller_raises_on_invalid_payload() -> None:
     controller = LLMTurnController(
         llm=FakeLLM(["geen json payload"]),
         system_prompt_template="{current_answer}",
-        fallback_question="Voor welk gerecht zoek je wijn?",
     )
 
-    decision = asyncio.run(
-        controller.decide(
-            current_answer="Geen idee",
-            working_context="",
-            turn_count=1,
-            max_turns=6,
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            controller.decide(
+                current_answer="Geen idee",
+                working_context="",
+                turn_count=1,
+                max_turns=6,
+            )
         )
-    )
-
-    assert decision.action == "question"
-    assert decision.question_text == "Voor welk gerecht zoek je wijn?"
 
 
 def test_ranker_accepts_valid_unique_candidate_barcodes() -> None:
@@ -75,6 +115,7 @@ def test_ranker_accepts_valid_unique_candidate_barcodes() -> None:
     selected = asyncio.run(
         ranker.select_barcodes(
             working_context="Klant zoekt kruidige rode wijn",
+            candidate_records=_candidate_records(),
             candidate_barcodes=["c1", "c2", "c3", "c4"],
             min_count=1,
             max_count=5,
@@ -84,7 +125,7 @@ def test_ranker_accepts_valid_unique_candidate_barcodes() -> None:
     assert selected == ["c3", "c1", "c2"]
 
 
-def test_ranker_retries_once_then_falls_back_to_deterministic_selection() -> None:
+def test_ranker_raises_when_two_attempts_are_invalid() -> None:
     llm = FakeLLM(
         [
             '{"barcodes":["x999","c1"]}',
@@ -96,14 +137,14 @@ def test_ranker_retries_once_then_falls_back_to_deterministic_selection() -> Non
         system_prompt_template="context={working_context};candidates={candidate_barcodes}",
     )
 
-    selected = asyncio.run(
-        ranker.select_barcodes(
-            working_context="Klant zoekt wijn bij rund",
-            candidate_barcodes=["c1", "c2", "c3"],
-            min_count=1,
-            max_count=3,
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            ranker.select_barcodes(
+                working_context="Klant zoekt wijn bij rund",
+                candidate_records=_candidate_records(),
+                candidate_barcodes=["c1", "c2", "c3"],
+                min_count=1,
+                max_count=3,
+            )
         )
-    )
-
-    assert selected == ["c1", "c2", "c3"]
     assert len(llm.calls) == 2

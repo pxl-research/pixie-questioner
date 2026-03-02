@@ -185,6 +185,7 @@ Bad:
 - Question order is deterministic
 - Do not infer missing answers
 - Prompts: **no stylistic rewrites**
+- For wine advisor mode: action selection and recommendation selection must be LLM-driven; do not introduce keyword/token heuristics or deterministic fallback selectors.
 - Conversation behavior:
   - exactly one question per turn
   - only ask for missing fields

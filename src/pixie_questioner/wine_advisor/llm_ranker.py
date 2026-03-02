@@ -1,4 +1,4 @@
-"""LLM-backed final barcode selector with validation and fallback."""
+"""LLM-backed final barcode selector with strict validation."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ValidationError
 
 from ..llm_client import extract_llm_content, resolve_llm_client
+from .catalog_models import WineCatalogRecord
 
 _JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", flags=re.DOTALL)
 
@@ -26,6 +27,7 @@ class LLMWineRanker:
         self,
         *,
         working_context: str,
+        candidate_catalog_rows: str,
         candidate_barcodes: list[str],
         min_count: int,
         max_count: int,
@@ -33,11 +35,40 @@ class LLMWineRanker:
     ) -> str:
         prompt = self.system_prompt_template
         prompt = prompt.replace("{working_context}", working_context)
+        prompt = prompt.replace("{candidate_catalog_rows}", candidate_catalog_rows)
         prompt = prompt.replace("{candidate_barcodes}", ",".join(candidate_barcodes))
         prompt = prompt.replace("{min_count}", str(min_count))
         prompt = prompt.replace("{max_count}", str(max_count))
         prompt = prompt.replace("{retry_reason}", retry_reason)
         return prompt
+
+    def _serialize_catalog_rows(
+        self, candidate_records: list[WineCatalogRecord]
+    ) -> str:
+        lines: list[str] = []
+        seen: set[str] = set()
+        for record in candidate_records:
+            barcode = record.barcode.strip()
+            if not barcode or barcode in seen:
+                continue
+            seen.add(barcode)
+            lines.append(
+                json.dumps(
+                    {
+                        "barcode": record.barcode,
+                        "name": record.name,
+                        "price_eur": record.price_eur,
+                        "country": record.country,
+                        "region": record.region,
+                        "color": record.color,
+                        "grape_description": record.grape_description,
+                        "aroma_description": record.aroma_description,
+                        "taste_description": record.taste_description,
+                        "foodpair_description": record.foodpair_description,
+                    }
+                )
+            )
+        return "\n".join(lines)
 
     def _parse_payload(self, content: str) -> list[str]:
         try:
@@ -89,6 +120,7 @@ class LLMWineRanker:
         self,
         *,
         working_context: str,
+        candidate_catalog_rows: str,
         candidate_barcodes: list[str],
         min_count: int,
         max_count: int,
@@ -96,6 +128,7 @@ class LLMWineRanker:
     ) -> list[str]:
         prompt = self._render_prompt(
             working_context=working_context,
+            candidate_catalog_rows=candidate_catalog_rows,
             candidate_barcodes=candidate_barcodes,
             min_count=min_count,
             max_count=max_count,
@@ -110,6 +143,7 @@ class LLMWineRanker:
         self,
         *,
         working_context: str,
+        candidate_records: list[WineCatalogRecord],
         candidate_barcodes: list[str],
         min_count: int,
         max_count: int,
@@ -117,10 +151,14 @@ class LLMWineRanker:
         candidates = self._dedupe_preserving_order(candidate_barcodes)
         if not candidates:
             return []
+        candidate_catalog_rows = self._serialize_catalog_rows(candidate_records)
+        if not candidate_catalog_rows:
+            raise RuntimeError("No candidate catalog rows available.")
 
         try:
             first_attempt = await self._invoke_ranker(
                 working_context=working_context,
+                candidate_catalog_rows=candidate_catalog_rows,
                 candidate_barcodes=candidates,
                 min_count=min_count,
                 max_count=max_count,
@@ -138,6 +176,7 @@ class LLMWineRanker:
         try:
             second_attempt = await self._invoke_ranker(
                 working_context=working_context,
+                candidate_catalog_rows=candidate_catalog_rows,
                 candidate_barcodes=candidates,
                 min_count=min_count,
                 max_count=max_count,
@@ -152,4 +191,4 @@ class LLMWineRanker:
         if second_valid is not None:
             return second_valid
 
-        return candidates[:max_count]
+        raise RuntimeError("Ranker failed to return a valid barcode selection.")

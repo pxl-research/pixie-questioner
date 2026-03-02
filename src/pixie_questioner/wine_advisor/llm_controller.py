@@ -39,7 +39,6 @@ class TurnDecision:
 class LLMTurnController:
     llm: object
     system_prompt_template: str
-    fallback_question: str
 
     def _render_prompt(
         self,
@@ -54,14 +53,6 @@ class LLMTurnController:
         prompt = prompt.replace("{turn_count}", str(turn_count))
         prompt = prompt.replace("{max_turns}", str(max_turns))
         return prompt
-
-    def _fallback_decision(self) -> TurnDecision:
-        return TurnDecision(
-            action="question",
-            question_text=self.fallback_question,
-            meal_mode="unknown",
-            query_hints="",
-        )
 
     def _parse_payload(self, content: str) -> _TurnDecisionPayload:
         try:
@@ -90,17 +81,14 @@ class LLMTurnController:
             turn_count=turn_count,
             max_turns=max_turns,
         )
-        try:
-            response = await resolve_llm_client(self.llm).ainvoke(
-                [{"role": "system", "content": prompt}]
-            )
-            payload = self._parse_payload(extract_llm_content(response))
-        except Exception:
-            return self._fallback_decision()
+        response = await resolve_llm_client(self.llm).ainvoke(
+            [{"role": "system", "content": prompt}]
+        )
+        payload = self._parse_payload(extract_llm_content(response))
 
         question_text = (payload.question_text or "").strip()
         if payload.action == "question" and not question_text:
-            return self._fallback_decision()
+            raise RuntimeError("Turn controller returned empty question_text.")
 
         return TurnDecision(
             action=payload.action,

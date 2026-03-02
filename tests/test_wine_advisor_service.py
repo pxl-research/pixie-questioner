@@ -43,6 +43,7 @@ class StubRanker:
         self,
         *,
         working_context: str,
+        candidate_records: list[WineCatalogRecord],
         candidate_barcodes: list[str],
         min_count: int,
         max_count: int,
@@ -50,6 +51,7 @@ class StubRanker:
         self.calls.append(
             {
                 "working_context": working_context,
+                "candidate_records": list(candidate_records),
                 "candidate_barcodes": list(candidate_barcodes),
                 "min_count": min_count,
                 "max_count": max_count,
@@ -282,3 +284,93 @@ def test_ask_completed_phase_is_idempotent() -> None:
     assert [item.barcode for item in (result.recommendations or [])] == ["w2", "w1"]
     assert len(controller.calls) == 0
     assert len(ranker.calls) == 0
+
+
+def test_ask_recommendations_text_includes_recommended_wines() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="kruidig rund",
+            )
+        ]
+    )
+    ranker = StubRanker([["w4", "w1", "w2"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+    )
+
+    result = asyncio.run(service.ask(current_answer="Doe maar suggesties", state={}))
+
+    assert result.response_type == "recommendations"
+    assert "Wijn 4" in result.text
+    assert "Wijn 1" in result.text
+    assert "Wijn 2" in result.text
+
+
+def test_ask_respects_controller_recommend_action_for_drinking_only() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="drinking_only",
+                query_hints="",
+            )
+        ]
+    )
+    ranker = StubRanker([["w1", "w2", "w3"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Gewoon los",
+            state={
+                "phase": "intake",
+                "turn_count": 1,
+                "working_context": "Kan je me een wijn aanbevelen om deze avond te drinken?",
+            },
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert len(ranker.calls) == 1
+
+
+def test_ask_passes_full_catalog_records_to_ranker() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="vol-au-vent",
+            )
+        ]
+    )
+    ranker = StubRanker([["w1", "w2", "w3"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+    )
+
+    result = asyncio.run(service.ask(current_answer="Vol-au-vent", state={}))
+
+    assert result.response_type == "recommendations"
+    assert len(ranker.calls) == 1
+    ranker_call = ranker.calls[0]
+    candidate_records = ranker_call["candidate_records"]
+    candidate_barcodes = ranker_call["candidate_barcodes"]
+    assert isinstance(candidate_records, list)
+    assert isinstance(candidate_barcodes, list)
+    assert len(candidate_records) == len(_catalog())
+    assert candidate_barcodes == ["w1", "w2", "w3", "w4"]
