@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 PHASE_INTAKE = "intake"
 PHASE_COMPLETED = "completed"
@@ -30,6 +30,14 @@ class WineCatalogRecommendation:
     price_eur: float
     country: str
     region: str
+
+
+@dataclass(frozen=True)
+class WineAdvisorResult:
+    text: str
+    response_type: Literal["question", "recommendations"]
+    state: dict[str, Any]
+    recommendations: list[WineCatalogRecommendation] | None = None
 
 
 @dataclass

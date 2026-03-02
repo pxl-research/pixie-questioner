@@ -11,28 +11,68 @@ from pydantic import ValidationError
 
 from pixie_questioner.audit_client import AuditClient
 from pixie_questioner.azure_openai_llm import AzureOpenAILLM
-from pixie_questioner.chat.types import ChatResult
-from pixie_questioner.chat.relevance import LLMAnswerRelevanceClassifier
-from pixie_questioner.chat_service import ChatService
 from pixie_questioner.config import get_settings
-from pixie_questioner.llm_client import CONVERSATION_SUMMARIZER_PROMPT, LLMPromptInvoker
 from pixie_questioner.schemas import (
     AUDIT_EVENT_CONTRACT_VERSION,
     CHAT_CONTRACT_VERSION,
     AuditEventMessage,
     AuditEventMetadata,
     AuditEventPayload,
-    ChatAnswerResponse,
+    ChatRecommendation,
+    ChatRecommendationsResponse,
+    ChatQuestionResponse,
     ChatRequest,
     ChatResponse,
-    ChatSummaryResponse,
-    QuickReplyOption,
 )
+from pixie_questioner.wine_advisor.catalog_loader import load_wine_catalog
+from pixie_questioner.wine_advisor.llm_controller import LLMTurnController
+from pixie_questioner.wine_advisor.llm_ranker import LLMWineRanker
+from pixie_questioner.wine_advisor.service import WineAdvisorService
+from pixie_questioner.wine_advisor.types import WineAdvisorResult
 
 logger = logging.getLogger(__name__)
 
+TURN_CONTROLLER_PROMPT = """
+You are a wine-advice intake controller.
+Decide if you need ONE next question or if you can recommend now.
+
+Rules:
+- Ask at most one question in this turn.
+- If enough information is available, choose action "recommend".
+- Return only JSON with keys:
+  action: "question" or "recommend"
+  question_text: string (required when action is question)
+  meal_mode: "pairing" | "drinking_only" | "unknown"
+  query_hints: concise search hints
+
+Working context:
+{working_context}
+
+Latest user answer:
+{current_answer}
+
+Turn:
+{turn_count} / {max_turns}
+""".strip()
+
+RANKER_PROMPT = """
+Select the best candidate barcodes for this customer.
+Return only JSON with key "barcodes" containing an ordered array.
+Use only candidate barcodes.
+
+Working context:
+{working_context}
+
+Candidate barcodes:
+{candidate_barcodes}
+
+Target count between {min_count} and {max_count}.
+
+Retry reason (if any):
+{retry_reason}
+""".strip()
+
 settings = get_settings()
-domain_profile = settings.domain_profile
 llm = AzureOpenAILLM(
     api_version=settings.advanced_azure_openai_api_version,
     api_endpoint=settings.azure_openai_endpoint,
@@ -40,47 +80,20 @@ llm = AzureOpenAILLM(
     model_version=settings.advanced_azure_openai_model,
     temperature=settings.advanced_azure_openai_temperature,
 )
-notulist = LLMPromptInvoker(
+catalog_records = load_wine_catalog(settings.wine_catalog_path)
+turn_controller = LLMTurnController(
     llm=llm,
-    system_prompt_template=domain_profile.questionnaire_notulist_prompt,
-    error_label="Questionnaire notulist",
+    system_prompt_template=TURN_CONTROLLER_PROMPT,
+    fallback_question="Voor welk gerecht zoek je wijn?",
 )
-summarizer = LLMPromptInvoker(
+ranker = LLMWineRanker(
     llm=llm,
-    system_prompt_template=CONVERSATION_SUMMARIZER_PROMPT,
-    error_label="Conversation summarizer",
+    system_prompt_template=RANKER_PROMPT,
 )
-aroma_taste_classifier = (
-    LLMPromptInvoker(
-        llm=llm,
-        system_prompt_template=domain_profile.aroma_taste_classifier_prompt,
-        error_label="Aroma taste classifier",
-    )
-    if domain_profile.aroma_taste_classifier_prompt.strip()
-    else None
-)
-handoff_classifier = (
-    LLMPromptInvoker(
-        llm=llm,
-        system_prompt_template=domain_profile.handoff_classifier_prompt,
-        error_label="Handoff classifier",
-    )
-    if domain_profile.handoff_classifier_prompt.strip()
-    else None
-)
-chat_service = ChatService(
-    llm=llm,
-    question_asker_prompt=domain_profile.question_asker_prompt,
-    notulist=notulist,
-    summarizer=summarizer,
-    questionnaire_template=domain_profile.questionnaire_template,
-    domain_policy=domain_profile.chat_domain_policy,
-    answer_relevance_classifier=LLMAnswerRelevanceClassifier(
-        llm=llm,
-        system_prompt_template=domain_profile.relevance_classifier_prompt,
-    ),
-    aroma_taste_classifier=aroma_taste_classifier,
-    handoff_classifier=handoff_classifier,
+wine_advisor_service = WineAdvisorService(
+    catalog_records=catalog_records,
+    turn_controller=turn_controller,
+    ranker=ranker,
 )
 audit_client: AuditClient | None = None
 if settings.audit_api_url:
@@ -109,26 +122,22 @@ app = FastAPI(title="Pixie Questioner", lifespan=lifespan)
 def _build_audit_messages(
     user_text: str,
     assistant_text: str,
-    summary_text: str | None = None,
 ) -> list[AuditEventMessage]:
     messages: list[AuditEventMessage] = []
     normalized_user = user_text.strip()
     normalized_assistant = assistant_text.strip()
-    normalized_summary = summary_text.strip() if summary_text is not None else None
     if normalized_user:
         messages.append(AuditEventMessage(role="user", content=normalized_user))
     if normalized_assistant:
         messages.append(
             AuditEventMessage(role="assistant", content=normalized_assistant)
         )
-    if normalized_summary:
-        messages.append(AuditEventMessage(role="summary", content=normalized_summary))
     return messages
 
 
-def _extract_audit_location(state: dict[str, str]) -> str | None:
+def _extract_audit_location(state: dict[str, object]) -> str | None:
     location = state.get("location")
-    if location is None:
+    if not isinstance(location, str):
         return None
     normalized = location.strip()
     if not normalized:
@@ -136,7 +145,7 @@ def _extract_audit_location(state: dict[str, str]) -> str | None:
     return normalized
 
 
-async def _post_audit_event(request: ChatRequest, result: ChatResult) -> None:
+async def _post_audit_event(request: ChatRequest, result: WineAdvisorResult) -> None:
     if audit_client is None:
         return
     try:
@@ -151,7 +160,6 @@ async def _post_audit_event(request: ChatRequest, result: ChatResult) -> None:
             messages=_build_audit_messages(
                 request.current_answer,
                 result.text,
-                result.summary,
             ),
             metadata=metadata,
         )
@@ -170,28 +178,28 @@ async def _post_audit_event(request: ChatRequest, result: ChatResult) -> None:
         )
 
 
-def _build_chat_response(request: ChatRequest, result: ChatResult) -> ChatResponse:
-    if result.response_type == "summary":
-        if result.summary is None:
-            raise RuntimeError("Summary response requires a summary payload.")
-        return ChatSummaryResponse(
-            type="summary",
+def _build_chat_response(request: ChatRequest, result: WineAdvisorResult) -> ChatResponse:
+    if result.response_type == "recommendations":
+        recommendations = result.recommendations or []
+        return ChatRecommendationsResponse(
+            type="recommendations",
             text=result.text,
-            summary=result.summary,
-            follow_up_question=result.follow_up_question,
+            recommendations=[
+                ChatRecommendation(
+                    name=item.name,
+                    price_eur=item.price_eur,
+                    country=item.country,
+                    region=item.region,
+                )
+                for item in recommendations
+            ],
             conversation_id=request.session_id,
             state=result.state,
         )
-    return ChatAnswerResponse(
-        type="answer",
+
+    return ChatQuestionResponse(
+        type="question",
         text=result.text,
-        summary=result.summary,
-        follow_up_question=result.follow_up_question,
-        quick_replies=(
-            [QuickReplyOption(**item) for item in result.quick_replies]
-            if result.quick_replies is not None
-            else None
-        ),
         conversation_id=request.session_id,
         state=result.state,
     )
@@ -208,7 +216,7 @@ async def health() -> dict[str, str]:
     response_model_exclude_none=True,
 )
 async def chat(request: ChatRequest, response: Response):
-    result = await chat_service.ask(
+    result = await wine_advisor_service.ask(
         current_answer=request.current_answer,
         state=request.state,
     )
