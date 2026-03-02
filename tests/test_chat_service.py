@@ -446,7 +446,11 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
     )
 
     assert result.response_type == "answer"
-    assert result.text in [*HANDOFF_NL, *HANDOFF_EN, *HANDOFF_FR]
+    assert any(
+        result.text.startswith(line) for line in [*HANDOFF_NL, *HANDOFF_EN, *HANDOFF_FR]
+    )
+    assert '"course_type": "hoofdgerecht"' in result.text
+    assert '"side_dish": "geen"' in result.text
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None
@@ -498,6 +502,8 @@ def test_ask_stop_classification_completes_categorized_handoff_with_defaults():
     )
 
     assert result.response_type == "answer"
+    assert '"course_type": "niet-gespecificeerd"' in result.text
+    assert '"side_dish": "niet-gespecificeerd"' in result.text
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None
@@ -604,7 +610,11 @@ def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
     result = asyncio.run(service.ask(current_answer="Nog iets", state=completed_state))
 
     assert result.response_type == "answer"
-    assert result.text in [*HANDOFF_NL, *HANDOFF_EN, *HANDOFF_FR]
+    assert any(
+        result.text.startswith(line) for line in [*HANDOFF_NL, *HANDOFF_EN, *HANDOFF_FR]
+    )
+    assert '"course_type": "hoofdgerecht"' in result.text
+    assert '"side_dish": "geen"' in result.text
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None

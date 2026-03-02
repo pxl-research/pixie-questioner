@@ -331,6 +331,22 @@ class ChatService:
         }
         return json.dumps(categories, ensure_ascii=False, separators=(",", ":"))
 
+    def _format_handoff_categories_for_display(self, handoff_categories_v1: str) -> str:
+        try:
+            parsed = json.loads(handoff_categories_v1)
+        except json.JSONDecodeError:
+            return handoff_categories_v1
+        if not isinstance(parsed, dict):
+            return handoff_categories_v1
+        return json.dumps(parsed, ensure_ascii=False, indent=2)
+
+    def _build_categorized_handoff_text(
+        self, language: str, handoff_categories_v1: str
+    ) -> str:
+        handoff_line = self._messages.handoff(language).rstrip()
+        formatted = self._format_handoff_categories_for_display(handoff_categories_v1)
+        return f"{handoff_line}\n{formatted}"
+
     def _build_categorized_completion_result(
         self,
         current_state: ChatState,
@@ -342,16 +358,15 @@ class ChatService:
             current_answer=current_answer,
             previous_summary=updated_summary,
         )
+        handoff_categories_v1 = self._build_handoff_categories_v1(updated_questionnaire)
         completed_state = to_categorized_handoff_completed_state(
             state=current_state,
             updated_questionnaire=updated_questionnaire,
             updated_summary=updated_summary,
-            handoff_categories_v1=self._build_handoff_categories_v1(
-                updated_questionnaire
-            ),
+            handoff_categories_v1=handoff_categories_v1,
         )
         return self._answer_result(
-            text=self._messages.handoff(language),
+            text=self._build_categorized_handoff_text(language, handoff_categories_v1),
             state=completed_state,
         )
 
@@ -419,7 +434,9 @@ class ChatService:
                 handoff_categories_v1=handoff_categories_v1,
             )
             return self._answer_result(
-                text=self._messages.handoff(language),
+                text=self._build_categorized_handoff_text(
+                    language, handoff_categories_v1
+                ),
                 state=completed_state,
             )
 
