@@ -23,6 +23,11 @@ Inference rule — VERY IMPORTANT:
   possible from that description.
 * Only ask follow-up questions for fields that cannot be reasonably
   inferred from the dish description.
+* For main protein, be strict:
+  only infer it when the protein is explicitly mentioned or when the
+  dish unambiguously implies one protein.
+* If a dish has multiple common protein variants, do NOT choose one.
+  Keep main protein open and ask a follow-up question.
 * Avoid unnatural follow-up questions. If a field is clearly not relevant
   for the dish type, do not ask it.
 * If the dish is clearly a dessert or sweet standalone dish (e.g.

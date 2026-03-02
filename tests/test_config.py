@@ -405,7 +405,19 @@ def test_cretskens_prompts_reduce_irrelevant_followup_questions() -> None:
     profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
 
     assert "Avoid unnatural follow-up questions." in profile.question_asker_prompt
+    assert (
+        "If a dish has multiple common protein variants"
+        in profile.question_asker_prompt
+    )
     assert "dessert or sweet standalone dish" in profile.question_asker_prompt
+    assert (
+        "For main protein, use a stricter threshold"
+        in profile.questionnaire_notulist_prompt
+    )
+    assert (
+        "If a dish has multiple common protein variants, keep main protein as []"
+        in (profile.questionnaire_notulist_prompt)
+    )
     assert (
         '"dame blanche" → spiciness = not spicy'
         in profile.questionnaire_notulist_prompt

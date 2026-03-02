@@ -18,6 +18,10 @@ User Answer: {current_answer}
 *** CRITICAL RULES for filling in fields ***
 1. ONLY fill in a field when the customer has explicitly stated or clearly implied the information.
 2. "Clearly implied" means there is no reasonable doubt.
+   - For main protein, use a stricter threshold:
+     only fill it when the protein is explicitly stated or the dish
+     unambiguously points to one protein.
+   - If a dish has multiple common protein variants, keep main protein as [].
    - "steak" → main protein = red meat (clearly implied) ✓
    - "steak" → spiciness = not spicy (NOT clearly implied, steak can be spicy) ✗
    - "Caesar salad" → side dish = salad (clearly implied) ✓
