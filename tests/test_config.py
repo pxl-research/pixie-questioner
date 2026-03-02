@@ -420,6 +420,11 @@ def test_cretskens_prompts_reduce_irrelevant_followup_questions() -> None:
         "ask at most one extra clarification question" in profile.question_asker_prompt
     )
     assert (
+        "Do NOT expose internal categorization language or field labels"
+        in profile.question_asker_prompt
+    )
+    assert "Avoid checklist wording" in profile.question_asker_prompt
+    assert (
         "For main protein, use a stricter threshold"
         in profile.questionnaire_notulist_prompt
     )
