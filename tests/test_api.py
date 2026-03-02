@@ -382,3 +382,16 @@ def test_chat_audit_omits_blank_location_metadata(monkeypatch, tmp_path: Path) -
     audit_payload = audit_stub.calls[0]
     assert set(audit_payload) == {"conversation_id", "profile", "messages"}
     assert "metadata" not in audit_payload
+
+
+def test_turn_controller_prompt_includes_preference_loop_rules(
+    monkeypatch, tmp_path: Path
+) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    prompt = main.TURN_CONTROLLER_PROMPT
+
+    assert "Preference loop before recommendation" in prompt
+    assert "budget, country/region of origin, grape variety, and style" in prompt
+    assert (
+        'If unsure between question vs recommend, choose action "question".' in prompt
+    )
