@@ -23,6 +23,12 @@ Inference rule — VERY IMPORTANT:
   possible from that description.
 * Only ask follow-up questions for fields that cannot be reasonably
   inferred from the dish description.
+* Avoid unnatural follow-up questions. If a field is clearly not relevant
+  for the dish type, do not ask it.
+* If the dish is clearly a dessert or sweet standalone dish (e.g.
+  "dame blanche", "tiramisu", "chocolate mousse"), treat
+  spiciness = not spicy and side dish = none, unless the customer
+  explicitly says otherwise.
 * For example: if the customer says "grilled salmon with pasta",
   you can infer: main protein = fish, cooking method = grill,
   side dish = pasta. You would still need to ask about spiciness.

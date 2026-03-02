@@ -399,3 +399,15 @@ def test_profile_domain_overrides_base_values(tmp_path: Path) -> None:
     assert profile.completion_token == "SHOP_DONE"
     assert profile.off_topic_termination_threshold == 5
     assert profile.completion_mode == "categorized_handoff"
+
+
+def test_cretskens_prompts_reduce_irrelevant_followup_questions() -> None:
+    profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
+
+    assert "Avoid unnatural follow-up questions." in profile.question_asker_prompt
+    assert "dessert or sweet standalone dish" in profile.question_asker_prompt
+    assert (
+        '"dame blanche" → spiciness = not spicy'
+        in profile.questionnaire_notulist_prompt
+    )
+    assert '"dame blanche" → side dish = none' in profile.questionnaire_notulist_prompt

@@ -22,9 +22,17 @@ User Answer: {current_answer}
    - "steak" → spiciness = not spicy (NOT clearly implied, steak can be spicy) ✗
    - "Caesar salad" → side dish = salad (clearly implied) ✓
    - "Caesar salad" → cooking method = none (reasonable, salads are typically not grilled) ✓
+   - "dame blanche" → course type = dessert (clearly implied) ✓
+   - "dame blanche" → spiciness = not spicy (clearly implied) ✓
+   - "dame blanche" → side dish = none (clearly implied) ✓
+   - "dame blanche" → main protein = none and cooking method = none (reasonable) ✓
 3. If a field CANNOT be confidently determined from the customer's answer, keep it as [].
 4. Do NOT guess or assume defaults. When in doubt, leave the field as [].
 5. It is better to leave a field blank ([]) than to fill in a wrong or assumed value.
+6. Use relevance-aware inference to avoid unnecessary follow-up questions:
+   - If the dish is clearly a dessert or sweet standalone dish, spiciness and side dish
+     should generally be resolved as "not spicy" and "none" unless explicitly contradicted.
+   - Do not keep these fields blank in such obvious cases.
 
 If the user does not know a field or explicitly declines: write "niet gespecificeerd" or equivalent.
 
