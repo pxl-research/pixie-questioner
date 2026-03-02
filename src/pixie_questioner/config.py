@@ -55,6 +55,7 @@ class ResolvedDomainProfile:
     questionnaire_notulist_prompt: str
     questionnaire_template: str
     relevance_classifier_prompt: str
+    aroma_taste_classifier_prompt: str
     language_codes: tuple[str, ...]
     language_names: dict[str, str]
     handoff_lines: dict[str, tuple[str, ...]]
@@ -114,6 +115,7 @@ class DomainProfilePrompts(BaseModel):
     questionnaire_notulist_path: str = Field(default="")
     questionnaire_template_path: str
     relevance_classifier_path: str = Field(default="")
+    aroma_taste_classifier_path: str = Field(default="")
 
 
 class DomainProfileMessages(BaseModel):
@@ -340,6 +342,14 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         classifier_full = _resolve_prompt_path(profile_dir, "relevance_classifier.txt")
     relevance_classifier_prompt = load_prompt(classifier_full)
 
+    aroma_taste_classifier_prompt = ""
+    aroma_classifier_path = prompt_paths.aroma_taste_classifier_path
+    if aroma_classifier_path:
+        aroma_candidate = _resolve_prompt_path(profile_dir, aroma_classifier_path)
+        if not aroma_candidate.exists() and base_dir is not None:
+            aroma_candidate = _resolve_prompt_path(base_dir, aroma_classifier_path)
+        aroma_taste_classifier_prompt = load_prompt(aroma_candidate)
+
     # Substitute profile variables (e.g. {topic}) in prompts.
     # Use English values as the prompts are written in English.
     if variables:
@@ -352,6 +362,9 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         )
         questionnaire_notulist_prompt = _substitute_variables(
             questionnaire_notulist_prompt, en_vars
+        )
+        aroma_taste_classifier_prompt = _substitute_variables(
+            aroma_taste_classifier_prompt, en_vars
         )
 
     normalized_base = tuple(
@@ -390,6 +403,7 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         questionnaire_notulist_prompt=questionnaire_notulist_prompt,
         questionnaire_template=questionnaire_template,
         relevance_classifier_prompt=relevance_classifier_prompt,
+        aroma_taste_classifier_prompt=aroma_taste_classifier_prompt,
         language_codes=language_codes,
         language_names=language_names,
         handoff_lines=_normalize_localized_lines(profile.messages.handoff),

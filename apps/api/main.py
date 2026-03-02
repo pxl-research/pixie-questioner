@@ -49,6 +49,15 @@ summarizer = LLMPromptInvoker(
     system_prompt_template=CONVERSATION_SUMMARIZER_PROMPT,
     error_label="Conversation summarizer",
 )
+aroma_taste_classifier = (
+    LLMPromptInvoker(
+        llm=llm,
+        system_prompt_template=domain_profile.aroma_taste_classifier_prompt,
+        error_label="Aroma taste classifier",
+    )
+    if domain_profile.aroma_taste_classifier_prompt.strip()
+    else None
+)
 chat_service = ChatService(
     llm=llm,
     question_asker_prompt=domain_profile.question_asker_prompt,
@@ -60,6 +69,7 @@ chat_service = ChatService(
         llm=llm,
         system_prompt_template=domain_profile.relevance_classifier_prompt,
     ),
+    aroma_taste_classifier=aroma_taste_classifier,
 )
 audit_client: AuditClient | None = None
 if settings.audit_api_url:

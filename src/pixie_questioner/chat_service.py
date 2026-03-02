@@ -118,6 +118,30 @@ _WINE_REGION_ALIASES: dict[str, tuple[str, ...]] = {
     "Zuidoost-Australië": ("zuidoost australie", "southeast australia"),
 }
 
+_AROMA_TASTE_KEY_ORDER: tuple[str, ...] = (
+    "geur_citrus",
+    "geur_groen_vegetaal",
+    "geur_wit_fruit",
+    "geur_tropisch_fruit",
+    "geur_steenfruit",
+    "geur_rood_fruit",
+    "geur_donker_fruit",
+    "geur_floraal",
+    "geur_kruidig",
+    "geur_mineraal_aards",
+    "geur_zoet_rijping",
+    "geur_hout_geroosterd",
+    "smaak_zoet",
+    "smaak_droog",
+    "smaak_fris_zuur",
+    "smaak_fruitig",
+    "smaak_kruidig",
+    "smaak_bruisend",
+    "smaak_houtgerijpt",
+    "smaak_mineralig",
+    "smaak_romig",
+)
+
 
 @dataclass
 class ChatService:
@@ -128,6 +152,7 @@ class ChatService:
     questionnaire_template: str
     domain_policy: ChatDomainPolicy
     answer_relevance_classifier: AnswerRelevanceClassifierProtocol | None = None
+    aroma_taste_classifier: LLMPromptInvoker | None = None
 
     def __post_init__(self) -> None:
         if not self.questionnaire_template.strip():
@@ -496,6 +521,73 @@ class ChatService:
             return None
         return int(max_value)
 
+    def _parse_aroma_taste_flags(self, value: str) -> dict[str, bool]:
+        if self._is_blank_questionnaire_value(value):
+            return {}
+        normalized = self._normalize_text(value)
+        if self._is_unspecified(normalized) or self._is_no_preference(normalized):
+            return {}
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        flags: dict[str, bool] = {}
+        for key in _AROMA_TASTE_KEY_ORDER:
+            raw_value = parsed.get(key)
+            if isinstance(raw_value, bool):
+                flags[key] = raw_value
+        return flags
+
+    def _serialize_aroma_taste_flags(self, flags: dict[str, bool]) -> str:
+        ordered = {key: flags[key] for key in _AROMA_TASTE_KEY_ORDER if key in flags}
+        return json.dumps(ordered, ensure_ascii=False, separators=(",", ":"))
+
+    async def _classify_aroma_taste_flags(self, value: str) -> dict[str, bool]:
+        if self.aroma_taste_classifier is None:
+            return {}
+        allowed_keys = "\n".join(f"- {key}" for key in _AROMA_TASTE_KEY_ORDER)
+        try:
+            classified = await self.aroma_taste_classifier.generate(
+                current_question="Classify aroma and taste preferences.",
+                current_answer=value,
+                summary=allowed_keys,
+            )
+        except Exception:
+            return {}
+        return self._parse_aroma_taste_flags(classified)
+
+    async def _normalize_aroma_taste_for_categorized_flow(
+        self, questionnaire: str
+    ) -> str:
+        field_value = self._extract_questionnaire_field_value(questionnaire, 8)
+        if self._is_blank_questionnaire_value(field_value):
+            return questionnaire
+        normalized = self._normalize_text(field_value)
+        if self._is_unspecified(normalized) or self._is_no_preference(normalized):
+            return questionnaire
+
+        parsed_flags = self._parse_aroma_taste_flags(field_value)
+        if parsed_flags:
+            return self._replace_questionnaire_field_value(
+                questionnaire=questionnaire,
+                index=8,
+                new_value=self._serialize_aroma_taste_flags(parsed_flags),
+            )
+
+        classified_flags = await self._classify_aroma_taste_flags(field_value)
+        if not classified_flags:
+            return questionnaire
+        return self._replace_questionnaire_field_value(
+            questionnaire=questionnaire,
+            index=8,
+            new_value=self._serialize_aroma_taste_flags(classified_flags),
+        )
+
+    def _extract_aroma_taste_flags(self, value: str) -> dict[str, bool]:
+        return self._parse_aroma_taste_flags(value)
+
     def _normalize_cheese_type_for_categorized_flow(self, questionnaire: str) -> str:
         course_type = self._canonical_course_type(
             self._extract_questionnaire_field_value(questionnaire, 1)
@@ -557,6 +649,12 @@ class ChatService:
         )
         if prijs is not None:
             categories["prijs"] = prijs
+        aroma_taste_flags = self._extract_aroma_taste_flags(
+            self._extract_questionnaire_field_value(questionnaire, 8)
+        )
+        for key in _AROMA_TASTE_KEY_ORDER:
+            if key in aroma_taste_flags:
+                categories[key] = aroma_taste_flags[key]
         return json.dumps(categories, ensure_ascii=False, separators=(",", ":"))
 
     def _format_handoff_categories_for_display(self, handoff_categories_v1: str) -> str:
@@ -769,6 +867,11 @@ class ChatService:
         if self._is_categorized_handoff_mode():
             updated_questionnaire = self._normalize_cheese_type_for_categorized_flow(
                 updated_questionnaire
+            )
+            updated_questionnaire = (
+                await self._normalize_aroma_taste_for_categorized_flow(
+                    updated_questionnaire
+                )
             )
         updated_summary = await self._update_summary(current_state, current_answer)
 

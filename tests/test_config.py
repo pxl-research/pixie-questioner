@@ -126,6 +126,7 @@ def test_get_settings_loads_domain_profile(
     assert profile.off_topic_termination_threshold == 3
     assert profile.completion_token == "READY"
     assert profile.completion_mode == "summary_feedback"
+    assert profile.aroma_taste_classifier_prompt == ""
     assert profile.language_codes == ("nl", "en", "fr", "de")
     config.get_settings.cache_clear()
 
@@ -415,6 +416,8 @@ def test_cretskens_prompts_reduce_irrelevant_followup_questions() -> None:
         "origin (country and/or region in one question)"
         in profile.question_asker_prompt
     )
+    assert "desired aroma/taste profile" in profile.question_asker_prompt
+    assert "ask one combined preference question" in profile.question_asker_prompt
     assert 'If the customer says "geen voorkeur"' in profile.question_asker_prompt
     assert (
         "ask at most one extra clarification question" in profile.question_asker_prompt
@@ -444,3 +447,13 @@ def test_cretskens_prompts_reduce_irrelevant_followup_questions() -> None:
     assert "If the user gives a range, use the upper bound." in (
         profile.questionnaire_notulist_prompt
     )
+    assert "For field 8 (desired aroma/taste profile):" in (
+        profile.questionnaire_notulist_prompt
+    )
+    assert "if the customer corrects themselves, keep the latest statement." in (
+        profile.questionnaire_notulist_prompt
+    )
+    assert "Return ONLY one compact JSON object." in (
+        profile.aroma_taste_classifier_prompt
+    )
+    assert "the latest statement wins." in profile.aroma_taste_classifier_prompt

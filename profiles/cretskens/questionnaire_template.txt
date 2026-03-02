@@ -6,3 +6,4 @@
 5. Kleur van de wijn (wit, rood, rosé): []
 6. Herkomst (land en/of regio): []
 7. Maximum budget in euro: []
+8. Gewenste geur/smaak (vrije tekst): []
