@@ -118,3 +118,21 @@ class TestStateSigner:
         assert "_sig" not in result
         assert "_ts" not in result
         assert result == {"phase": "intake", "working_context": "red wine"}
+
+    def test_scope_mismatch_rejected(self) -> None:
+        brooklyn_signer = StateSigner(
+            secret_key="test-secret", ttl_seconds=1800, scope="brooklyn"
+        )
+        case2_signer = StateSigner(
+            secret_key="test-secret", ttl_seconds=1800, scope="case2"
+        )
+        signed = case2_signer.sign({"phase": "intake", "turn_count": 1})
+
+        with pytest.raises(ValueError, match="scope invalid"):
+            brooklyn_signer.verify_and_strip(signed)
+
+    def test_unsigned_scope_mismatch_rejected(self) -> None:
+        signer = StateSigner(secret_key="test-secret", ttl_seconds=1800, scope="case2")
+
+        with pytest.raises(ValueError, match="scope invalid"):
+            signer.verify_and_strip({"location": "Antwerpen", "_scope": "brooklyn"})

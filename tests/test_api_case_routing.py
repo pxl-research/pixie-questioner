@@ -350,3 +350,37 @@ def test_legacy_chat_route_uses_default_case(monkeypatch, tmp_path: Path) -> Non
     assert response.headers["X-Pixie-Case"] == "brooklyn"
     assert len(brooklyn_stub.calls) == 1
     assert len(case2_stub.calls) == 0
+
+
+def test_case_route_rejects_state_from_other_case(monkeypatch, tmp_path: Path) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    brooklyn_stub = StubBrooklynService()
+    case2_stub = StubCase2Service()
+    main.brooklyn_chat_service = brooklyn_stub
+    main.case2_wine_advisor_service = case2_stub
+
+    client = TestClient(main.app)
+
+    case2_response = client.post(
+        "/cases/case2/chat",
+        json={
+            "session_id": "session-5",
+            "current_answer": "ik zoek wijn",
+            "state": {},
+        },
+    )
+    assert case2_response.status_code == 200
+    case2_state = case2_response.json()["state"]
+
+    brooklyn_response = client.post(
+        "/cases/brooklyn/chat",
+        json={
+            "session_id": "session-6",
+            "current_answer": "ik zoek een broek",
+            "state": case2_state,
+        },
+    )
+
+    assert brooklyn_response.status_code == 400
+    assert "scope invalid" in brooklyn_response.json()["detail"].casefold()
+    assert len(brooklyn_stub.calls) == 0
