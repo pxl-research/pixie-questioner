@@ -179,6 +179,55 @@ def test_get_settings_can_disable_wine_advisor_debug(
     config.get_settings.cache_clear()
 
 
+def test_get_settings_normalizes_default_case(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    profile_path = _write_default_profile_assets(tmp_path)
+
+    _set_required_env(monkeypatch, profile_path)
+    monkeypatch.setenv("DEFAULT_CASE", "CaSe2")
+    config.get_settings.cache_clear()
+    settings = config.get_settings()
+
+    assert settings.default_case == "case2"
+    config.get_settings.cache_clear()
+
+
+def test_get_settings_rejects_invalid_default_case(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    profile_path = _write_default_profile_assets(tmp_path)
+
+    _set_required_env(monkeypatch, profile_path)
+    monkeypatch.setenv("DEFAULT_CASE", "unknown")
+    config.get_settings.cache_clear()
+
+    with pytest.raises(Exception):
+        config.get_settings()
+    config.get_settings.cache_clear()
+
+
+def test_case2_wine_catalog_path_prefers_case2_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    profile_path = _write_default_profile_assets(tmp_path)
+    legacy_catalog_path = tmp_path / "legacy_catalog.xlsx"
+    case2_catalog_path = tmp_path / "case2_catalog.xlsx"
+
+    _set_required_env(monkeypatch, profile_path)
+    monkeypatch.setenv("WINE_CATALOG_PATH", str(legacy_catalog_path))
+    monkeypatch.setenv("CASE2_WINE_CATALOG_PATH", str(case2_catalog_path))
+    config.get_settings.cache_clear()
+    settings = config.get_settings()
+
+    assert settings.case2_wine_catalog_path == case2_catalog_path
+    assert settings.wine_catalog_path == case2_catalog_path
+    config.get_settings.cache_clear()
+
+
 def test_domain_profile_missing_prompt_file_raises(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
