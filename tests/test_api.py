@@ -293,7 +293,11 @@ def test_chat_returns_question_and_audits(monkeypatch, tmp_path: Path) -> None:
     assert payload["type"] == "question"
     assert payload["text"] == "Welke wijnkleur heeft je voorkeur?"
     assert payload["conversation_id"] == "session-1"
-    assert payload["state"] == {"phase": "intake", "turn_count": 1}
+    response_state = payload["state"]
+    assert response_state["phase"] == "intake"
+    assert response_state["turn_count"] == 1
+    assert "_sig" in response_state
+    assert "_ts" in response_state
     assert response.headers["X-Pixie-Chat-Contract"] == CHAT_CONTRACT_VERSION
     assert advisor_stub.calls == [("Ik eet rund", request_state)]
 

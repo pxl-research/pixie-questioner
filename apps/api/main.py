@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import logging
+import secrets as _secrets
 
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import ValidationError
 
 from pixie_questioner.audit_client import AuditClient
 from pixie_questioner.azure_openai_llm import AzureOpenAILLM
 from pixie_questioner.config import get_settings
+from pixie_questioner.rate_limiter import SlidingWindowRateLimiter
 from pixie_questioner.schemas import (
     AUDIT_EVENT_CONTRACT_VERSION,
     CHAT_CONTRACT_VERSION,
@@ -24,6 +27,7 @@ from pixie_questioner.schemas import (
     ChatRequest,
     ChatResponse,
 )
+from pixie_questioner.state_signer import StateSigner
 from pixie_questioner.wine_advisor.catalog_loader import load_wine_catalog
 from pixie_questioner.wine_advisor.llm_controller import LLMTurnController
 from pixie_questioner.wine_advisor.llm_ranker import LLMWineRanker
@@ -154,6 +158,20 @@ if settings.audit_api_url:
         timeout_seconds=settings.audit_timeout_seconds,
     )
 
+_signing_key = settings.state_signing_key
+if not _signing_key:
+    _signing_key = _secrets.token_hex(32)
+    logger.warning(
+        "STATE_SIGNING_KEY not set — using ephemeral key. "
+        "Client sessions will not survive server restarts."
+    )
+state_signer = StateSigner(
+    secret_key=_signing_key,
+    ttl_seconds=settings.state_session_ttl_seconds,
+)
+ip_rate_limiter = SlidingWindowRateLimiter(max_requests=30, window_seconds=60)
+session_rate_limiter = SlidingWindowRateLimiter(max_requests=100, window_seconds=3600)
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -225,7 +243,10 @@ async def _post_audit_event(request: ChatRequest, result: WineAdvisorResult) -> 
 
 
 def _build_chat_response(
-    request: ChatRequest, result: WineAdvisorResult
+    request: ChatRequest,
+    result: WineAdvisorResult,
+    *,
+    signed_state: dict[str, Any],
 ) -> ChatResponse:
     if result.response_type == "recommendations":
         recommendations = result.recommendations or []
@@ -242,15 +263,24 @@ def _build_chat_response(
                 for item in recommendations
             ],
             conversation_id=request.session_id,
-            state=result.state,
+            state=signed_state,
         )
 
     return ChatQuestionResponse(
         type="question",
         text=result.text,
         conversation_id=request.session_id,
-        state=result.state,
+        state=signed_state,
     )
+
+
+def _get_client_ip(raw_request: Request) -> str:
+    forwarded = raw_request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if raw_request.client:
+        return raw_request.client.host
+    return "unknown"
 
 
 @app.get("/health")
@@ -263,11 +293,30 @@ async def health() -> dict[str, str]:
     response_model=ChatResponse,
     response_model_exclude_none=True,
 )
-async def chat(request: ChatRequest, response: Response):
+async def chat(request: ChatRequest, response: Response, raw_request: Request):
+    client_ip = _get_client_ip(raw_request)
+    if not ip_rate_limiter.is_allowed(client_ip):
+        logger.warning("Rate limit exceeded for IP %s", client_ip)
+        raise HTTPException(status_code=429, detail="Too many requests.")
+    if not session_rate_limiter.is_allowed(request.session_id):
+        logger.warning("Rate limit exceeded for session %s", request.session_id)
+        raise HTTPException(status_code=429, detail="Session request limit exceeded.")
+
+    try:
+        verified_state = state_signer.verify_and_strip(request.state)
+    except ValueError as exc:
+        logger.warning(
+            "State verification failed for session %s: %s",
+            request.session_id,
+            exc,
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     result = await wine_advisor_service.ask(
         current_answer=request.current_answer,
-        state=request.state,
+        state=verified_state,
     )
+    signed_state = state_signer.sign(result.state)
     response.headers["X-Pixie-Chat-Contract"] = CHAT_CONTRACT_VERSION
     await _post_audit_event(request, result)
-    return _build_chat_response(request, result)
+    return _build_chat_response(request, result, signed_state=signed_state)

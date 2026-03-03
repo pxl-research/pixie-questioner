@@ -493,6 +493,10 @@ class Settings(BaseSettings):
     audit_api_key: str | None = Field(default=None, alias="AUDIT_API_KEY")
     audit_profile: str | None = Field(default=None, alias="AUDIT_PROFILE")
     audit_timeout_seconds: float = Field(default=5.0, alias="AUDIT_TIMEOUT_SECONDS")
+    state_signing_key: str = Field(default="", alias="STATE_SIGNING_KEY")
+    state_session_ttl_seconds: int = Field(
+        default=1800, alias="STATE_SESSION_TTL_SECONDS"
+    )
 
     @property
     def domain_profile(self) -> ResolvedDomainProfile:
