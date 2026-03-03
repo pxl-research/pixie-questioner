@@ -30,6 +30,6 @@ class AzureOpenAILLM:
             verbose=False,
             temperature=temperature,
             streaming=True,
-            timeout=request_timeout_seconds,
+            request_timeout=request_timeout_seconds,
             max_tokens=normalized_max_tokens,
         )

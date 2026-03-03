@@ -35,7 +35,9 @@ class ChatRequest(BaseModel):
 
         state_size = len(encoded.encode("utf-8"))
         if state_size > MAX_CHAT_STATE_BYTES:
-            raise ValueError(f"state payload too large (max {MAX_CHAT_STATE_BYTES} bytes).")
+            raise ValueError(
+                f"state payload too large (max {MAX_CHAT_STATE_BYTES} bytes)."
+            )
 
         return self
 

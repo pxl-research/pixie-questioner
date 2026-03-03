@@ -426,7 +426,8 @@ def test_turn_controller_prompt_includes_preference_loop_rules(
 
     assert "Preference loop before recommendation" in prompt
     assert "budget, country/region of origin, grape variety, and style" in prompt
-    assert "Warm, approachable, and conversational." in prompt
+    assert "friendly in-store wine advisor" in prompt
+    assert "You may use one short upbeat opener when natural" in prompt
     assert (
         "Mirror the customer's language (NL/EN/FR) used in recent messages." in prompt
     )

@@ -344,6 +344,7 @@ def test_ask_recommendations_text_includes_recommended_wines() -> None:
     result = asyncio.run(service.ask(current_answer="Doe maar suggesties", state={}))
 
     assert result.response_type == "recommendations"
+    assert result.text.splitlines()[0] == service.recommendation_intro
     assert "Wijn 4" in result.text
     assert "Wijn 1" in result.text
     assert "Wijn 2" in result.text

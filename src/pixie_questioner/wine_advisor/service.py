@@ -116,7 +116,7 @@ class WineAdvisorService:
     catalog_records: list[WineCatalogRecord]
     turn_controller: Any
     ranker: Any
-    recommendation_intro: str = "Dit zijn passende opties uit de catalogus."
+    recommendation_intro: str = "Leuk, ik heb een paar mooie opties voor je klaargezet."
     max_turns: int = 6
     candidate_limit: int = 40
     max_input_chars: int = 600
