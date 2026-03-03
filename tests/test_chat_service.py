@@ -2065,6 +2065,50 @@ def test_ask_seeds_questionnaire_from_template_when_state_empty():
     assert QUESTIONNAIRE_TEMPLATE in notulist_llm.calls[0][0]["content"]
 
 
+def test_ask_focuses_next_question_on_first_blank_field():
+    questionnaire_template = (
+        "0. Initial user question: []\n"
+        "1. Occasion, Vibe, Setting: []\n"
+        "2. What do you like to wear or what are your preferences: []"
+    )
+    question_llm = FakeLLM(["Welke gelegenheid heb je in gedachten?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Initial user question: Ik zoek een jeans\n"
+            "1. Occasion, Vibe, Setting: []\n"
+            "2. What do you like to wear or what are your preferences: []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt een jeans."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=questionnaire_template,
+        domain_policy=_DEFAULT_POLICY,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek een nieuwe jeans",
+            state={
+                "questionnaire": questionnaire_template,
+                "summary": "",
+                "last_question": "Initial question:",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    question_prompt = question_llm.calls[0][0]["content"]
+    assert "1. Occasion, Vibe, Setting: []" in question_prompt
+    assert (
+        "2. What do you like to wear or what are your preferences: [pending later]"
+        in question_prompt
+    )
+
+
 def test_ask_keeps_previous_questionnaire_on_invalid_notulist_output():
     question_llm = FakeLLM(["Next question"])
     notulist_llm = FakeLLM(["De gebruiker zoekt een nieuwe broek."])

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass
 
 from .chat.categorized_handoff import CategorizedHandoffBuilder
@@ -137,6 +139,50 @@ def _validate_service_configuration(service: ChatService) -> None:
 
 def _questionnaire_complete(questionnaire: str) -> bool:
     return "[]" not in questionnaire
+
+
+def _is_blank_field_value(value: str) -> bool:
+    return not value.strip().strip("[]").strip()
+
+
+def _mask_later_blank_fields(
+    questionnaire: str,
+    questionnaire_indices: list[int],
+) -> str:
+    """Keep only the earliest blank field as ``[]`` for deterministic question flow.
+
+    The question-asker prompt instructs the model to only ask about fields that still
+    contain ``[]``. By masking later blank fields, we prevent jumps back and forth in
+    question order when multiple fields are still empty.
+    """
+    first_blank_index: int | None = None
+    for index in questionnaire_indices:
+        match = re.search(
+            rf"(?m)^\s*{index}\.\s*[^:\n]*:[^\S\n]*(.*?)$",
+            questionnaire,
+        )
+        if match is None:
+            continue
+        if _is_blank_field_value(match.group(1)):
+            first_blank_index = index
+            break
+
+    if first_blank_index is None:
+        return questionnaire
+
+    masked = questionnaire
+    for index in questionnaire_indices:
+        if index <= first_blank_index:
+            continue
+        pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:[^\S\n]*)(.*?)$")
+        match = pattern.search(masked)
+        if match is None:
+            continue
+        if not _is_blank_field_value(match.group(2)):
+            continue
+        masked = pattern.sub(r"\1[pending later]", masked, count=1)
+
+    return masked
 
 
 def _resolve_goodbye_language(
@@ -429,8 +475,12 @@ async def _build_next_question_result(
         current_answer=current_answer,
         previous_summary=current_state.summary,
     )
-    next_question = await service._question_asker.ask(
+    focused_questionnaire = _mask_later_blank_fields(
         updated_questionnaire,
+        service._questionnaire_indices,
+    )
+    next_question = await service._question_asker.ask(
+        focused_questionnaire,
         preferred_language,
     )
     next_state = to_intake_state_with_next_question(
