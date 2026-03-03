@@ -1,3 +1,4 @@
+# ruff: noqa: S101,S105,S106
 from __future__ import annotations
 
 import asyncio
@@ -9,8 +10,8 @@ import pytest
 
 from pixie_questioner.azure_openai_llm import AzureOpenAILLM
 from pixie_questioner.chat_service import ChatService
-from pixie_questioner.notulist import QuestionnaireNotulist
-from pixie_questioner.summarizer import ConversationSummarizer
+from pixie_questioner.config import load_domain_profile
+from pixie_questioner.llm_client import CONVERSATION_SUMMARIZER_PROMPT, LLMPromptInvoker
 
 
 _REQUIRED_ENV_VARS = (
@@ -18,9 +19,7 @@ _REQUIRED_ENV_VARS = (
     "AZURE_OPENAI_KEY",
     "ADVANCED_AZURE_OPENAI_API_VERSION",
     "ADVANCED_AZURE_OPENAI_MODEL",
-    "SYSTEM_PROMPT_PATH",
-    "QUESTIONNAIRE_NOTULIST_PROMPT_PATH",
-    "QUESTIONNAIRE_TEMPLATE_PATH",
+    "DOMAIN_PROFILE_PATH",
 )
 
 
@@ -50,12 +49,8 @@ def _collect_live_env_issues(env: Mapping[str, str]) -> list[str]:
     return issues
 
 
-def _read_prompt(path_env_var: str) -> str:
-    prompt_path = Path(os.environ[path_env_var])
-    return prompt_path.read_text(encoding="utf-8")
-
-
 def _build_live_service() -> ChatService:
+    profile = load_domain_profile(Path(os.environ["DOMAIN_PROFILE_PATH"]))
     llm = AzureOpenAILLM(
         api_version=os.environ["ADVANCED_AZURE_OPENAI_API_VERSION"],
         api_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
@@ -63,29 +58,24 @@ def _build_live_service() -> ChatService:
         model_version=os.environ["ADVANCED_AZURE_OPENAI_MODEL"],
         temperature=float(os.environ.get("ADVANCED_AZURE_OPENAI_TEMPERATURE", "0.2")),
     )
-    notulist = QuestionnaireNotulist(
+    notulist = LLMPromptInvoker(
         llm=llm,
-        system_prompt_template=_read_prompt("QUESTIONNAIRE_NOTULIST_PROMPT_PATH"),
+        system_prompt_template=profile.questionnaire_notulist_prompt,
+        error_label="Questionnaire notulist",
     )
-
-    summarizer_prompt_path = os.environ.get("SUMMARIZER_PROMPT_PATH")
-    if summarizer_prompt_path:
-        summarizer = ConversationSummarizer(
-            llm=llm,
-            system_prompt_template=Path(summarizer_prompt_path).read_text(
-                encoding="utf-8"
-            ),
-        )
-    else:
-        summarizer = ConversationSummarizer(llm=llm)
+    summarizer = LLMPromptInvoker(
+        llm=llm,
+        system_prompt_template=CONVERSATION_SUMMARIZER_PROMPT,
+        error_label="Conversation summarizer",
+    )
 
     return ChatService(
         llm=llm,
-        question_asker_prompt=_read_prompt("SYSTEM_PROMPT_PATH"),
+        question_asker_prompt=profile.question_asker_prompt,
         notulist=notulist,
         summarizer=summarizer,
-        questionnaire_template=_read_prompt("QUESTIONNAIRE_TEMPLATE_PATH"),
-        completion_token=os.environ.get("COMPLETION_TOKEN", ""),
+        questionnaire_template=profile.questionnaire_template,
+        domain_policy=profile.chat_domain_policy,
     )
 
 
@@ -93,18 +83,16 @@ def _build_live_service() -> ChatService:
     os.environ.get("RUN_LIVE_LLM_TESTS", "1") != "1",
     reason="Set RUN_LIVE_LLM_TESTS=0 to skip live Azure OpenAI smoke tests.",
 )
-def test_live_llm_stop_terminates_without_summary() -> None:
+def test_live_llm_initial_answer_proceeds_to_intake() -> None:
     issues = _collect_live_env_issues(os.environ)
     if issues:
         pytest.fail("Live LLM configuration issues:\n- " + "\n- ".join(issues))
 
     service = _build_live_service()
 
-    result = asyncio.run(service.ask(current_answer="stop", state={}))
+    result = asyncio.run(service.ask(current_answer="Ik zoek een jeans", state={}))
     assert result.response_type == "answer"
-    assert result.summary is None
-    assert result.follow_up_question is None
-    assert result.state.get("phase") == "terminated"
+    assert result.state.get("phase") == "intake"
 
 
 def test_collect_live_env_issues_reports_missing_and_placeholder_values() -> None:
@@ -114,12 +102,11 @@ def test_collect_live_env_issues_reports_missing_and_placeholder_values() -> Non
             "AZURE_OPENAI_KEY": "replace-me",
             "ADVANCED_AZURE_OPENAI_API_VERSION": "2024-12-01-preview",
             "ADVANCED_AZURE_OPENAI_MODEL": "replace-me",
-            "SYSTEM_PROMPT_PATH": "prompts/question_asker.txt",
-            "QUESTIONNAIRE_NOTULIST_PROMPT_PATH": "prompts/questionnaire_notulist.txt",
+            "DOMAIN_PROFILE_PATH": "",
         }
     )
 
-    assert "QUESTIONNAIRE_TEMPLATE_PATH is missing or empty." in issues
+    assert "DOMAIN_PROFILE_PATH is missing or empty." in issues
     assert "AZURE_OPENAI_ENDPOINT looks like a placeholder value." in issues
     assert "AZURE_OPENAI_KEY looks like a placeholder value." in issues
     assert "ADVANCED_AZURE_OPENAI_MODEL looks like a placeholder value." in issues
@@ -132,9 +119,7 @@ def test_collect_live_env_issues_accepts_valid_configuration() -> None:
             "AZURE_OPENAI_KEY": "live-secret",
             "ADVANCED_AZURE_OPENAI_API_VERSION": "2024-12-01-preview",
             "ADVANCED_AZURE_OPENAI_MODEL": "gpt-5-chat",
-            "SYSTEM_PROMPT_PATH": "prompts/question_asker.txt",
-            "QUESTIONNAIRE_NOTULIST_PROMPT_PATH": "prompts/questionnaire_notulist.txt",
-            "QUESTIONNAIRE_TEMPLATE_PATH": "prompts/questionnaire_template.txt",
+            "DOMAIN_PROFILE_PATH": "profiles/brooklyn/domain_profile.yml",
         }
     )
 

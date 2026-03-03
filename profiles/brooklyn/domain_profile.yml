@@ -1,0 +1,23 @@
+version: 1
+
+extends: ../_base/domain_profile.yml
+
+variables:
+  topic:
+    nl: jeansbroeken
+    en: jeans
+    fr: jeans
+  visit_type:
+    nl: winkelbezoek
+    en: store visit
+    fr: visite en magasin
+
+prompts:
+  question_asker_path: question_asker.txt
+  questionnaire_template_path: questionnaire_template.txt
+
+term_replacements:
+  nl:
+    snit: pasvorm
+    silhouet: vorm
+    indigo: donkerblauw

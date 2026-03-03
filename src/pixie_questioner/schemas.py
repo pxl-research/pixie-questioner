@@ -2,48 +2,73 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+import json
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-CHAT_CONTRACT_VERSION = "chat-v1.1.0"
+CHAT_CONTRACT_VERSION = "chat-v2.0.0"
 AUDIT_EVENT_CONTRACT_VERSION = "audit-event-v1.0.0"
+MAX_CHAT_INPUT_CHARS = 600
+MAX_CHAT_STATE_BYTES = 12_000
+MAX_CHAT_STATE_KEYS = 64
 
 
 class ChatRequest(BaseModel):
-    session_id: str = Field(..., min_length=1)
-    current_answer: str = Field(..., min_length=1)
-    state: dict[str, str] = Field(default_factory=dict)
+    session_id: str = Field(..., min_length=1, max_length=128)
+    current_answer: str = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_CHAT_INPUT_CHARS,
+    )
+    state: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_state_payload(self) -> "ChatRequest":
+        if len(self.state) > MAX_CHAT_STATE_KEYS:
+            raise ValueError(f"state has too many keys (max {MAX_CHAT_STATE_KEYS}).")
+
+        try:
+            encoded = json.dumps(self.state, ensure_ascii=False, separators=(",", ":"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("state contains non-serializable values.") from exc
+
+        state_size = len(encoded.encode("utf-8"))
+        if state_size > MAX_CHAT_STATE_BYTES:
+            raise ValueError(
+                f"state payload too large (max {MAX_CHAT_STATE_BYTES} bytes)."
+            )
+
+        return self
 
 
-class QuickReplyOption(BaseModel):
+class ChatRecommendation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    label: str = Field(..., min_length=1)
-    value: str = Field(..., min_length=1)
+    name: str = Field(..., min_length=1)
+    price_eur: float
+    country: str = Field(..., min_length=1)
+    region: str = Field(..., min_length=1)
 
 
-class ChatAnswerResponse(BaseModel):
-    type: Literal["answer"]
+class ChatQuestionResponse(BaseModel):
+    type: Literal["question"]
     text: str
-    summary: str | None = None
-    follow_up_question: str | None = None
-    quick_replies: list[QuickReplyOption] | None = Field(default=None, max_length=6)
     conversation_id: str
-    state: dict[str, str]
+    state: dict[str, Any]
 
 
-class ChatSummaryResponse(BaseModel):
-    type: Literal["summary"]
+class ChatRecommendationsResponse(BaseModel):
+    type: Literal["recommendations"]
     text: str
-    summary: str
-    follow_up_question: str | None = None
+    recommendations: list[ChatRecommendation] = Field(min_length=1, max_length=5)
     conversation_id: str
-    state: dict[str, str]
+    state: dict[str, Any]
 
 
 ChatResponse = Annotated[
-    ChatAnswerResponse | ChatSummaryResponse, Field(discriminator="type")
+    ChatQuestionResponse | ChatRecommendationsResponse,
+    Field(discriminator="type"),
 ]
 
 

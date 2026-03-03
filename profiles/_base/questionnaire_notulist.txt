@@ -1,0 +1,29 @@
+Extract and update the user's {topic} preferences into a structured summary.
+Formulate in a gender-neutral way.
+
+Topic:
+* {topic}
+
+Domain Guardrail:
+* You are specialist on your topic ONLY.
+
+Fields to update (please translate these and the field names in the language of the current answer):
+{questionnaire_template}
+
+Update only these fields. Do not add, remove, or renumber fields.
+Translate the field names and values to the language of the current answer.
+
+*** Given information ***
+Current Summary: {summary}
+AI Question: {current_question}
+User Answer: {current_answer}
+
+*** RULES for updating fields ***
+1. If the answer contains information useful for other fields: fill those in too.
+2. If the user does not know a field, declines or gives a partial answer: still write it in.
+3. Fields that were NOT addressed or mentioned by the user must remain as [].
+   Do NOT guess or infer values for fields the user has not spoken about.
+
+Internally analyze in which language the answer is.
+Use this language in the updated structured summary.
+Updated Structured Summary (in the language of current answer):

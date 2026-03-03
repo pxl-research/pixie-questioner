@@ -1,0 +1,39 @@
+version: 1
+
+extends: ../_base/domain_profile.yml
+
+variables:
+  topic:
+    nl: wijn bij gerechten
+    en: wine pairing with dishes
+    fr: accords mets et vins
+  visit_type:
+    nl: wijnadvies
+    en: wine consultation
+    fr: consultation de vin
+
+messages:
+  handoff:
+    nl:
+      - "Dank je wel, dit geeft een mooi beeld van je gerecht:"
+    en:
+      - "Thanks, this gives a clear picture of your dish:"
+    fr:
+      - "Merci, cela donne une bonne idée de votre plat :"
+  off_topic_initial_question:
+    nl:
+      - "Kan ik je helpen om de juiste wijn bij je gerecht te vinden?"
+    en:
+      - "Can I help you find the right wine for your dish?"
+    fr:
+      - "Puis-je vous aider à trouver le bon vin pour votre plat ?"
+
+prompts:
+  question_asker_path: question_asker.txt
+  questionnaire_notulist_path: questionnaire_notulist.txt
+  questionnaire_template_path: questionnaire_template.txt
+  aroma_taste_classifier_path: aroma_taste_classifier.txt
+  handoff_classifier_path: handoff_classifier.txt
+
+behavior:
+  completion_mode: categorized_handoff

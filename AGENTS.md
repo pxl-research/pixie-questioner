@@ -148,6 +148,14 @@ def parse_state(state):
 - **Keep it compact**: avoid unnecessary micro-helpers.
 - **Minimize new files**: only add files when structurally required.
 
+## Size Constraints
+
+Apply these constraints to runtime code in `src/` and `apps/api/`:
+
+- Max **500 lines** per file
+- Max **50 lines** per function/method
+- Max **10 methods** per class
+
 ---
 
 ## Tests
@@ -177,6 +185,7 @@ Bad:
 - Question order is deterministic
 - Do not infer missing answers
 - Prompts: **no stylistic rewrites**
+- For wine advisor mode: action selection and recommendation selection must be LLM-driven; do not introduce keyword/token heuristics or deterministic fallback selectors.
 - Conversation behavior:
   - exactly one question per turn
   - only ask for missing fields

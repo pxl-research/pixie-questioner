@@ -1,8 +1,8 @@
 # pixie-questioner
 
-Pixie Questioner is a lightweight chat API for guided intake Q&A. The UI sends a
-`current_answer`, an opaque `state` blob, and a `session_id`, and receives a typed
-JSON response with the next question or a final summary.
+Pixie Questioner is a lightweight chat API for LLM-driven wine advising. The UI
+sends `current_answer`, an opaque `state` object, and a `session_id`, and receives
+either one next question or catalog-backed recommendations.
 
 ## Quickstart
 
@@ -21,14 +21,24 @@ Open `http://localhost:8000/docs` for the OpenAPI UI.
   - `session_id` (str)
   - `current_answer` (str)
   - `state` (object, default empty)
-- Response (next question): `{"type": "answer", "text": "...", "conversation_id": "...", "state": {...}}`.
-- Response (summary): `{"type": "summary", "text": "...", "summary": "...", "conversation_id": "...", "state": {...}}`.
+- Response (next question): `{"type": "question", "text": "...", "conversation_id": "...", "state": {...}}`.
+- Response (recommendations): `{"type": "recommendations", "text": "...", "recommendations": [...], "conversation_id": "...", "state": {...}}`.
 The `conversation_id` echoes the request `session_id`.
 Store the returned `state` and send it back on the next turn.
 On the first turn, send an empty object for `state`.
 Treat `state` as opaque; its contents are service-specific.
-When `type` is `summary`, `text` is the handoff message and `summary` contains the actual summary.
-When `type` is `answer`, the optional field `quick_replies` may be present with up to 6 `{label, value}` options.
+Optional: set `state.debug_mode=true` to request compact debug traces in `state.debug.trace`
+when backend debug mode is enabled.
+When `type` is `recommendations`, each recommendation item contains:
+- `name`
+- `price_eur`
+- `country`
+- `region`
+
+Behavior guarantees:
+- One question per turn while intake is active.
+- Intake stops after at most 6 questions.
+- Recommendations are selected from the configured wine catalog only.
 
 ### GET /health
 
@@ -56,23 +66,42 @@ Set environment variables in `.env.dev`:
 - `ADVANCED_AZURE_OPENAI_API_VERSION`
 - `ADVANCED_AZURE_OPENAI_MODEL`
 - `ADVANCED_AZURE_OPENAI_TEMPERATURE`
-- `SYSTEM_PROMPT_PATH`
-- `SUMMARIZER_PROMPT_PATH` (optional)
-- `QUESTIONNAIRE_NOTULIST_PROMPT_PATH`
-- `QUESTIONNAIRE_TEMPLATE_PATH`
-- `COMPLETION_TOKEN` (optional)
+- `ADVANCED_AZURE_OPENAI_TIMEOUT_SECONDS` (optional, default `15`)
+- `ADVANCED_AZURE_OPENAI_MAX_TOKENS` (optional, default `450`)
+- `DOMAIN_PROFILE_PATH`
+- `WINE_CATALOG_PATH` (optional; fallback: `profiles/cretskens/cretskens_wijnen_reduced.xlsx`)
+- `WINE_ADVISOR_CANDIDATE_LIMIT` (optional, default `40`)
+- `WINE_ADVISOR_MAX_INPUT_CHARS` (optional, default `600`)
+- `WINE_ADVISOR_MAX_STATE_BYTES` (optional, default `12000`)
+- `WINE_ADVISOR_MAX_WORKING_CONTEXT_CHARS` (optional, default `2200`)
+- `WINE_ADVISOR_MAX_HISTORY_ITEMS` (optional, default `8`)
+- `WINE_ADVISOR_MAX_HISTORY_ITEM_CHARS` (optional, default `240`)
+- `WINE_ADVISOR_DEBUG_ENABLED` (optional; default `true`, set `false` to disable debug traces server-side)
 - `AUDIT_API_URL` (optional)
 - `AUDIT_API_KEY` (optional)
 - `AUDIT_PROFILE` (optional)
 - `AUDIT_TIMEOUT_SECONDS` (optional, default 5)
 
-`system_prompt` is loaded from the file pointed to by `SYSTEM_PROMPT_PATH` (store this file outside the repo).
-`summarizer_prompt` is loaded from `SUMMARIZER_PROMPT_PATH` when provided.
-`questionnaire_notulist_prompt` is loaded from `QUESTIONNAIRE_NOTULIST_PROMPT_PATH`.
-`questionnaire_template` is loaded from `QUESTIONNAIRE_TEMPLATE_PATH` and used to seed the first turn.
-`COMPLETION_TOKEN` is only used to fill/strip the question-asker prompt placeholder; summary generation
-is triggered by the orchestrator logic, not by a model-emitted token.
-`QUESTIONNAIRE_NOTULIST_PROMPT_PATH` must be set for the API to start.
+`WINE_CATALOG_PATH` points to the XLSX catalog with required columns:
+- `barcode`
+- `naam`
+- `prijs`
+- `land`
+- `regio`
+- `kleur`
+- `druiven_beschrijving`
+- `geur_beschrijving`
+- `smaak_beschrijving`
+- `foodpair_beschrijving`
+
+`DOMAIN_PROFILE_PATH` still points to a YAML domain profile that defines:
+- prompt file paths (question asker, notulist, template, summarizer, relevance classifier)
+- localized runtime copy (handoff, feedback, off-topic, goodbye)
+- quick replies and normalization tokens
+- stop detection phrases/context tokens
+- behavior knobs (`completion_token`, off-topic threshold)
+
+Prompt paths inside the profile can be absolute or relative to the profile file directory.
 If `AUDIT_API_URL` is set, the service posts interaction events to `/events` using `AUDIT_PROFILE`
 as the required profile value and `AUDIT_API_KEY` for the `X-API-Key` header when provided.
 
