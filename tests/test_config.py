@@ -228,6 +228,26 @@ def test_case2_wine_catalog_path_prefers_case2_env(
     config.get_settings.cache_clear()
 
 
+def test_empty_optional_case_paths_do_not_override_defaults(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    profile_path = _write_default_profile_assets(tmp_path)
+
+    _set_required_env(monkeypatch, profile_path)
+    monkeypatch.setenv("BROOKLYN_DOMAIN_PROFILE_PATH", "")
+    monkeypatch.setenv("CASE2_DOMAIN_PROFILE_PATH", "")
+    monkeypatch.setenv("WINE_CATALOG_PATH", "")
+    monkeypatch.setenv("CASE2_WINE_CATALOG_PATH", "")
+    config.get_settings.cache_clear()
+    settings = config.get_settings()
+
+    assert settings.brooklyn_domain_profile_path == profile_path
+    assert settings.case2_domain_profile_path == config.DEFAULT_CASE2_PROFILE_PATH
+    assert settings.case2_wine_catalog_path == config.DEFAULT_WINE_CATALOG_PATH
+    config.get_settings.cache_clear()
+
+
 def test_domain_profile_missing_prompt_file_raises(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

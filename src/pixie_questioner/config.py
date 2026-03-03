@@ -512,6 +512,21 @@ class Settings(BaseSettings):
         default=1800, alias="STATE_SESSION_TTL_SECONDS"
     )
 
+    @field_validator(
+        "brooklyn_domain_profile_path_env",
+        "case2_domain_profile_path_env",
+        "wine_catalog_path_env",
+        "case2_wine_catalog_path_env",
+        mode="before",
+    )
+    @classmethod
+    def normalize_empty_optional_paths(cls, value: object) -> object:
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @field_validator("default_case", mode="before")
     @classmethod
     def normalize_default_case(cls, value: object) -> str:
