@@ -51,6 +51,13 @@ class ChatRecommendation(BaseModel):
     region: str = Field(..., min_length=1)
 
 
+class QuickReplyOption(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(..., min_length=1)
+    value: str = Field(..., min_length=1)
+
+
 class ChatQuestionResponse(BaseModel):
     type: Literal["question"]
     text: str
@@ -66,8 +73,36 @@ class ChatRecommendationsResponse(BaseModel):
     state: dict[str, Any]
 
 
+class ChatAnswerResponse(BaseModel):
+    type: Literal["answer"]
+    text: str
+    summary: str | None = None
+    follow_up_question: str | None = None
+    quick_replies: list[QuickReplyOption] | None = Field(default=None, max_length=6)
+    conversation_id: str
+    state: dict[str, Any]
+
+
+class ChatSummaryResponse(BaseModel):
+    type: Literal["summary"]
+    text: str
+    summary: str
+    follow_up_question: str | None = None
+    conversation_id: str
+    state: dict[str, Any]
+
+
 ChatResponse = Annotated[
     ChatQuestionResponse | ChatRecommendationsResponse,
+    Field(discriminator="type"),
+]
+
+
+CaseChatResponse = Annotated[
+    ChatQuestionResponse
+    | ChatRecommendationsResponse
+    | ChatAnswerResponse
+    | ChatSummaryResponse,
     Field(discriminator="type"),
 ]
 

@@ -214,6 +214,7 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_MODEL", "gpt-test")
     monkeypatch.setenv("DOMAIN_PROFILE_PATH", str(profile_path))
     monkeypatch.setenv("WINE_CATALOG_PATH", str(catalog_path))
+    monkeypatch.setenv("DEFAULT_CASE", "case2")
 
 
 def _load_main(monkeypatch, tmp_path: Path):
@@ -274,6 +275,7 @@ def test_chat_returns_question_and_audits(monkeypatch, tmp_path: Path) -> None:
     )
     advisor_stub = StubWineAdvisorService(result)
     audit_stub = StubAuditClient()
+    main.case2_wine_advisor_service = advisor_stub
     main.wine_advisor_service = advisor_stub
     main.audit_client = audit_stub
     request_state = {"location": "Antwerpen"}
@@ -330,6 +332,7 @@ def test_chat_returns_recommendations(monkeypatch, tmp_path: Path) -> None:
         ],
     )
     advisor_stub = StubWineAdvisorService(result)
+    main.case2_wine_advisor_service = advisor_stub
     main.wine_advisor_service = advisor_stub
     main.audit_client = None
 
@@ -368,6 +371,7 @@ def test_chat_audit_omits_blank_location_metadata(monkeypatch, tmp_path: Path) -
     )
     advisor_stub = StubWineAdvisorService(result)
     audit_stub = StubAuditClient()
+    main.case2_wine_advisor_service = advisor_stub
     main.wine_advisor_service = advisor_stub
     main.audit_client = audit_stub
 

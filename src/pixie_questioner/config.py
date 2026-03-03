@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .chat.policy import ChatDomainPolicy, ChatQuickReply
@@ -20,6 +20,8 @@ from .profile_prompt_loader import (
 )
 
 DEFAULT_WINE_CATALOG_PATH = Path("profiles/cretskens/cretskens_wijnen_reduced.xlsx")
+DEFAULT_BROOKLYN_PROFILE_PATH = Path("profiles/brooklyn/domain_profile.yml")
+DEFAULT_CASE2_PROFILE_PATH = Path("profiles/cretskens/domain_profile.yml")
 
 
 def load_prompt(path: Path) -> str:
@@ -467,7 +469,19 @@ class Settings(BaseSettings):
         default=450, alias="ADVANCED_AZURE_OPENAI_MAX_TOKENS"
     )
     domain_profile_path: Path = Field(alias="DOMAIN_PROFILE_PATH")
+    default_case: Literal["brooklyn", "case2"] = Field(
+        default="brooklyn", alias="DEFAULT_CASE"
+    )
+    brooklyn_domain_profile_path_env: Path | None = Field(
+        default=None, alias="BROOKLYN_DOMAIN_PROFILE_PATH"
+    )
+    case2_domain_profile_path_env: Path | None = Field(
+        default=None, alias="CASE2_DOMAIN_PROFILE_PATH"
+    )
     wine_catalog_path_env: Path | None = Field(default=None, alias="WINE_CATALOG_PATH")
+    case2_wine_catalog_path_env: Path | None = Field(
+        default=None, alias="CASE2_WINE_CATALOG_PATH"
+    )
     wine_advisor_candidate_limit: int = Field(
         default=40, alias="WINE_ADVISOR_CANDIDATE_LIMIT"
     )
@@ -498,15 +512,51 @@ class Settings(BaseSettings):
         default=1800, alias="STATE_SESSION_TTL_SECONDS"
     )
 
-    @property
-    def domain_profile(self) -> ResolvedDomainProfile:
-        return load_domain_profile(self.domain_profile_path)
+    @field_validator("default_case", mode="before")
+    @classmethod
+    def normalize_default_case(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError("DEFAULT_CASE must be 'brooklyn' or 'case2'.")
+        normalized = value.strip().casefold()
+        if normalized not in {"brooklyn", "case2"}:
+            raise ValueError("DEFAULT_CASE must be 'brooklyn' or 'case2'.")
+        return normalized
 
     @property
-    def wine_catalog_path(self) -> Path:
+    def brooklyn_domain_profile_path(self) -> Path:
+        if self.brooklyn_domain_profile_path_env is not None:
+            return self.brooklyn_domain_profile_path_env
+        return self.domain_profile_path or DEFAULT_BROOKLYN_PROFILE_PATH
+
+    @property
+    def case2_domain_profile_path(self) -> Path:
+        if self.case2_domain_profile_path_env is not None:
+            return self.case2_domain_profile_path_env
+        return DEFAULT_CASE2_PROFILE_PATH
+
+    @property
+    def domain_profile(self) -> ResolvedDomainProfile:
+        return load_domain_profile(self.brooklyn_domain_profile_path)
+
+    @property
+    def brooklyn_domain_profile(self) -> ResolvedDomainProfile:
+        return load_domain_profile(self.brooklyn_domain_profile_path)
+
+    @property
+    def case2_domain_profile(self) -> ResolvedDomainProfile:
+        return load_domain_profile(self.case2_domain_profile_path)
+
+    @property
+    def case2_wine_catalog_path(self) -> Path:
+        if self.case2_wine_catalog_path_env is not None:
+            return self.case2_wine_catalog_path_env
         if self.wine_catalog_path_env is not None:
             return self.wine_catalog_path_env
         return DEFAULT_WINE_CATALOG_PATH
+
+    @property
+    def wine_catalog_path(self) -> Path:
+        return self.case2_wine_catalog_path
 
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.dev"),

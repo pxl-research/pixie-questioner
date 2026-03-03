@@ -13,8 +13,8 @@ from typing import Any
 # These are excluded from MAC computation on both sign and verify.
 _CLIENT_ADDABLE_KEYS: frozenset[str] = frozenset({"location"})
 
-# Keys used only as control fields; never part of the MAC payload.
-_CONTROL_KEYS: frozenset[str] = frozenset({"_sig", "_ts"})
+# Keys used only as control fields.
+_CONTROL_KEYS: frozenset[str] = frozenset({"_sig", "_ts", "_scope"})
 
 # A state containing only these keys requires no signature (initial request).
 _UNPROTECTED_STATE_KEYS: frozenset[str] = _CLIENT_ADDABLE_KEYS | _CONTROL_KEYS
@@ -29,6 +29,7 @@ class StateSigner:
 
     secret_key: str
     ttl_seconds: int = 1800
+    scope: str = ""
 
     def __post_init__(self) -> None:
         if not self.secret_key:
@@ -53,9 +54,13 @@ class StateSigner:
         protected = {k: v for k, v in state.items() if k not in _MAC_EXCLUDED_KEYS}
         ts = int(time.time())
         mac_payload = {**protected, "_ts": ts}
+        if self.scope:
+            mac_payload["_scope"] = self.scope
         sig = self._compute_mac(mac_payload)
         result = {k: v for k, v in state.items() if k not in _CONTROL_KEYS}
         result["_ts"] = ts
+        if self.scope:
+            result["_scope"] = self.scope
         result["_sig"] = sig
         return result
 
@@ -66,7 +71,8 @@ class StateSigner:
         Raises ``ValueError`` on tampered, expired, or missing signatures.
         """
         if not state or all(k in _UNPROTECTED_STATE_KEYS for k in state):
-            return {k: v for k, v in state.items() if k not in ("_sig", "_ts")}
+            self._verify_scope(state)
+            return {k: v for k, v in state.items() if k not in _CONTROL_KEYS}
 
         sig = state.get("_sig")
         if not isinstance(sig, str):
@@ -76,8 +82,11 @@ class StateSigner:
         if not isinstance(ts, (int, float)):
             raise ValueError("State timestamp missing.")
 
+        self._verify_scope(state)
         data = {k: v for k, v in state.items() if k not in _MAC_EXCLUDED_KEYS}
         data["_ts"] = ts
+        if self.scope:
+            data["_scope"] = self.scope
         expected = self._compute_mac(data)
         if not hmac.compare_digest(sig, expected):
             raise ValueError("State signature invalid.")
@@ -88,4 +97,13 @@ class StateSigner:
         if age < -60:
             raise ValueError("State timestamp is in the future.")
 
-        return {k: v for k, v in state.items() if k not in ("_sig", "_ts")}
+        return {k: v for k, v in state.items() if k not in _CONTROL_KEYS}
+
+    def _verify_scope(self, state: dict[str, Any]) -> None:
+        if not self.scope:
+            return
+        scope = state.get("_scope")
+        if scope is None:
+            return
+        if not isinstance(scope, str) or scope != self.scope:
+            raise ValueError("State scope invalid.")
