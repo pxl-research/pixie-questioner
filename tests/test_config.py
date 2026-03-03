@@ -575,3 +575,18 @@ def test_cretskens_prompts_reduce_irrelevant_followup_questions() -> None:
     )
     assert "the latest statement wins." in profile.aroma_taste_classifier_prompt
     assert "include only keys that are true." in profile.handoff_classifier_prompt
+
+
+def test_brooklyn_prompt_encourages_warm_non_repetitive_tone() -> None:
+    profile = config.load_domain_profile(Path("profiles/brooklyn/domain_profile.yml"))
+
+    assert (
+        "Use a warm, genuinely interested in-store tone."
+        in profile.question_asker_prompt
+    )
+    assert "Vary your acknowledgements naturally across turns." in (
+        profile.question_asker_prompt
+    )
+    assert 'Avoid repetitive openers such as "Je geeft aan dat".' in (
+        profile.question_asker_prompt
+    )
