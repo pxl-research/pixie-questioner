@@ -2109,6 +2109,102 @@ def test_ask_focuses_next_question_on_first_blank_field():
     )
 
 
+def test_ask_backfills_initial_user_question_from_first_answer():
+    questionnaire_template = (
+        "0. Initial user question: []\n"
+        "1. Occasion, Vibe, Setting: []\n"
+        "2. What do you like to wear or what are your preferences: []"
+    )
+    question_llm = FakeLLM(["Voor welke gelegenheid zoek je deze jeans?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Initial user question: []\n"
+            "1. Occasion, Vibe, Setting: []\n"
+            "2. What do you like to wear or what are your preferences: Jeans lang mom of straight fit"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt een jeans."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=questionnaire_template,
+        domain_policy=_DEFAULT_POLICY,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Jeans lang mom of straight fit",
+            state={},
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert (
+        "0. Initial user question: Jeans lang mom of straight fit"
+        in result.state["questionnaire"]
+    )
+
+
+def test_ask_does_not_reask_initial_user_question_after_backfill():
+    questionnaire_template = (
+        "0. Initial user question: []\n"
+        "1. Occasion, Vibe, Setting: []\n"
+        "2. What do you like to wear or what are your preferences: []\n"
+        "3. Most Important Aspects: []"
+    )
+    question_llm = FakeLLM(
+        [
+            "Voor welke gelegenheid zoek je deze jeans?",
+            "Wat is het belangrijkste dat je zoekt in die jeans?",
+        ]
+    )
+    notulist_llm = FakeLLM(
+        [
+            "0. Initial user question: []\n"
+            "1. Occasion, Vibe, Setting: []\n"
+            "2. What do you like to wear or what are your preferences: Jeans lang mom of straight fit\n"
+            "3. Most Important Aspects: []",
+            "0. Initial user question: []\n"
+            "1. Occasion, Vibe, Setting: Casual\n"
+            "2. What do you like to wear or what are your preferences: Jeans lang mom of straight fit\n"
+            "3. Most Important Aspects: []",
+        ]
+    )
+    summarizer_llm = FakeLLM(
+        ["Klant zoekt een jeans.", "Klant zoekt een casual jeans."]
+    )
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=questionnaire_template,
+        domain_policy=_DEFAULT_POLICY,
+    )
+
+    first_result = asyncio.run(
+        service.ask(
+            current_answer="Jeans lang mom of straight fit",
+            state={},
+        )
+    )
+    second_result = asyncio.run(
+        service.ask(
+            current_answer="Casual",
+            state=first_result.state,
+        )
+    )
+
+    second_prompt = question_llm.calls[1][0]["content"]
+    assert "0. Initial user question: []" not in second_prompt
+    assert (
+        "0. Initial user question: Jeans lang mom of straight fit"
+        in second_result.state["questionnaire"]
+    )
+
+
 def test_ask_keeps_previous_questionnaire_on_invalid_notulist_output():
     question_llm = FakeLLM(["Next question"])
     notulist_llm = FakeLLM(["De gebruiker zoekt een nieuwe broek."])

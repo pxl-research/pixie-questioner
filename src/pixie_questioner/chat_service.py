@@ -185,6 +185,28 @@ def _mask_later_blank_fields(
     return masked
 
 
+def _ensure_initial_question_field(
+    questionnaire: str,
+    current_answer: str,
+) -> str:
+    """Ensure field 0 is not left blank after the very first user turn."""
+    normalized_answer = current_answer.strip()
+    if not normalized_answer:
+        return questionnaire
+
+    pattern = re.compile(r"(?m)^(\s*0\.\s*[^:\n]*:[^\S\n]*)(.*?)$")
+    match = pattern.search(questionnaire)
+    if match is None:
+        return questionnaire
+    if not _is_blank_field_value(match.group(2)):
+        return questionnaire
+    return pattern.sub(
+        lambda field_match: f"{field_match.group(1)}{normalized_answer}",
+        questionnaire,
+        count=1,
+    )
+
+
 def _resolve_goodbye_language(
     service: ChatService,
     current_state: ChatState,
@@ -395,6 +417,11 @@ async def _apply_intake_updates(
             await service._categorized_handoff.normalize_questionnaire(
                 updated_questionnaire
             )
+        )
+    if current_state.last_question.strip() == INITIAL_QUESTION:
+        updated_questionnaire = _ensure_initial_question_field(
+            updated_questionnaire,
+            current_answer,
         )
 
     updated_summary = await _update_summary(service, current_state, current_answer)
