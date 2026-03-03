@@ -370,37 +370,20 @@ class ChatService:
         if not candidates:
             return "nl", True
 
-        top_language, top_probability = candidates[0]
         best_supported = self._select_best_supported_language(candidates)
+        if best_supported is None:
+            return "nl", True
+
+        best_supported_language, best_supported_probability = best_supported
         word_count = len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", text))
 
-        if top_language in _SUPPORTED_LANGUAGE_CODES:
-            if top_language == "nl":
-                return top_language, False
-            if (
-                top_probability >= _SUPPORTED_NON_DUTCH_STRONG_PROBABILITY
-                and word_count >= _SUPPORTED_NON_DUTCH_MIN_WORDS
-            ):
-                return top_language, False
-            return top_language, True
-
-        if best_supported is not None:
-            best_supported_language, best_supported_probability = best_supported
-            score_gap = top_probability - best_supported_probability
-            if score_gap <= _SUPPORTED_LANGUAGE_CLOSE_MARGIN:
-                return best_supported_language, True
-            if (
-                top_probability >= _OTHER_LANGUAGE_STRONG_PROBABILITY
-                and word_count >= _OTHER_LANGUAGE_MIN_WORDS
-            ):
-                return top_language, False
-            return best_supported_language, True
-
+        if best_supported_language == "nl":
+            return "nl", False
         if (
-            top_probability >= _OTHER_LANGUAGE_STRONG_PROBABILITY
-            and word_count >= _OTHER_LANGUAGE_MIN_WORDS
+            best_supported_probability >= _SUPPORTED_NON_DUTCH_STRONG_PROBABILITY
+            and word_count >= _SUPPORTED_NON_DUTCH_MIN_WORDS
         ):
-            return top_language, False
+            return best_supported_language, False
         return "nl", True
 
     def _detect_preferred_language(
@@ -554,6 +537,77 @@ class ChatService:
             if not re.search(rf"(?m)^\s*{index}\.", questionnaire):
                 return False
         return True
+
+    def _extract_field_value(self, questionnaire: str, index: int) -> str:
+        match = re.search(rf"(?m)^\s*{index}\.\s*[^:\n]*:\s*(.*?)$", questionnaire)
+        if match:
+            return match.group(1).strip()
+        return ""
+
+    def _prevent_field_regression(
+        self, current_questionnaire: str, updated_questionnaire: str
+    ) -> str:
+        result = updated_questionnaire
+        for index in self._questionnaire_indices:
+            current_value = self._extract_field_value(current_questionnaire, index)
+            if not current_value or current_value == "[]":
+                continue
+            updated_value = self._extract_field_value(result, index)
+            if updated_value == "[]":
+                pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:\s*).*$")
+                result = pattern.sub(
+                    lambda match, value=current_value: f"{match.group(1)}{value}",
+                    result,
+                    count=1,
+                )
+        return result
+
+    def _merge_partial_questionnaire_update(
+        self, current_questionnaire: str, proposed_questionnaire: str
+    ) -> str | None:
+        if self._is_valid_questionnaire(proposed_questionnaire):
+            return self._prevent_field_regression(
+                current_questionnaire,
+                proposed_questionnaire,
+            )
+
+        allowed_indices = set(self._questionnaire_indices)
+        proposed_values: dict[int, str] = {}
+        for match in re.finditer(r"(?m)^\s*(\d+)\.\s*(.+)$", proposed_questionnaire):
+            index = int(match.group(1))
+            if index not in allowed_indices:
+                continue
+            field_text = match.group(2).strip()
+            if ":" not in field_text:
+                continue
+            value = field_text.split(":", maxsplit=1)[1].strip()
+            if not value or value == "[]":
+                continue
+            proposed_values[index] = value
+
+        if not proposed_values:
+            return None
+
+        merged = current_questionnaire
+        merged_any = False
+        for index in self._questionnaire_indices:
+            value = proposed_values.get(index)
+            if value is None:
+                continue
+            pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:\s*).*$")
+            merged, count = pattern.subn(
+                lambda match, field_value=value: f"{match.group(1)}{field_value}",
+                merged,
+                count=1,
+            )
+            if count:
+                merged_any = True
+
+        if not merged_any:
+            return None
+        if not self._is_valid_questionnaire(merged):
+            return None
+        return self._prevent_field_regression(current_questionnaire, merged)
 
     def _parse_state(self, state: dict[str, str] | None) -> ChatState:
         if not state:
@@ -833,8 +887,14 @@ class ChatService:
             raise RuntimeError("Failed to update questionnaire.") from exc
         if updated_questionnaire is None:
             raise RuntimeError("Failed to update questionnaire.")
-        if not self._is_valid_questionnaire(updated_questionnaire):
+        merged_questionnaire = self._merge_partial_questionnaire_update(
+            current_questionnaire=current_state.questionnaire,
+            proposed_questionnaire=updated_questionnaire,
+        )
+        if merged_questionnaire is None:
             updated_questionnaire = current_state.questionnaire
+        else:
+            updated_questionnaire = merged_questionnaire
 
         try:
             updated_summary = await self.summarizer.generate(

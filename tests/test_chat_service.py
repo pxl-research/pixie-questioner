@@ -146,6 +146,97 @@ def test_ask_updates_state_and_returns_next_question():
     assert "If uncertain, default to Dutch." in question_llm.calls[-1][0]["content"]
 
 
+def test_ask_merges_partial_notulist_update_instead_of_repeating_same_field():
+    questionnaire_template = (
+        "0. Initial user question: []\n"
+        "1. Occasion, Vibe, Setting: []\n"
+        "2. Color & Wash: []"
+    )
+    question_llm = FakeLLM(["Welke kleur heeft je voorkeur?"])
+    notulist_llm = FakeLLM(["1. Gelegenheid en sfeer: dagelijks gebruik"])
+    summarizer_llm = FakeLLM(["Klant zoekt een jeans voor dagelijks gebruik."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=questionnaire_template,
+        completion_token="TOKEN",
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Gewoon door de dag",
+            state={
+                "questionnaire": (
+                    "0. Initial user question: Ik zoek een nieuwe broek\n"
+                    "1. Occasion, Vibe, Setting: []\n"
+                    "2. Color & Wash: []"
+                ),
+                "summary": "",
+                "last_question": "Waar wil je de jeans voor dragen?",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Welke kleur heeft je voorkeur?"
+    assert result.state["questionnaire"] == (
+        "0. Initial user question: Ik zoek een nieuwe broek\n"
+        "1. Occasion, Vibe, Setting: dagelijks gebruik\n"
+        "2. Color & Wash: []"
+    )
+    assert result.state["phase"] == "intake"
+    assert result.state["last_question"] == "Welke kleur heeft je voorkeur?"
+
+
+def test_ask_prevents_filled_field_from_regressing_to_blank():
+    questionnaire_template = (
+        "0. Initial user question: []\n"
+        "1. Occasion, Vibe, Setting: []\n"
+        "2. Color & Wash: []"
+    )
+    question_llm = FakeLLM(["Welke kleur heeft je voorkeur?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Initial user question: []\n"
+            "1. Occasion, Vibe, Setting: dagelijks gebruik\n"
+            "2. Color & Wash: []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt een jeans voor dagelijks gebruik."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=questionnaire_template,
+        completion_token="TOKEN",
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Gewoon door de dag",
+            state={
+                "questionnaire": (
+                    "0. Initial user question: Ik zoek een nieuwe broek\n"
+                    "1. Occasion, Vibe, Setting: []\n"
+                    "2. Color & Wash: []"
+                ),
+                "summary": "",
+                "last_question": "Waar wil je de jeans voor dragen?",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.state["questionnaire"] == (
+        "0. Initial user question: Ik zoek een nieuwe broek\n"
+        "1. Occasion, Vibe, Setting: dagelijks gebruik\n"
+        "2. Color & Wash: []"
+    )
+
+
 def test_ask_prefers_dutch_for_hallo_greeting():
     question_llm = FakeLLM(["Volgende vraag"])
     notulist_llm = FakeLLM(
@@ -175,7 +266,7 @@ def test_ask_prefers_dutch_for_hallo_greeting():
     assert "Respond in Dutch." in question_llm.calls[-1][0]["content"]
 
 
-def test_ask_prefers_german_for_clear_german_sentence():
+def test_ask_keeps_dutch_for_clear_unsupported_sentence():
     question_llm = FakeLLM(["Naechste Frage"])
     notulist_llm = FakeLLM(
         [
@@ -203,7 +294,7 @@ def test_ask_prefers_german_for_clear_german_sentence():
     )
 
     assert result.response_type == "answer"
-    assert "ISO code 'de'" in question_llm.calls[-1][0]["content"]
+    assert "Respond in Dutch." in question_llm.calls[-1][0]["content"]
 
 
 def test_detect_preferred_language_prefers_supported_on_small_score_gap(monkeypatch):
@@ -219,7 +310,9 @@ def test_detect_preferred_language_prefers_supported_on_small_score_gap(monkeypa
     assert preferred_language == "nl"
 
 
-def test_detect_preferred_language_allows_other_language_on_strong_signal(monkeypatch):
+def test_detect_preferred_language_keeps_dutch_on_strong_unsupported_signal(
+    monkeypatch,
+):
     service = _make_service_for_language_detection()
 
     def fake_detect_langs(_: str):
@@ -231,7 +324,7 @@ def test_detect_preferred_language_allows_other_language_on_strong_signal(monkey
         "guten tag ich suche eine jeans", ""
     )
 
-    assert preferred_language == "de"
+    assert preferred_language == "nl"
 
 
 def test_detect_preferred_language_falls_back_to_dutch_for_short_unsupported_text(
