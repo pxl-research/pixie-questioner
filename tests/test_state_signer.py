@@ -78,6 +78,39 @@ class TestStateSigner:
         with pytest.raises(ValueError, match="must not be empty"):
             StateSigner(secret_key="", ttl_seconds=1800)
 
+    def test_location_added_by_client_does_not_break_signature(self) -> None:
+        """Regression: client adds location to a signed state (turn 2+).
+
+        The server signs {phase, turn_count, ...} without location.
+        The client echoes the state back and adds location for audit purposes.
+        The signature must still verify correctly.
+        """
+        signer = StateSigner(secret_key="test-secret", ttl_seconds=1800)
+        server_state = {"phase": "intake", "turn_count": 1, "working_context": "rood"}
+        signed = signer.sign(server_state)
+        # Client attaches location before sending back
+        signed["location"] = "Antwerpen"
+        result = signer.verify_and_strip(signed)
+        assert result == server_state | {"location": "Antwerpen"}
+
+    def test_location_change_by_client_does_not_break_signature(self) -> None:
+        """Client may change or remove location across turns without tampering."""
+        signer = StateSigner(secret_key="test-secret", ttl_seconds=1800)
+        server_state = {"phase": "intake", "turn_count": 2}
+        signed = signer.sign(server_state)
+        signed["location"] = "Gent"
+        result = signer.verify_and_strip(signed)
+        assert result == {"phase": "intake", "turn_count": 2, "location": "Gent"}
+
+    def test_server_key_tamper_still_rejected_even_with_location(self) -> None:
+        """Adding location does not help bypass MAC verification on server fields."""
+        signer = StateSigner(secret_key="test-secret", ttl_seconds=1800)
+        signed = signer.sign({"phase": "intake", "turn_count": 1})
+        signed["location"] = "Antwerpen"
+        signed["turn_count"] = 999  # tamper a server-controlled field
+        with pytest.raises(ValueError, match="signature invalid"):
+            signer.verify_and_strip(signed)
+
     def test_signature_stripped_from_result(self) -> None:
         signer = StateSigner(secret_key="test-secret", ttl_seconds=1800)
         signed = signer.sign({"phase": "intake", "working_context": "red wine"})
