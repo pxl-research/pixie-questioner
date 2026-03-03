@@ -55,7 +55,7 @@ def test_detect_preferred_language_prefers_supported_on_small_score_gap(
     assert preferred == "nl"
 
 
-def test_detect_preferred_language_allows_other_language_on_strong_signal(
+def test_detect_preferred_language_keeps_dutch_for_strong_unsupported_signal(
     monkeypatch,
 ) -> None:
     def fake_detect_langs(_: str):
@@ -73,7 +73,7 @@ def test_detect_preferred_language_allows_other_language_on_strong_signal(
         default_language_code="nl",
     )
 
-    assert preferred == "de"
+    assert preferred == "nl"
 
 
 def test_messages_fallback_to_english_options() -> None:

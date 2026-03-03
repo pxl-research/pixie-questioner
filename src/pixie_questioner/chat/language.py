@@ -8,11 +8,9 @@ from dataclasses import dataclass
 from langdetect import DetectorFactory, detect_langs
 from langdetect.lang_detect_exception import LangDetectException
 
-SUPPORTED_LANGUAGE_CLOSE_MARGIN = 0.15
-OTHER_LANGUAGE_STRONG_PROBABILITY = 0.85
-OTHER_LANGUAGE_MIN_WORDS = 4
 SUPPORTED_NON_DUTCH_STRONG_PROBABILITY = 0.85
 SUPPORTED_NON_DUTCH_MIN_WORDS = 4
+SUPPORTED_RESPONSE_LANGUAGES = frozenset({"nl", "en", "fr"})
 
 DetectorFactory.seed = 0
 
@@ -32,12 +30,15 @@ def detect_language(
     supported_language_set: set[str],
     default_language_code: str,
 ) -> str:
+    effective_supported_languages = (
+        supported_language_set & SUPPORTED_RESPONSE_LANGUAGES
+    )
     candidates = detect_language_candidates(text)
     if not candidates:
         return default_language_code
 
     for language_code, _ in candidates:
-        if language_code in supported_language_set:
+        if language_code in effective_supported_languages:
             return language_code
     return default_language_code
 
@@ -69,45 +70,31 @@ def _select_preferred_language_from_text(
     supported_language_priority: dict[str, int],
     default_language_code: str,
 ) -> tuple[str, bool]:
+    effective_supported_languages = (
+        supported_language_set & SUPPORTED_RESPONSE_LANGUAGES
+    )
     candidates = detect_language_candidates(text)
     if not candidates:
         return default_language_code, True
 
-    top_language, top_probability = candidates[0]
     best_supported = _select_best_supported_language(
         candidates,
-        supported_language_set=supported_language_set,
+        supported_language_set=effective_supported_languages,
         supported_language_priority=supported_language_priority,
     )
+    if best_supported is None:
+        return default_language_code, True
+
+    best_supported_language, best_supported_probability = best_supported
     word_count = len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", text))
 
-    if top_language in supported_language_set:
-        if top_language == default_language_code:
-            return top_language, False
-        if (
-            top_probability >= SUPPORTED_NON_DUTCH_STRONG_PROBABILITY
-            and word_count >= SUPPORTED_NON_DUTCH_MIN_WORDS
-        ):
-            return top_language, False
-        return top_language, True
-
-    if best_supported is not None:
-        best_supported_language, best_supported_probability = best_supported
-        score_gap = top_probability - best_supported_probability
-        if score_gap <= SUPPORTED_LANGUAGE_CLOSE_MARGIN:
-            return best_supported_language, True
-        if (
-            top_probability >= OTHER_LANGUAGE_STRONG_PROBABILITY
-            and word_count >= OTHER_LANGUAGE_MIN_WORDS
-        ):
-            return top_language, False
-        return best_supported_language, True
-
+    if best_supported_language == default_language_code:
+        return default_language_code, False
     if (
-        top_probability >= OTHER_LANGUAGE_STRONG_PROBABILITY
-        and word_count >= OTHER_LANGUAGE_MIN_WORDS
+        best_supported_probability >= SUPPORTED_NON_DUTCH_STRONG_PROBABILITY
+        and word_count >= SUPPORTED_NON_DUTCH_MIN_WORDS
     ):
-        return top_language, False
+        return best_supported_language, False
     return default_language_code, True
 
 

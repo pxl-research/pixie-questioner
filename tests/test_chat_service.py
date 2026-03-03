@@ -267,7 +267,7 @@ def test_ask_prefers_dutch_for_hallo_greeting():
     assert "Respond in Dutch." in question_llm.calls[-1][0]["content"]
 
 
-def test_ask_prefers_german_for_clear_german_sentence():
+def test_ask_keeps_dutch_for_clear_unsupported_sentence():
     question_llm = FakeLLM(["Naechste Frage"])
     notulist_llm = FakeLLM(
         [
@@ -296,7 +296,7 @@ def test_ask_prefers_german_for_clear_german_sentence():
     )
 
     assert result.response_type == "answer"
-    assert "ISO code 'de'" in question_llm.calls[-1][0]["content"]
+    assert "Respond in Dutch." in question_llm.calls[-1][0]["content"]
 
 
 def test_detect_preferred_language_prefers_supported_on_small_score_gap(monkeypatch):
@@ -314,7 +314,9 @@ def test_detect_preferred_language_prefers_supported_on_small_score_gap(monkeypa
     assert preferred_language == "nl"
 
 
-def test_detect_preferred_language_allows_other_language_on_strong_signal(monkeypatch):
+def test_detect_preferred_language_keeps_dutch_on_strong_unsupported_signal(
+    monkeypatch,
+):
     service = _make_service_for_language_detection()
 
     def fake_detect_langs(_: str):
@@ -328,7 +330,7 @@ def test_detect_preferred_language_allows_other_language_on_strong_signal(monkey
         "guten tag ich suche eine jeans", ""
     )
 
-    assert preferred_language == "de"
+    assert preferred_language == "nl"
 
 
 def test_detect_preferred_language_falls_back_to_dutch_for_short_unsupported_text(
