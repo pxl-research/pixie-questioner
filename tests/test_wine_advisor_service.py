@@ -524,3 +524,76 @@ def test_ask_debug_mode_is_ignored_when_backend_debug_disabled() -> None:
 
     assert result.response_type == "question"
     assert "debug" not in result.state
+
+
+def test_ask_truncates_working_context_before_controller_call() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="question",
+                question_text="Welke kleur wijn heb je liefst?",
+                meal_mode="drinking_only",
+                query_hints="",
+            )
+        ]
+    )
+    ranker = StubRanker([])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        max_working_context_chars=40,
+    )
+
+    _ = asyncio.run(
+        service.ask(
+            current_answer="x" * 80,
+            state={"working_context": "y" * 80},
+        )
+    )
+
+    assert controller.calls
+    working_context = controller.calls[0]["working_context"]
+    assert isinstance(working_context, str)
+    assert len(working_context) <= 40
+
+
+def test_ask_limits_history_items_and_text_lengths_in_prompt() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="question",
+                question_text="Nog een vraag",
+                meal_mode="pairing",
+                query_hints="",
+            )
+        ]
+    )
+    ranker = StubRanker([])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        max_history_items=2,
+        max_history_item_chars=10,
+    )
+
+    _ = asyncio.run(
+        service.ask(
+            current_answer="akkoord",
+            state={
+                "chat_history": [
+                    {"role": "user", "text": "A" * 40},
+                    {"role": "assistant", "text": "B" * 40},
+                    {"role": "user", "text": "C" * 40},
+                ]
+            },
+        )
+    )
+
+    assert controller.calls
+    conversation_history = controller.calls[0]["conversation_history"]
+    assert isinstance(conversation_history, str)
+    assert "user: CCCCCCCCCC" in conversation_history
+    assert "assistant: BBBBBBBBBB" in conversation_history
+    assert "AAAAAAAAAA" not in conversation_history

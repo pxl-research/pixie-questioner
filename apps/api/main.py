@@ -116,6 +116,8 @@ llm = AzureOpenAILLM(
     api_key=settings.azure_openai_key,
     model_version=settings.advanced_azure_openai_model,
     temperature=settings.advanced_azure_openai_temperature,
+    request_timeout_seconds=settings.advanced_azure_openai_timeout_seconds,
+    max_tokens=settings.advanced_azure_openai_max_tokens,
 )
 catalog_records = load_wine_catalog(settings.wine_catalog_path)
 turn_controller = LLMTurnController(
@@ -130,6 +132,11 @@ wine_advisor_service = WineAdvisorService(
     catalog_records=catalog_records,
     turn_controller=turn_controller,
     ranker=ranker,
+    candidate_limit=settings.wine_advisor_candidate_limit,
+    max_input_chars=settings.wine_advisor_max_input_chars,
+    max_working_context_chars=settings.wine_advisor_max_working_context_chars,
+    max_history_items=settings.wine_advisor_max_history_items,
+    max_history_item_chars=settings.wine_advisor_max_history_item_chars,
     debug_mode_allowed=settings.wine_advisor_debug_enabled,
 )
 audit_client: AuditClient | None = None

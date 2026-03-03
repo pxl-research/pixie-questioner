@@ -2,18 +2,42 @@
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CHAT_CONTRACT_VERSION = "chat-v2.0.0"
 AUDIT_EVENT_CONTRACT_VERSION = "audit-event-v1.0.0"
+MAX_CHAT_INPUT_CHARS = 600
+MAX_CHAT_STATE_BYTES = 12_000
+MAX_CHAT_STATE_KEYS = 64
 
 
 class ChatRequest(BaseModel):
-    session_id: str = Field(..., min_length=1)
-    current_answer: str = Field(..., min_length=1)
+    session_id: str = Field(..., min_length=1, max_length=128)
+    current_answer: str = Field(
+        ...,
+        min_length=1,
+        max_length=MAX_CHAT_INPUT_CHARS,
+    )
     state: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_state_payload(self) -> "ChatRequest":
+        if len(self.state) > MAX_CHAT_STATE_KEYS:
+            raise ValueError(f"state has too many keys (max {MAX_CHAT_STATE_KEYS}).")
+
+        try:
+            encoded = json.dumps(self.state, ensure_ascii=False, separators=(",", ":"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("state contains non-serializable values.") from exc
+
+        state_size = len(encoded.encode("utf-8"))
+        if state_size > MAX_CHAT_STATE_BYTES:
+            raise ValueError(f"state payload too large (max {MAX_CHAT_STATE_BYTES} bytes).")
+
+        return self
 
 
 class ChatRecommendation(BaseModel):

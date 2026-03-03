@@ -17,6 +17,15 @@ from .types import (
 )
 
 
+def _truncate_text(value: str, max_chars: int) -> str:
+    normalized = " ".join(value.split())
+    if max_chars <= 0:
+        return ""
+    if len(normalized) <= max_chars:
+        return normalized
+    return normalized[:max_chars].rstrip()
+
+
 def _to_int(value: Any, default: int = 0) -> int:
     try:
         parsed = int(value)
@@ -47,7 +56,9 @@ def _to_debug_trace(value: Any) -> list[dict[str, Any]]:
     return trace
 
 
-def _to_chat_history(value: Any) -> list[ConversationTurn]:
+def _to_chat_history(
+    value: Any, *, max_items: int, max_item_chars: int
+) -> list[ConversationTurn]:
     if not isinstance(value, list):
         return []
     history: list[ConversationTurn] = []
@@ -60,29 +71,44 @@ def _to_chat_history(value: Any) -> list[ConversationTurn]:
             continue
         if not isinstance(text, str):
             continue
-        normalized_text = text.strip()
+        normalized_text = _truncate_text(text, max_item_chars)
         if not normalized_text:
             continue
         history.append(ConversationTurn(role=role, text=normalized_text))
-    return history
+    if max_items <= 0:
+        return []
+    return history[-max_items:]
 
 
 def _append_history(
     history: list[ConversationTurn],
     role: Literal["user", "assistant"],
     text: str,
+    *,
+    max_chars: int,
+    max_items: int,
 ) -> list[ConversationTurn]:
-    normalized = text.strip()
+    normalized = _truncate_text(text, max_chars)
     if not normalized:
         return list(history)
-    return [*history, ConversationTurn(role=role, text=normalized)]
+    updated = [*history, ConversationTurn(role=role, text=normalized)]
+    if max_items <= 0:
+        return []
+    return updated[-max_items:]
 
 
-def _history_to_prompt(history: list[ConversationTurn], max_items: int = 8) -> str:
+def _history_to_prompt(
+    history: list[ConversationTurn],
+    *,
+    max_items: int,
+    max_item_chars: int,
+) -> str:
     if not history:
         return ""
     recent = history[-max_items:]
-    return "\n".join(f"{turn.role}: {turn.text}" for turn in recent)
+    return "\n".join(
+        f"{turn.role}: {_truncate_text(turn.text, max_item_chars)}" for turn in recent
+    )
 
 
 @dataclass
@@ -92,12 +118,22 @@ class WineAdvisorService:
     ranker: Any
     recommendation_intro: str = "Dit zijn passende opties uit de catalogus."
     max_turns: int = 6
-    candidate_limit: int = 0
+    candidate_limit: int = 40
+    max_input_chars: int = 600
+    max_working_context_chars: int = 2_200
+    max_history_items: int = 8
+    max_history_item_chars: int = 240
     debug_mode_allowed: bool = True
 
     def __post_init__(self) -> None:
         if not self.catalog_records:
             raise RuntimeError("Wine catalog must contain at least one record.")
+        self.max_turns = max(self.max_turns, 1)
+        self.candidate_limit = max(self.candidate_limit, 0)
+        self.max_input_chars = max(self.max_input_chars, 80)
+        self.max_working_context_chars = max(self.max_working_context_chars, 40)
+        self.max_history_items = max(self.max_history_items, 1)
+        self.max_history_item_chars = max(self.max_history_item_chars, 40)
         self._catalog_by_barcode = {
             record.barcode: record for record in self.catalog_records if record.barcode
         }
@@ -145,10 +181,22 @@ class WineAdvisorService:
         return WineAdvisorState(
             phase=phase,
             turn_count=_to_int(state.get("turn_count"), 0),
-            last_question=last_question if isinstance(last_question, str) else "",
+            last_question=(
+                _truncate_text(last_question, self.max_history_item_chars)
+                if isinstance(last_question, str)
+                else ""
+            ),
             meal_mode=meal_mode,
-            working_context=working_context if isinstance(working_context, str) else "",
-            chat_history=_to_chat_history(state.get("chat_history")),
+            working_context=(
+                _truncate_text(working_context, self.max_working_context_chars)
+                if isinstance(working_context, str)
+                else ""
+            ),
+            chat_history=_to_chat_history(
+                state.get("chat_history"),
+                max_items=self.max_history_items,
+                max_item_chars=self.max_history_item_chars,
+            ),
             candidate_barcodes=_to_string_list(state.get("candidate_barcodes")),
             selected_barcodes=_to_string_list(state.get("selected_barcodes")),
             debug_enabled=debug_enabled,
@@ -204,9 +252,14 @@ class WineAdvisorService:
 
     def _build_working_context(self, previous_context: str, current_answer: str) -> str:
         parts = [
-            part.strip() for part in [previous_context, current_answer] if part.strip()
+            _truncate_text(part, self.max_working_context_chars)
+            for part in [previous_context, current_answer]
+            if isinstance(part, str) and part.strip()
         ]
-        return "\n".join(parts)
+        combined = "\n".join(parts)
+        if len(combined) <= self.max_working_context_chars:
+            return combined
+        return combined[-self.max_working_context_chars :]
 
     def _candidate_records(self) -> list[WineCatalogRecord]:
         if self.candidate_limit <= 0:
@@ -242,6 +295,10 @@ class WineAdvisorService:
         current_answer: str,
         state: dict[str, Any] | None,
     ) -> WineAdvisorResult:
+        normalized_answer = _truncate_text(current_answer, self.max_input_chars)
+        if not normalized_answer:
+            raise RuntimeError("Current answer cannot be empty.")
+
         parsed_state = self._parse_state(state)
         if parsed_state.phase == PHASE_COMPLETED and parsed_state.selected_barcodes:
             recommendations = self._recommendations_for_barcodes(
@@ -257,16 +314,20 @@ class WineAdvisorService:
         next_turn_count = min(parsed_state.turn_count + 1, self.max_turns)
         working_context = self._build_working_context(
             parsed_state.working_context,
-            current_answer,
+            normalized_answer,
         )
         decision = await self.turn_controller.decide(
-            current_answer=current_answer,
+            current_answer=normalized_answer,
             working_context=working_context,
             turn_count=next_turn_count,
             max_turns=self.max_turns,
             current_meal_mode=parsed_state.meal_mode,
             last_question=parsed_state.last_question,
-            conversation_history=_history_to_prompt(parsed_state.chat_history),
+            conversation_history=_history_to_prompt(
+                parsed_state.chat_history,
+                max_items=self.max_history_items,
+                max_item_chars=self.max_history_item_chars,
+            ),
         )
 
         candidate_records = self._candidate_records()
@@ -328,7 +389,11 @@ class WineAdvisorService:
                 meal_mode=decision.meal_mode,
                 working_context=working_context,
                 chat_history=_append_history(
-                    parsed_state.chat_history, "user", current_answer
+                    parsed_state.chat_history,
+                    "user",
+                    normalized_answer,
+                    max_chars=self.max_history_item_chars,
+                    max_items=self.max_history_items,
                 ),
                 candidate_barcodes=candidate_barcodes,
                 selected_barcodes=[item.barcode for item in recommendations],
@@ -346,9 +411,19 @@ class WineAdvisorService:
         if not question_text:
             raise RuntimeError("Turn controller returned an empty question.")
         next_history = _append_history(
-            parsed_state.chat_history, "user", current_answer
+            parsed_state.chat_history,
+            "user",
+            normalized_answer,
+            max_chars=self.max_history_item_chars,
+            max_items=self.max_history_items,
         )
-        next_history = _append_history(next_history, "assistant", question_text)
+        next_history = _append_history(
+            next_history,
+            "assistant",
+            question_text,
+            max_chars=self.max_history_item_chars,
+            max_items=self.max_history_items,
+        )
         if parsed_state.debug_enabled:
             debug_event["question_text"] = question_text
             next_debug_trace = self._append_debug_event(next_debug_trace, debug_event)

@@ -384,6 +384,40 @@ def test_chat_audit_omits_blank_location_metadata(monkeypatch, tmp_path: Path) -
     assert "metadata" not in audit_payload
 
 
+def test_chat_rejects_overlong_input(monkeypatch, tmp_path: Path) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "session-too-long",
+            "current_answer": "x" * (main.settings.wine_advisor_max_input_chars + 1),
+            "state": {},
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_chat_rejects_oversized_state_payload(monkeypatch, tmp_path: Path) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "session-large-state",
+            "current_answer": "hallo",
+            "state": {
+                "blob": "x" * (main.settings.wine_advisor_max_state_bytes + 256),
+            },
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_turn_controller_prompt_includes_preference_loop_rules(
     monkeypatch, tmp_path: Path
 ) -> None:

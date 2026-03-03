@@ -66,8 +66,16 @@ Set environment variables in `.env.dev`:
 - `ADVANCED_AZURE_OPENAI_API_VERSION`
 - `ADVANCED_AZURE_OPENAI_MODEL`
 - `ADVANCED_AZURE_OPENAI_TEMPERATURE`
+- `ADVANCED_AZURE_OPENAI_TIMEOUT_SECONDS` (optional, default `15`)
+- `ADVANCED_AZURE_OPENAI_MAX_TOKENS` (optional, default `450`)
 - `DOMAIN_PROFILE_PATH`
 - `WINE_CATALOG_PATH` (optional; fallback: `profiles/cretskens/cretskens_wijnen_reduced.xlsx`)
+- `WINE_ADVISOR_CANDIDATE_LIMIT` (optional, default `40`)
+- `WINE_ADVISOR_MAX_INPUT_CHARS` (optional, default `600`)
+- `WINE_ADVISOR_MAX_STATE_BYTES` (optional, default `12000`)
+- `WINE_ADVISOR_MAX_WORKING_CONTEXT_CHARS` (optional, default `2200`)
+- `WINE_ADVISOR_MAX_HISTORY_ITEMS` (optional, default `8`)
+- `WINE_ADVISOR_MAX_HISTORY_ITEM_CHARS` (optional, default `240`)
 - `WINE_ADVISOR_DEBUG_ENABLED` (optional; default `true`, set `false` to disable debug traces server-side)
 - `AUDIT_API_URL` (optional)
 - `AUDIT_API_KEY` (optional)

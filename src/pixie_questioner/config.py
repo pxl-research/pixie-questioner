@@ -460,8 +460,32 @@ class Settings(BaseSettings):
     advanced_azure_openai_temperature: float = Field(
         default=0.2, alias="ADVANCED_AZURE_OPENAI_TEMPERATURE"
     )
+    advanced_azure_openai_timeout_seconds: float = Field(
+        default=15.0, alias="ADVANCED_AZURE_OPENAI_TIMEOUT_SECONDS"
+    )
+    advanced_azure_openai_max_tokens: int = Field(
+        default=450, alias="ADVANCED_AZURE_OPENAI_MAX_TOKENS"
+    )
     domain_profile_path: Path = Field(alias="DOMAIN_PROFILE_PATH")
     wine_catalog_path_env: Path | None = Field(default=None, alias="WINE_CATALOG_PATH")
+    wine_advisor_candidate_limit: int = Field(
+        default=40, alias="WINE_ADVISOR_CANDIDATE_LIMIT"
+    )
+    wine_advisor_max_input_chars: int = Field(
+        default=600, alias="WINE_ADVISOR_MAX_INPUT_CHARS"
+    )
+    wine_advisor_max_state_bytes: int = Field(
+        default=12_000, alias="WINE_ADVISOR_MAX_STATE_BYTES"
+    )
+    wine_advisor_max_working_context_chars: int = Field(
+        default=2_200, alias="WINE_ADVISOR_MAX_WORKING_CONTEXT_CHARS"
+    )
+    wine_advisor_max_history_items: int = Field(
+        default=8, alias="WINE_ADVISOR_MAX_HISTORY_ITEMS"
+    )
+    wine_advisor_max_history_item_chars: int = Field(
+        default=240, alias="WINE_ADVISOR_MAX_HISTORY_ITEM_CHARS"
+    )
     wine_advisor_debug_enabled: bool = Field(
         default=True, alias="WINE_ADVISOR_DEBUG_ENABLED"
     )
