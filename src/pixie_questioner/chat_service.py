@@ -16,7 +16,12 @@ from .chat.flow import (
     to_off_topic_redirect_state,
     to_terminated_state,
 )
-from .chat.language import create_language_support
+from .chat.language import (
+    SUPPORTED_NON_DUTCH_MIN_WORDS,
+    SUPPORTED_RESPONSE_LANGUAGES,
+    create_language_support,
+    detect_language_candidates,
+)
 from .chat.messages import PolicyMessages
 from .chat.policy import ChatDomainPolicy
 from .chat.question_asker import QuestionAsker
@@ -35,7 +40,7 @@ from .chat.types import (
     ChatResult,
     ChatState,
 )
-from .llm_client import LLMPromptInvoker
+from .llm_client import LLMPromptInvoker, extract_llm_content, resolve_llm_client
 
 
 @dataclass
@@ -205,6 +210,64 @@ def _ensure_initial_question_field(
         questionnaire,
         count=1,
     )
+
+
+def _has_supported_summary_language_signal(
+    service: ChatService,
+    summary_text: str,
+) -> bool:
+    effective_supported_languages = (
+        service._language.supported_language_set & SUPPORTED_RESPONSE_LANGUAGES
+    )
+    if not effective_supported_languages:
+        return False
+    candidates = detect_language_candidates(summary_text)
+    if not candidates:
+        return True
+    primary_language_code, _ = max(candidates, key=lambda candidate: candidate[1])
+    if primary_language_code in effective_supported_languages:
+        return True
+    word_count = len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", summary_text))
+    return word_count < SUPPORTED_NON_DUTCH_MIN_WORDS
+
+
+async def _rewrite_summary_in_preferred_language(
+    service: ChatService,
+    current_state: ChatState,
+    current_answer: str,
+    generated_summary: str,
+) -> str | None:
+    preferred_language = service._language.detect_preferred(
+        current_answer=current_answer,
+        previous_summary=current_state.summary,
+    )
+    language_name = service._language.supported_language_names.get(
+        preferred_language,
+        preferred_language.upper(),
+    )
+    rewrite_prompt = (
+        "Rewrite the intake summary below in "
+        f"{language_name}. Keep all facts and meaning exactly. "
+        "Do not add or remove details. Output one concise paragraph only.\n\n"
+        "Summary:\n"
+        f"{generated_summary}"
+    )
+
+    try:
+        response = await resolve_llm_client(service.llm).ainvoke(
+            [{"role": "system", "content": rewrite_prompt}]
+        )
+    except Exception:
+        return None
+
+    rewritten_summary = extract_llm_content(response).strip()
+    if not rewritten_summary:
+        return None
+    if not _has_supported_summary_language_signal(service, rewritten_summary):
+        return None
+    if service._language.detect(rewritten_summary) != preferred_language:
+        return None
+    return rewritten_summary
 
 
 def _resolve_goodbye_language(
@@ -391,15 +454,36 @@ async def _update_summary(
     service: ChatService,
     current_state: ChatState,
     current_answer: str,
+    enforce_supported_language: bool,
 ) -> str:
     try:
-        return await service.summarizer.generate(
+        generated_summary = await service.summarizer.generate(
             current_question=current_state.last_question,
             current_answer=current_answer,
             summary=current_state.summary,
         )
     except Exception as exc:
         raise RuntimeError("Failed to summarize conversation.") from exc
+
+    if not enforce_supported_language:
+        return generated_summary
+
+    if _has_supported_summary_language_signal(service, generated_summary):
+        return generated_summary
+
+    rewritten_summary = await _rewrite_summary_in_preferred_language(
+        service,
+        current_state,
+        current_answer,
+        generated_summary,
+    )
+    if rewritten_summary is not None:
+        return rewritten_summary
+
+    fallback_summary = current_state.summary.strip() or current_answer.strip()
+    if fallback_summary:
+        return fallback_summary
+    return generated_summary
 
 
 async def _apply_intake_updates(
@@ -424,7 +508,13 @@ async def _apply_intake_updates(
             current_answer,
         )
 
-    updated_summary = await _update_summary(service, current_state, current_answer)
+    intake_complete = _questionnaire_complete(updated_questionnaire)
+    updated_summary = await _update_summary(
+        service,
+        current_state,
+        current_answer,
+        enforce_supported_language=intake_complete,
+    )
     return updated_questionnaire, updated_summary
 
 

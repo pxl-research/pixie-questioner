@@ -2039,6 +2039,126 @@ def test_ask_simplifies_dutch_technical_terms_in_next_question():
     assert result.text == "Welke Pasvorm en vorm zoek je in donkerblauw?"
 
 
+def test_ask_simplifies_aanlass_typo_in_next_question():
+    question_llm = FakeLLM(
+        ["Voor welk aanlass, stemming of setting zoek je deze jeans?"]
+    )
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Updated answer\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["Updated summary"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek een jeans",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert (
+        result.text == "Voor welk aanleiding, stemming of setting zoek je deze jeans?"
+    )
+
+
+def test_ask_rewrites_unsupported_summary_language_to_preferred_language():
+    question_llm = FakeLLM(["Klant zoekt een lange mom fit of straight fit jeans."])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Filled\n1. Occasion, Vibe, Setting: Filled"]
+    )
+    summarizer_llm = FakeLLM(
+        [
+            "La persona busca unos jeans largos mom o straight fit para un contexto casual."
+        ]
+    )
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek een lange mom of straight fit jeans",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.summary == "Klant zoekt een lange mom fit of straight fit jeans."
+    assert result.state["post_summary_language"] == "nl"
+    assert len(question_llm.calls) == 1
+
+
+def test_ask_rewrites_summary_when_primary_language_is_unsupported(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    question_llm = FakeLLM(["Klant zoekt een lange mom fit of straight fit jeans."])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Filled\n1. Occasion, Vibe, Setting: Filled"]
+    )
+    summarizer_llm = FakeLLM(
+        [
+            "La persona busca unos jeans largos mom o straight fit para un contexto casual."
+        ]
+    )
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+    )
+
+    def fake_language_candidates(text: str) -> list[tuple[str, float]]:
+        if text.startswith("La persona busca"):
+            return [("es", 0.61), ("en", 0.39)]
+        if text.startswith("Klant zoekt"):
+            return [("nl", 0.99)]
+        return [("nl", 0.99)]
+
+    monkeypatch.setattr(
+        "pixie_questioner.chat_service.detect_language_candidates",
+        fake_language_candidates,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek een lange mom of straight fit jeans",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.summary == "Klant zoekt een lange mom fit of straight fit jeans."
+    assert result.state["post_summary_language"] == "nl"
+    assert len(question_llm.calls) == 1
+
+
 def test_ask_seeds_questionnaire_from_template_when_state_empty():
     question_llm = FakeLLM(["Next question"])
     notulist_llm = FakeLLM(
