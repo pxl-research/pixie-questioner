@@ -33,3 +33,9 @@ class AzureOpenAILLM:
             request_timeout=request_timeout_seconds,
             max_tokens=normalized_max_tokens,
         )
+
+    async def ainvoke(self, messages: list[dict[str, str]]):
+        """Delegate to the underlying LangChain model."""
+        if self.model is None:
+            raise RuntimeError("LLM client is not configured.")
+        return await self.model.ainvoke(messages)

@@ -148,8 +148,8 @@ def test_ranker_accepts_valid_unique_candidate_barcodes() -> None:
         system_prompt_template="{candidate_barcodes}",
     )
 
-    selected = asyncio.run(
-        ranker.select_barcodes(
+    selection = asyncio.run(
+        ranker.select_with_explanation(
             working_context="Klant zoekt kruidige rode wijn",
             candidate_records=_candidate_records(),
             candidate_barcodes=["c1", "c2", "c3", "c4"],
@@ -158,7 +158,7 @@ def test_ranker_accepts_valid_unique_candidate_barcodes() -> None:
         )
     )
 
-    assert selected == ["c3", "c1", "c2"]
+    assert selection.barcodes == ["c3", "c1", "c2"]
 
 
 def test_ranker_can_return_selection_explanation() -> None:
@@ -199,7 +199,7 @@ def test_ranker_raises_when_two_attempts_are_invalid() -> None:
 
     with pytest.raises(RuntimeError):
         asyncio.run(
-            ranker.select_barcodes(
+            ranker.select_with_explanation(
                 working_context="Klant zoekt wijn bij rund",
                 candidate_records=_candidate_records(),
                 candidate_barcodes=["c1", "c2", "c3"],

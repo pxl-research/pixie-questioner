@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from .catalog_models import WineCatalogRecord
+from .llm_controller import TurnDecision
 from .types import (
     ConversationTurn,
     MEAL_MODE_UNKNOWN,
@@ -109,6 +110,33 @@ def _history_to_prompt(
     return "\n".join(
         f"{turn.role}: {_truncate_text(turn.text, max_item_chars)}" for turn in recent
     )
+
+
+def _build_debug_trace(
+    state: WineAdvisorState,
+    turn_count: int,
+    decision: TurnDecision,
+    *,
+    selected_barcodes: list[str] | None = None,
+    ranker_explanation: str = "",
+    question_text: str = "",
+) -> list[dict[str, Any]]:
+    """Build the updated debug trace, appending an event when debug is enabled."""
+    trace = list(state.debug_trace)
+    if not state.debug_enabled:
+        return trace
+    event: dict[str, Any] = {
+        "turn": turn_count,
+        "action": decision.action,
+        "meal_mode": decision.meal_mode,
+        "controller_explanation": decision.explanation,
+    }
+    if selected_barcodes is not None:
+        event["selected_barcodes"] = list(selected_barcodes)
+        event["ranker_explanation"] = ranker_explanation
+    if question_text:
+        event["question_text"] = question_text
+    return [*trace, event][-20:]
 
 
 @dataclass
@@ -223,13 +251,6 @@ class WineAdvisorService:
             }
         return serialized
 
-    def _append_debug_event(
-        self,
-        trace: list[dict[str, Any]],
-        event: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        return [*trace, event][-20:]
-
     def _recommendations_for_barcodes(
         self,
         barcodes: list[str],
@@ -260,11 +281,6 @@ class WineAdvisorService:
         if len(combined) <= self.max_working_context_chars:
             return combined
         return combined[-self.max_working_context_chars :]
-
-    def _candidate_records(self) -> list[WineCatalogRecord]:
-        if self.candidate_limit <= 0:
-            return list(self.catalog_records)
-        return list(self.catalog_records[: self.candidate_limit])
 
     def _normalize_selected(
         self,
@@ -330,7 +346,10 @@ class WineAdvisorService:
             ),
         )
 
-        candidate_records = self._candidate_records()
+        limit = self.candidate_limit
+        candidate_records = list(
+            self.catalog_records[:limit] if limit > 0 else self.catalog_records
+        )
         candidate_barcodes = [record.barcode for record in candidate_records]
         if not candidate_barcodes:
             raise RuntimeError("No candidate barcodes available for ranker.")
@@ -338,78 +357,100 @@ class WineAdvisorService:
         should_recommend = (
             decision.action == "recommend" or next_turn_count >= self.max_turns
         )
-        next_debug_trace = list(parsed_state.debug_trace)
-        debug_event: dict[str, Any] = {
-            "turn": next_turn_count,
-            "action": decision.action,
-            "meal_mode": decision.meal_mode,
-            "controller_explanation": decision.explanation,
-        }
         if should_recommend:
-            min_count = 3 if len(candidate_barcodes) >= 3 else 1
-            max_count = min(5, len(candidate_barcodes))
-            ranker_explanation = ""
-            if hasattr(self.ranker, "select_with_explanation"):
-                selection = await self.ranker.select_with_explanation(
-                    working_context=working_context,
-                    candidate_records=candidate_records,
-                    candidate_barcodes=candidate_barcodes,
-                    min_count=min_count,
-                    max_count=max_count,
-                )
-                selected = selection.barcodes
-                ranker_explanation = selection.explanation
-            else:
-                selected = await self.ranker.select_barcodes(
-                    working_context=working_context,
-                    candidate_records=candidate_records,
-                    candidate_barcodes=candidate_barcodes,
-                    min_count=min_count,
-                    max_count=max_count,
-                )
-            normalized = self._normalize_selected(
-                selected,
+            return await self._finalize_recommendation(
+                parsed_state,
+                normalized_answer,
+                next_turn_count,
+                working_context,
+                decision,
+                candidate_records,
                 candidate_barcodes,
-                min_count,
-                max_count,
             )
-            recommendations = self._recommendations_for_barcodes(normalized)
-            if not recommendations:
-                raise RuntimeError("Ranker selected barcodes without matching records.")
-            if parsed_state.debug_enabled:
-                debug_event["selected_barcodes"] = list(normalized)
-                debug_event["ranker_explanation"] = ranker_explanation
-                next_debug_trace = self._append_debug_event(
-                    next_debug_trace, debug_event
-                )
-            completed = WineAdvisorState(
-                phase=PHASE_COMPLETED,
-                turn_count=next_turn_count,
-                last_question=parsed_state.last_question,
-                meal_mode=decision.meal_mode,
-                working_context=working_context,
-                chat_history=_append_history(
-                    parsed_state.chat_history,
-                    "user",
-                    normalized_answer,
-                    max_chars=self.max_history_item_chars,
-                    max_items=self.max_history_items,
-                ),
-                candidate_barcodes=candidate_barcodes,
-                selected_barcodes=[item.barcode for item in recommendations],
-                debug_enabled=parsed_state.debug_enabled,
-                debug_trace=next_debug_trace,
-            )
-            return WineAdvisorResult(
-                text=self._format_recommendation_text(recommendations),
-                response_type="recommendations",
-                state=self._serialize_state(completed),
-                recommendations=recommendations,
-            )
+        return self._finalize_question(
+            parsed_state,
+            normalized_answer,
+            next_turn_count,
+            working_context,
+            decision,
+            candidate_barcodes,
+        )
 
+    async def _finalize_recommendation(
+        self,
+        parsed_state: WineAdvisorState,
+        normalized_answer: str,
+        turn_count: int,
+        working_context: str,
+        decision: TurnDecision,
+        candidate_records: list[WineCatalogRecord],
+        candidate_barcodes: list[str],
+    ) -> WineAdvisorResult:
+        """Build the final recommendation result via the LLM ranker."""
+        min_count = 3 if len(candidate_barcodes) >= 3 else 1
+        max_count = min(5, len(candidate_barcodes))
+        selection = await self.ranker.select_with_explanation(
+            working_context=working_context,
+            candidate_records=candidate_records,
+            candidate_barcodes=candidate_barcodes,
+            min_count=min_count,
+            max_count=max_count,
+        )
+        normalized = self._normalize_selected(
+            selection.barcodes,
+            candidate_barcodes,
+            min_count,
+            max_count,
+        )
+        recommendations = self._recommendations_for_barcodes(normalized)
+        if not recommendations:
+            raise RuntimeError("Ranker selected barcodes without matching records.")
+
+        completed = WineAdvisorState(
+            phase=PHASE_COMPLETED,
+            turn_count=turn_count,
+            last_question=parsed_state.last_question,
+            meal_mode=decision.meal_mode,
+            working_context=working_context,
+            chat_history=_append_history(
+                parsed_state.chat_history,
+                "user",
+                normalized_answer,
+                max_chars=self.max_history_item_chars,
+                max_items=self.max_history_items,
+            ),
+            candidate_barcodes=candidate_barcodes,
+            selected_barcodes=[item.barcode for item in recommendations],
+            debug_enabled=parsed_state.debug_enabled,
+            debug_trace=_build_debug_trace(
+                parsed_state,
+                turn_count,
+                decision,
+                selected_barcodes=normalized,
+                ranker_explanation=selection.explanation,
+            ),
+        )
+        return WineAdvisorResult(
+            text=self._format_recommendation_text(recommendations),
+            response_type="recommendations",
+            state=self._serialize_state(completed),
+            recommendations=recommendations,
+        )
+
+    def _finalize_question(
+        self,
+        parsed_state: WineAdvisorState,
+        normalized_answer: str,
+        turn_count: int,
+        working_context: str,
+        decision: TurnDecision,
+        candidate_barcodes: list[str],
+    ) -> WineAdvisorResult:
+        """Build the next-question result from a turn controller decision."""
         question_text = decision.question_text.strip()
         if not question_text:
             raise RuntimeError("Turn controller returned an empty question.")
+
         next_history = _append_history(
             parsed_state.chat_history,
             "user",
@@ -424,12 +465,9 @@ class WineAdvisorService:
             max_chars=self.max_history_item_chars,
             max_items=self.max_history_items,
         )
-        if parsed_state.debug_enabled:
-            debug_event["question_text"] = question_text
-            next_debug_trace = self._append_debug_event(next_debug_trace, debug_event)
         updated = WineAdvisorState(
             phase=PHASE_INTAKE,
-            turn_count=next_turn_count,
+            turn_count=turn_count,
             last_question=question_text,
             meal_mode=decision.meal_mode,
             working_context=working_context,
@@ -437,7 +475,12 @@ class WineAdvisorService:
             candidate_barcodes=candidate_barcodes,
             selected_barcodes=[],
             debug_enabled=parsed_state.debug_enabled,
-            debug_trace=next_debug_trace,
+            debug_trace=_build_debug_trace(
+                parsed_state,
+                turn_count,
+                decision,
+                question_text=question_text,
+            ),
         )
         return WineAdvisorResult(
             text=question_text,

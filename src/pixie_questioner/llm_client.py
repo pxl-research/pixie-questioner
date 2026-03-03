@@ -14,10 +14,7 @@ def resolve_llm_client(llm: object) -> LLMClientProtocol:
     """Resolve an LLM wrapper to a client that supports ``ainvoke``."""
     if hasattr(llm, "ainvoke"):
         return llm  # type: ignore[return-value]
-    model = getattr(llm, "model", None)
-    if model is None:
-        raise RuntimeError("LLM client is not configured.")
-    return model
+    raise RuntimeError("LLM client must support ainvoke().")
 
 
 def extract_llm_content(response: object) -> str:

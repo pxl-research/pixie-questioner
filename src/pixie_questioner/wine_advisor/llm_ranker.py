@@ -208,21 +208,3 @@ class LLMWineRanker:
             )
 
         raise RuntimeError("Ranker failed to return a valid barcode selection.")
-
-    async def select_barcodes(
-        self,
-        *,
-        working_context: str,
-        candidate_records: list[WineCatalogRecord],
-        candidate_barcodes: list[str],
-        min_count: int,
-        max_count: int,
-    ) -> list[str]:
-        selection = await self.select_with_explanation(
-            working_context=working_context,
-            candidate_records=candidate_records,
-            candidate_barcodes=candidate_barcodes,
-            min_count=min_count,
-            max_count=max_count,
-        )
-        return selection.barcodes

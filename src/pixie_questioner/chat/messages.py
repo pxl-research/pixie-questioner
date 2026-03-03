@@ -2,33 +2,44 @@
 
 from __future__ import annotations
 
-import secrets
 import re
+import secrets
 from dataclasses import dataclass
+from typing import Any
 
 from .policy import ChatDomainPolicy, ChatQuickReply
 from .types import FEEDBACK_NO, FEEDBACK_YES, INITIAL_QUESTION
+
+
+def _resolve_for_language(
+    localized_values: dict[str, Any],
+    language: str,
+) -> Any:
+    """Find the best localized value with cascading fallback.
+
+    Resolution order: exact match -> prefix match -> English -> first non-empty.
+    Returns ``None`` when no non-empty entry exists.
+    """
+    normalized = language.casefold()
+    prefix = normalized.split("-")[0]
+    for key in (normalized, prefix, "en"):
+        value = localized_values.get(key)
+        if value:
+            return value
+    for value in localized_values.values():
+        if value:
+            return value
+    return None
 
 
 def get_localized_options(
     localized_values: dict[str, tuple[str, ...]],
     language: str,
 ) -> tuple[str, ...]:
-    normalized_language = language.casefold()
-    language_prefix = normalized_language.split("-")[0]
-    if (
-        normalized_language in localized_values
-        and localized_values[normalized_language]
-    ):
-        return localized_values[normalized_language]
-    if language_prefix in localized_values and localized_values[language_prefix]:
-        return localized_values[language_prefix]
-    if "en" in localized_values and localized_values["en"]:
-        return localized_values["en"]
-    for options in localized_values.values():
-        if options:
-            return options
-    raise RuntimeError("Localized configuration is missing message options.")
+    result = _resolve_for_language(localized_values, language)
+    if result is None:
+        raise RuntimeError("Localized configuration is missing message options.")
+    return result
 
 
 def choose_localized_message(
@@ -42,18 +53,7 @@ def build_feedback_quick_replies(
     quick_replies: dict[str, tuple[ChatQuickReply, ...]],
     language: str,
 ) -> list[dict[str, str]]:
-    normalized_language = language.casefold()
-    language_prefix = normalized_language.split("-")[0]
-    selected = quick_replies.get(normalized_language)
-    if not selected:
-        selected = quick_replies.get(language_prefix)
-    if not selected:
-        selected = quick_replies.get("en")
-    if not selected:
-        for quick_reply_options in quick_replies.values():
-            if quick_reply_options:
-                selected = quick_reply_options
-                break
+    selected = _resolve_for_language(quick_replies, language)
     if not selected:
         return []
     return [{"label": item.label, "value": item.value} for item in selected]
