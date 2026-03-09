@@ -8,23 +8,36 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CHAT_CONTRACT_VERSION = "chat-v2.0.0"
+BROOKLYN_CHAT_CONTRACT_VERSION = "chat-brooklyn-v2.0.0"
+CRETSKENS_CHAT_CONTRACT_VERSION = "chat-cretskens-v1.0.0"
+CASE2_CHAT_CONTRACT_VERSION = CRETSKENS_CHAT_CONTRACT_VERSION
 AUDIT_EVENT_CONTRACT_VERSION = "audit-event-v1.0.0"
-MAX_CHAT_INPUT_CHARS = 600
-MAX_CHAT_STATE_BYTES = 12_000
+DEFAULT_MAX_CHAT_INPUT_CHARS = 600
+DEFAULT_MAX_CHAT_STATE_BYTES = 12_000
 MAX_CHAT_STATE_KEYS = 64
+
+
+def _resolve_chat_limits() -> tuple[int, int]:
+    from .config import get_settings
+
+    settings = get_settings()
+    return (
+        max(settings.wine_advisor_max_input_chars, 1),
+        max(settings.wine_advisor_max_state_bytes, 1),
+    )
 
 
 class ChatRequest(BaseModel):
     session_id: str = Field(..., min_length=1, max_length=128)
-    current_answer: str = Field(
-        ...,
-        min_length=1,
-        max_length=MAX_CHAT_INPUT_CHARS,
-    )
+    current_answer: str = Field(..., min_length=1)
     state: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_state_payload(self) -> "ChatRequest":
+        max_input_chars, max_state_bytes = _resolve_chat_limits()
+        if len(self.current_answer) > max_input_chars:
+            raise ValueError(f"current_answer too long (max {max_input_chars} chars).")
+
         if len(self.state) > MAX_CHAT_STATE_KEYS:
             raise ValueError(f"state has too many keys (max {MAX_CHAT_STATE_KEYS}).")
 
@@ -34,10 +47,8 @@ class ChatRequest(BaseModel):
             raise ValueError("state contains non-serializable values.") from exc
 
         state_size = len(encoded.encode("utf-8"))
-        if state_size > MAX_CHAT_STATE_BYTES:
-            raise ValueError(
-                f"state payload too large (max {MAX_CHAT_STATE_BYTES} bytes)."
-            )
+        if state_size > max_state_bytes:
+            raise ValueError(f"state payload too large (max {max_state_bytes} bytes).")
 
         return self
 

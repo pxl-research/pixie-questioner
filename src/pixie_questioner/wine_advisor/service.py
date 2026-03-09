@@ -7,6 +7,7 @@ from typing import Any, Literal
 
 from .catalog_models import WineCatalogRecord
 from .llm_controller import TurnDecision
+from .retrieval import rank_catalog_records
 from .types import (
     ConversationTurn,
     MEAL_MODE_UNKNOWN,
@@ -305,6 +306,21 @@ class WineAdvisorService:
             raise RuntimeError("Ranker returned too many barcodes.")
         return deduped
 
+    def _candidate_records_for_decision(
+        self, decision: TurnDecision
+    ) -> list[WineCatalogRecord]:
+        limit = self.candidate_limit
+        if not decision.query_hints.strip():
+            return list(
+                self.catalog_records[:limit] if limit > 0 else self.catalog_records
+            )
+        shortlist_limit = limit if limit > 0 else len(self.catalog_records)
+        return rank_catalog_records(
+            self.catalog_records,
+            query=decision.query_hints,
+            limit=shortlist_limit,
+        )
+
     async def ask(
         self,
         *,
@@ -346,10 +362,7 @@ class WineAdvisorService:
             ),
         )
 
-        limit = self.candidate_limit
-        candidate_records = list(
-            self.catalog_records[:limit] if limit > 0 else self.catalog_records
-        )
+        candidate_records = self._candidate_records_for_decision(decision)
         candidate_barcodes = [record.barcode for record in candidate_records]
         if not candidate_barcodes:
             raise RuntimeError("No candidate barcodes available for ranker.")

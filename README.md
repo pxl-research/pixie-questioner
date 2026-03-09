@@ -2,7 +2,7 @@
 
 Pixie Questioner is a lightweight chat API with two isolated cases:
 - `brooklyn` (jeans intake and handoff summary flow)
-- `case2` (LLM-driven wine advising with catalog recommendations)
+- `cretskens` (LLM-driven wine advising with catalog recommendations)
 
 The UI sends `current_answer`, an opaque `state` object, and a `session_id`, and
 receives exactly one next message for the selected case.
@@ -14,20 +14,23 @@ cp .env.example .env.dev
 docker compose -f docker-compose.dev.yml up --build
 ```
 
+Set real Azure values in `.env.dev` before calling the LLM-backed routes.
+
 Open `http://localhost:8000/docs` for the OpenAPI UI.
 
 ## API Contract
 
 ### POST /cases/{case_id}/chat
 
-- `case_id` supports `brooklyn` and `case2`.
+- `case_id` supports `brooklyn` and `cretskens`.
+- `case2` is still accepted as a backward-compatible alias for `cretskens`.
 - Request JSON:
   - `session_id` (str)
   - `current_answer` (str)
   - `state` (object, default empty)
 - Response shape depends on case:
   - `brooklyn`: `answer` or `summary`
-  - `case2`: `question` or `recommendations`
+  - `cretskens`: `question` or `recommendations`
 
 ### POST /chat
 
@@ -36,8 +39,8 @@ Open `http://localhost:8000/docs` for the OpenAPI UI.
   - `current_answer` (str)
   - `state` (object, default empty)
 - Legacy route that forwards to `DEFAULT_CASE`.
-- Response for `case2` question: `{"type": "question", "text": "...", "conversation_id": "...", "state": {...}}`.
-- Response for `case2` recommendations: `{"type": "recommendations", "text": "...", "recommendations": [...], "conversation_id": "...", "state": {...}}`.
+- Response for `cretskens` question: `{"type": "question", "text": "...", "conversation_id": "...", "state": {...}}`.
+- Response for `cretskens` recommendations: `{"type": "recommendations", "text": "...", "recommendations": [...], "conversation_id": "...", "state": {...}}`.
 The `conversation_id` echoes the request `session_id`.
 Store the returned `state` and send it back on the next turn.
 On the first turn, send an empty object for `state`.
@@ -57,8 +60,16 @@ Behavior guarantees:
 - State is signed and scoped per case; state from one case is rejected by the other.
 
 Response headers:
-- `X-Pixie-Case`: resolved case id (`brooklyn` or `case2`)
+- `X-Pixie-Case`: resolved case id (`brooklyn` or `cretskens`)
 - `X-Pixie-Chat-Contract`: contract version marker
+- `X-Pixie-Case-Contract`: exact case contract version
+
+Canonical chat contracts live in `pixie-contracts`:
+- `pixie-contracts/contracts/chat/brooklyn/v2/openapi.yaml`
+- `pixie-contracts/contracts/chat/cretskens/v1/openapi.yaml`
+
+`POST /chat` remains supported as a convenience alias to `DEFAULT_CASE`, but the
+case-qualified routes above are the stable source of truth for clients.
 
 ### GET /health
 
@@ -88,12 +99,14 @@ Set environment variables in `.env.dev`:
 - `ADVANCED_AZURE_OPENAI_TEMPERATURE`
 - `ADVANCED_AZURE_OPENAI_TIMEOUT_SECONDS` (optional, default `15`)
 - `ADVANCED_AZURE_OPENAI_MAX_TOKENS` (optional, default `450`)
-- `DEFAULT_CASE` (optional; `brooklyn` or `case2`, default `brooklyn`)
+- `DEFAULT_CASE` (optional; `brooklyn` or `cretskens`, default `brooklyn`; legacy `case2` is still accepted)
 - `DOMAIN_PROFILE_PATH` (legacy fallback for Brooklyn profile path)
 - `BROOKLYN_DOMAIN_PROFILE_PATH` (optional override for Brooklyn profile path)
-- `CASE2_DOMAIN_PROFILE_PATH` (optional; default `profiles/cretskens/domain_profile.yml`)
-- `WINE_CATALOG_PATH` (legacy fallback for case2 catalog path)
-- `CASE2_WINE_CATALOG_PATH` (optional override for case2 catalog path)
+- `CRETSKENS_DOMAIN_PROFILE_PATH` (optional preferred override for the Cretskens profile path)
+- `CASE2_DOMAIN_PROFILE_PATH` (legacy override for the Cretskens profile path)
+- `WINE_CATALOG_PATH` (legacy fallback for the Cretskens catalog path)
+- `CRETSKENS_WINE_CATALOG_PATH` (optional preferred override for the Cretskens catalog path)
+- `CASE2_WINE_CATALOG_PATH` (legacy override for the Cretskens catalog path)
 - `WINE_ADVISOR_CANDIDATE_LIMIT` (optional, default `40`)
 - `WINE_ADVISOR_MAX_INPUT_CHARS` (optional, default `600`)
 - `WINE_ADVISOR_MAX_STATE_BYTES` (optional, default `12000`)
@@ -105,8 +118,10 @@ Set environment variables in `.env.dev`:
 - `AUDIT_API_KEY` (optional)
 - `AUDIT_PROFILE` (optional)
 - `AUDIT_TIMEOUT_SECONDS` (optional, default 5)
+- `STATE_SIGNING_KEY` (recommended; if omitted, signed state breaks across restarts)
+- `STATE_SESSION_TTL_SECONDS` (optional, default `1800`)
 
-`CASE2_WINE_CATALOG_PATH` (or legacy `WINE_CATALOG_PATH`) points to the XLSX catalog with required columns:
+`CRETSKENS_WINE_CATALOG_PATH` (or legacy `CASE2_WINE_CATALOG_PATH` / `WINE_CATALOG_PATH`) points to the XLSX catalog with required columns:
 - `barcode`
 - `naam`
 - `prijs`
@@ -128,9 +143,8 @@ Set environment variables in `.env.dev`:
 Prompt paths inside the profile can be absolute or relative to the profile file directory.
 If `AUDIT_API_URL` is set, the service posts interaction events to `/events` using `AUDIT_PROFILE`
 as the required profile value and `AUDIT_API_KEY` for the `X-API-Key` header when provided.
-
-The API expects an LLM wrapper at `src/pixie_questioner/azure_openai_llm.py`
-that exposes a `model` with an `ainvoke` method.
+If `STATE_SIGNING_KEY` is omitted, the backend generates an ephemeral key at startup and
+client `state` values become invalid after a restart.
 
 ## Docker (dev)
 
@@ -141,8 +155,36 @@ docker compose -f docker-compose.dev.yml up --build
 ## Tests
 
 ```bash
+RUN_LIVE_LLM_TESTS=0 docker compose -f docker-compose.dev.yml run --rm api pytest
+```
+
+## Live Smoke Test
+
+```bash
+RUN_LIVE_LLM_TESTS=1 docker compose -f docker-compose.dev.yml run --rm api pytest tests/test_live_llm_smoke.py
+```
+
+## Type Check
+
+```bash
+docker compose -f docker-compose.dev.yml run --rm api uv tool run ty check
+```
+
+## Security Lint
+
+```bash
+docker compose -f docker-compose.dev.yml run --rm api ruff check . --select S
+docker compose -f docker-compose.dev.yml run --rm api uv tool run bandit -r src
+```
+
+## Test Notes
+
+```bash
 docker compose -f docker-compose.dev.yml run --rm api pytest
 ```
+
+Use the command above only when you explicitly want the environment default. For local development,
+prefer `RUN_LIVE_LLM_TESTS=0` so the suite does not require Azure credentials.
 
 ## Format
 

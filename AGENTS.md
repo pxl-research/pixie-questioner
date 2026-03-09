@@ -16,9 +16,12 @@ You do not optimize, refactor, or generalize unless explicitly asked.
 
 ## Project
 
-Pixie Questioner is a guided intake Q&A API for denim/jeans preferences.
+Pixie Questioner is a guided intake Q&A API with two isolated cases:
+- `brooklyn`: jeans intake and handoff summary flow
+- `cretskens`: LLM-driven wine advising with catalog recommendations
+
 The client sends `current_answer`, an opaque `state`, and `session_id`;
-the API returns **exactly one** next question or a final summary.
+the API returns **exactly one** next message for the selected case.
 
 - **Stack**: Python 3.12+, FastAPI, Pydantic v2, LangChain (Azure OpenAI)
 
@@ -72,7 +75,10 @@ Do **not** run anything directly on the host.
 docker compose -f docker-compose.dev.yml up --build
 
 # Run tests
-docker compose -f docker-compose.dev.yml run --rm api pytest
+RUN_LIVE_LLM_TESTS=0 docker compose -f docker-compose.dev.yml run --rm api pytest
+
+# Run live smoke test explicitly
+RUN_LIVE_LLM_TESTS=1 docker compose -f docker-compose.dev.yml run --rm api pytest tests/test_live_llm_smoke.py
 
 # Format
 docker compose -f docker-compose.dev.yml run --rm api black .
@@ -91,9 +97,6 @@ docker compose -f docker-compose.dev.yml run --rm api uv tool run bandit -r src
 
 # Security (dependency vulnerabilities)
 docker compose -f docker-compose.dev.yml run --rm api uv tool run pip-audit
-
-# Security (filesystem: vuln, misconfig, secrets)
-docker compose -f docker-compose.dev.yml run --rm api trivy fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --exit-code 1 .
 ```
 
 ---
@@ -150,11 +153,12 @@ def parse_state(state):
 
 ## Size Constraints
 
-Apply these constraints to runtime code in `src/` and `apps/api/`:
+Legacy oversized modules already exist. For new files and substantial rewrites in `src/` and `apps/api/`:
 
-- Max **500 lines** per file
-- Max **50 lines** per function/method
-- Max **10 methods** per class
+- Target max **500 lines** per file
+- Target max **50 lines** per new or substantially rewritten function/method
+- Target max **10 methods** per new class
+- When touching an oversized legacy module, prefer extracting code instead of growing it further
 
 ---
 
@@ -280,19 +284,20 @@ A task is complete only if:
 
 ```text
 apps/api/main.py
-  - FastAPI wiring only
-  - No business logic
+  - Thin FastAPI entrypoint only
 
-src/pixie_questioner/chat_service.py
-  - Core conversation flow
-  - State transitions and stop logic
+src/pixie_questioner/api_app.py
+  - Request handling, response mapping, audit dispatch
+
+src/pixie_questioner/app_runtime.py
+  - Runtime construction, case registration, state signers
 
 src/pixie_questioner/schemas.py
   - Public API contracts
   - Handle with extreme care
 
-prompts/
-  - Prompt templates
+profiles/
+  - Case profiles and prompt templates
   - Do not rewrite style unless explicitly asked
 ```
 

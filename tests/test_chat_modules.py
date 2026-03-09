@@ -77,10 +77,10 @@ def test_detect_preferred_language_keeps_dutch_for_strong_unsupported_signal(
 
 
 def test_messages_fallback_to_english_options() -> None:
-    localized_values = {
+    localized_values: dict[str, tuple[str, ...]] = {
         "en": ("English option",),
     }
-    quick_replies = {
+    quick_replies: dict[str, tuple[ChatQuickReply, ...]] = {
         "en": (
             ChatQuickReply(label="Yes", value="yes"),
             ChatQuickReply(label="No", value="no"),

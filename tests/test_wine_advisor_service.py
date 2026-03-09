@@ -99,6 +99,35 @@ class StubRanker:
         return _StubRankerSelection(barcodes=selected, explanation=explanation)
 
 
+class EchoRanker:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def select_with_explanation(
+        self,
+        *,
+        working_context: str,
+        candidate_records: list[WineCatalogRecord],
+        candidate_barcodes: list[str],
+        min_count: int,
+        max_count: int,
+    ) -> _StubRankerSelection:
+        self.calls.append(
+            {
+                "working_context": working_context,
+                "candidate_records": list(candidate_records),
+                "candidate_barcodes": list(candidate_barcodes),
+                "min_count": min_count,
+                "max_count": max_count,
+            }
+        )
+        count = max(min_count, 1)
+        return _StubRankerSelection(
+            barcodes=list(candidate_barcodes[:count]),
+            explanation="echo selection",
+        )
+
+
 def _catalog() -> list[WineCatalogRecord]:
     return [
         WineCatalogRecord(
@@ -383,22 +412,23 @@ def test_ask_respects_controller_recommend_action_for_drinking_only() -> None:
     assert len(ranker.calls) == 1
 
 
-def test_ask_passes_full_catalog_records_to_ranker() -> None:
+def test_ask_shortlists_catalog_records_from_query_hints() -> None:
     controller = StubController(
         [
             TurnDecision(
                 action="recommend",
                 question_text="",
                 meal_mode="pairing",
-                query_hints="vol-au-vent",
+                query_hints="rioja",
             )
         ]
     )
-    ranker = StubRanker([["w1", "w2", "w3"]])
+    ranker = EchoRanker()
     service = WineAdvisorService(
         catalog_records=_catalog(),
         turn_controller=controller,
         ranker=ranker,
+        candidate_limit=1,
     )
 
     result = asyncio.run(service.ask(current_answer="Vol-au-vent", state={}))
@@ -410,8 +440,9 @@ def test_ask_passes_full_catalog_records_to_ranker() -> None:
     candidate_barcodes = ranker_call["candidate_barcodes"]
     assert isinstance(candidate_records, list)
     assert isinstance(candidate_barcodes, list)
-    assert len(candidate_records) == len(_catalog())
-    assert candidate_barcodes == ["w1", "w2", "w3", "w4"]
+    assert len(candidate_records) == 1
+    assert candidate_barcodes == ["w4"]
+    assert [item.barcode for item in (result.recommendations or [])] == ["w4"]
 
 
 def test_ask_debug_mode_stores_controller_trace_for_question() -> None:
