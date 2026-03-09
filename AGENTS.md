@@ -241,9 +241,13 @@ If a request is ambiguous or underspecified:
 
 - Never push to a remote unless the user explicitly asks.
 - The exact phrase `Push deze branch` is the standard push approval shortcut in this repo.
-- Interpret `Push deze branch` as permission to push the current local branch to `origin`.
-- If the current branch has no upstream, use `git push -u origin <current-branch>`.
-- If the current branch already tracks an upstream branch, use `git push`.
+- Interpret `Push deze branch` as permission to run the full pre-push maintenance workflow on the current branch and then push it to `origin`.
+- Before pushing, review whether `README.md`, `AGENTS.md`, and any other relevant documentation are still accurate for the finished work.
+- Before pushing, verify whether `pixie-contracts` is still respected by the current code and documentation, and whether contract or example updates are required.
+- If the needed documentation or contract changes are clear, make them automatically, run the relevant validation, and commit them on the current non-main branch before pushing.
+- If the needed change is ambiguous, or if `pixie-contracts` is not available locally, stop and ask the user a focused question or report the blocker before pushing.
+- If the current branch has no upstream, use `git push -u origin <current-branch>` after the maintenance pass is complete.
+- If the current branch already tracks an upstream branch, use `git push` after the maintenance pass is complete.
 - If the user explicitly names a different remote or branch, follow that instruction instead of the default.
 
 ---
@@ -257,6 +261,7 @@ A task is complete only if:
 - No forbidden changes were made
 - Changes are minimal and justified
 - Any Codex commit was created on a non-main branch
+- Any Codex-triggered push completed the required pre-push maintenance review first
 
 ---
 
