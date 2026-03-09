@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
@@ -39,7 +40,7 @@ class TurnControllerProtocol(Protocol):
 
 
 class WineRankerProtocol(Protocol):
-    async def select_with_explanation(
+    def select_with_explanation(
         self,
         *,
         working_context: str,
@@ -47,7 +48,7 @@ class WineRankerProtocol(Protocol):
         candidate_barcodes: list[str],
         min_count: int,
         max_count: int,
-    ) -> RankerSelectionProtocol: ...
+    ) -> Awaitable[RankerSelectionProtocol]: ...
 
 
 def _truncate_text(value: str, max_chars: int) -> str:

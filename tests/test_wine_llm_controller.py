@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable
 
 import pytest
 
@@ -17,6 +18,7 @@ class FakeLLM:
         self.calls: list[list[dict[str, str]]] = []
 
     async def ainvoke(self, messages: list[dict[str, str]]) -> str:
+        await asyncio.sleep(0)
         self.calls.append(messages)
         if not self.responses:
             raise AssertionError("No responses left for FakeLLM")
@@ -29,8 +31,22 @@ class RaisingLLM:
         self.calls: list[list[dict[str, str]]] = []
 
     async def ainvoke(self, messages: list[dict[str, str]]) -> str:
+        await asyncio.sleep(0)
         self.calls.append(messages)
         raise self.exception
+
+
+async def _observe_coroutine_yield(coro: Awaitable[object]) -> list[str]:
+    order: list[str] = []
+    loop = asyncio.get_running_loop()
+    loop.call_soon(order.append, "loop")
+    try:
+        await coro
+    except Exception:
+        pass
+    order.append("done")
+    await asyncio.sleep(0)
+    return order
 
 
 def _candidate_records() -> list[WineCatalogRecord]:
@@ -98,6 +114,26 @@ def test_turn_controller_returns_structured_decision() -> None:
     assert decision.action == "question"
     assert decision.question_text == "Welke smaken vind je lekker?"
     assert decision.meal_mode == "pairing"
+
+
+def test_fake_llm_ainvoke_yields_to_event_loop() -> None:
+    llm = FakeLLM(['{"action":"question","question_text":"Vraag"}'])
+
+    order = asyncio.run(
+        _observe_coroutine_yield(llm.ainvoke([{"role": "system", "content": "test"}]))
+    )
+
+    assert order[0] == "loop"
+
+
+def test_raising_llm_ainvoke_yields_to_event_loop() -> None:
+    llm = RaisingLLM(RuntimeError("boom"))
+
+    order = asyncio.run(
+        _observe_coroutine_yield(llm.ainvoke([{"role": "system", "content": "test"}]))
+    )
+
+    assert order[0] == "loop"
 
 
 def test_turn_controller_includes_stateful_context_in_prompt() -> None:

@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any, get_type_hints
-
-import pytest
 
 from pixie_questioner.wine_advisor.catalog_models import WineCatalogRecord
 from pixie_questioner.wine_advisor.llm_controller import TurnDecision
@@ -28,6 +27,7 @@ class StubController:
         last_question: str,
         conversation_history: str,
     ) -> TurnDecision:
+        await asyncio.sleep(0)
         self.calls.append(
             {
                 "current_answer": current_answer,
@@ -67,6 +67,7 @@ class StubRanker:
         min_count: int,
         max_count: int,
     ) -> list[str]:
+        await asyncio.sleep(0)
         self.calls.append(
             {
                 "working_context": working_context,
@@ -115,6 +116,7 @@ class EchoRanker:
         min_count: int,
         max_count: int,
     ) -> _StubRankerSelection:
+        await asyncio.sleep(0)
         self.calls.append(
             {
                 "working_context": working_context,
@@ -129,6 +131,16 @@ class EchoRanker:
             barcodes=list(candidate_barcodes[:count]),
             explanation="echo selection",
         )
+
+
+async def _observe_coroutine_yield(coro: Awaitable[object]) -> list[str]:
+    order: list[str] = []
+    loop = asyncio.get_running_loop()
+    loop.call_soon(order.append, "loop")
+    await coro
+    order.append("done")
+    await asyncio.sleep(0)
+    return order
 
 
 def _catalog() -> list[WineCatalogRecord]:
@@ -216,6 +228,71 @@ def test_service_collaborators_are_not_typed_as_any() -> None:
 
     assert hints["turn_controller"] is not Any
     assert hints["ranker"] is not Any
+
+
+def test_stub_controller_decide_yields_to_event_loop() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="question",
+                question_text="Welke stijl zoek je?",
+                meal_mode="pairing",
+                query_hints="",
+            )
+        ]
+    )
+
+    order = asyncio.run(
+        _observe_coroutine_yield(
+            controller.decide(
+                current_answer="Ik eet rund",
+                working_context="Klant zoekt wijn",
+                turn_count=1,
+                max_turns=6,
+                current_meal_mode="unknown",
+                last_question="Wat eet je?",
+                conversation_history="",
+            )
+        )
+    )
+
+    assert order[0] == "loop"
+
+
+def test_stub_ranker_select_barcodes_yields_to_event_loop() -> None:
+    ranker = StubRanker([["w1"]])
+
+    order = asyncio.run(
+        _observe_coroutine_yield(
+            ranker.select_barcodes(
+                working_context="Klant zoekt wijn",
+                candidate_records=_catalog(),
+                candidate_barcodes=["w1", "w2"],
+                min_count=1,
+                max_count=2,
+            )
+        )
+    )
+
+    assert order[0] == "loop"
+
+
+def test_echo_ranker_select_with_explanation_yields_to_event_loop() -> None:
+    ranker = EchoRanker()
+
+    order = asyncio.run(
+        _observe_coroutine_yield(
+            ranker.select_with_explanation(
+                working_context="Klant zoekt wijn",
+                candidate_records=_catalog(),
+                candidate_barcodes=["w1", "w2"],
+                min_count=1,
+                max_count=2,
+            )
+        )
+    )
+
+    assert order[0] == "loop"
 
 
 def test_ask_can_complete_before_turn_six() -> None:
@@ -500,11 +577,12 @@ def test_ask_recommend_without_query_hints_or_candidates_raises() -> None:
         candidate_limit=1,
     )
 
-    with pytest.raises(
-        RuntimeError,
-        match="query hints or persisted candidates",
-    ):
+    try:
         asyncio.run(service.ask(current_answer="Geef suggesties", state={}))
+    except RuntimeError as exc:
+        assert "query hints or persisted candidates" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for missing query hints.")
 
     assert len(ranker.calls) == 0
 

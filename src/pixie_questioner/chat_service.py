@@ -202,7 +202,7 @@ def _ensure_initial_question_field(
     if not normalized_answer:
         return questionnaire
 
-    pattern = re.compile(r"(?m)^(\s*0\.\s*[^:\n]*:[^\S\n]*)(.*?)$")
+    pattern = re.compile(r"(?m)^(\s*0\.\s*[^:\n]*:[^\S\n]*)(.*)$")
     match = pattern.search(questionnaire)
     if match is None:
         return questionnaire

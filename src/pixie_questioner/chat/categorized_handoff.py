@@ -27,12 +27,14 @@ FOODPAIR_KEY_ORDER: tuple[str, ...] = (
 )
 
 WINE_COLOR_VALUES = frozenset(("wit", "rood", "rosé"))
+COUNTRY_AUSTRALIA = "Australië"
+COUNTRY_ITALY = "Italië"
 WINE_COUNTRY_VALUES = frozenset(
     (
-        "Australië",
+        COUNTRY_AUSTRALIA,
         "Chili",
         "Frankrijk",
-        "Italië",
+        COUNTRY_ITALY,
         "Luxemburg",
         "Oostenrijk",
         "Portugal",
@@ -59,7 +61,7 @@ WINE_REGION_TO_COUNTRY: dict[str, str] = {
     "Côtes du Rhône, Séguret": "Frankrijk",
     "Côtes du Rhône, Vacqueyras": "Frankrijk",
     "Elzas": "Frankrijk",
-    "Friuli-Venezia Giulia": "Italië",
+    "Friuli-Venezia Giulia": COUNTRY_ITALY,
     "Haut-Médoc, Bordeaux": "Frankrijk",
     "IGP Méditerranée": "Frankrijk",
     "Languedoc": "Frankrijk",
@@ -71,19 +73,19 @@ WINE_REGION_TO_COUNTRY: dict[str, str] = {
     "Pays d’Oc": "Frankrijk",
     "Penedès": "Spanje",
     "Provence": "Frankrijk",
-    "Puglia": "Italië",
+    "Puglia": COUNTRY_ITALY,
     "Rioja": "Spanje",
     "Setúbal": "Portugal",
-    "Sicilië": "Italië",
+    "Sicilië": COUNTRY_ITALY,
     "Tejo / Bairrada": "Portugal",
-    "Toscane": "Italië",
+    "Toscane": COUNTRY_ITALY,
     "Valencia (Utiel-Requena)": "Spanje",
     "Valle Central": "Chili",
-    "Veneto": "Italië",
-    "Victoria": "Australië",
+    "Veneto": COUNTRY_ITALY,
+    "Victoria": COUNTRY_AUSTRALIA,
     "Vin de France": "Frankrijk",
     "Vin de Pays d’Oc": "Frankrijk",
-    "Zuidoost-Australië": "Australië",
+    "Zuidoost-Australië": COUNTRY_AUSTRALIA,
 }
 
 WINE_REGION_VALUES = frozenset(WINE_REGION_TO_COUNTRY)
@@ -120,8 +122,8 @@ for _key in AROMA_TASTE_KEY_ORDER:
 _AROMA_SUFFIX_MAP: dict[str, tuple[str, ...]] = {}
 for _key in AROMA_TASTE_KEY_ORDER:
     _suffix = _key.split("_", maxsplit=1)[1]
-    _AROMA_SUFFIX_MAP.setdefault(_suffix, tuple())
-    _AROMA_SUFFIX_MAP[_suffix] = (*_AROMA_SUFFIX_MAP[_suffix], _key)
+    existing_keys = _AROMA_SUFFIX_MAP.get(_suffix, ())
+    _AROMA_SUFFIX_MAP[_suffix] = (*existing_keys, _key)
 
 for _ambiguous_key in ("kruidig",):
     if _ambiguous_key in _AROMA_SUFFIX_MAP:
@@ -259,27 +261,48 @@ def sanitize_handoff_core_categories(
     raw_categories: dict[str, object],
 ) -> dict[str, bool | str | int]:
     categories: dict[str, bool | str | int] = {}
-    for key in FOODPAIR_KEY_ORDER:
-        if raw_categories.get(key) is True:
-            categories[key] = True
-
-    kleur = raw_categories.get("kleur")
-    if isinstance(kleur, str) and kleur in WINE_COLOR_VALUES:
+    categories.update(_extract_foodpair_categories(raw_categories))
+    kleur = _extract_valid_color(raw_categories)
+    if kleur is not None:
         categories["kleur"] = kleur
-
-    regio = raw_categories.get("regio")
-    if isinstance(regio, str) and regio in WINE_REGION_VALUES:
-        categories["regio"] = regio
-        categories["land"] = WINE_REGION_TO_COUNTRY[regio]
-    else:
-        land = raw_categories.get("land")
-        if isinstance(land, str) and land in WINE_COUNTRY_VALUES:
-            categories["land"] = land
-
-    prijs = raw_categories.get("prijs")
-    if isinstance(prijs, int) and not isinstance(prijs, bool) and prijs >= 0:
+    categories.update(_extract_location_categories(raw_categories))
+    prijs = _extract_valid_price(raw_categories)
+    if prijs is not None:
         categories["prijs"] = prijs
     return categories
+
+
+def _extract_foodpair_categories(
+    raw_categories: dict[str, object],
+) -> dict[str, bool | str | int]:
+    return {key: True for key in FOODPAIR_KEY_ORDER if raw_categories.get(key) is True}
+
+
+def _extract_valid_color(raw_categories: dict[str, object]) -> str | None:
+    kleur = raw_categories.get("kleur")
+    if isinstance(kleur, str) and kleur in WINE_COLOR_VALUES:
+        return kleur
+    return None
+
+
+def _extract_location_categories(
+    raw_categories: dict[str, object],
+) -> dict[str, str]:
+    regio = raw_categories.get("regio")
+    if isinstance(regio, str) and regio in WINE_REGION_VALUES:
+        return {"regio": regio, "land": WINE_REGION_TO_COUNTRY[regio]}
+
+    land = raw_categories.get("land")
+    if isinstance(land, str) and land in WINE_COUNTRY_VALUES:
+        return {"land": land}
+    return {}
+
+
+def _extract_valid_price(raw_categories: dict[str, object]) -> int | None:
+    prijs = raw_categories.get("prijs")
+    if isinstance(prijs, int) and not isinstance(prijs, bool) and prijs >= 0:
+        return prijs
+    return None
 
 
 def format_handoff_categories_for_display(handoff_categories_v1: str) -> str:
