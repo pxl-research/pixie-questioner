@@ -2,6 +2,7 @@ name: auto-pr
 on:
   push:
     branches:
+      - 'feat/**'
       - 'feature/**'
       - 'bug/**'
       - 'refactor/**'
@@ -9,7 +10,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  projects: write
 jobs:
   ensure-pr:
     runs-on: ubuntu-latest
@@ -17,16 +17,65 @@ jobs:
       - name: Ensure PR exists and add to project
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PROJECT_AUTOMATION_TOKEN }}
           script: |
             const {owner, repo} = context.repo;
             const branch = context.ref.replace('refs/heads/','');
-            const match = branch.match(/^(feature|bug|refactor|chore)\/(\d+)-(.+)$/);
+            const match = branch.match(/^(feat|feature|bug|refactor|chore)\/(?:(\d+)-)?(.+)$/);
             if (!match) {
               core.warning(`Branch ${branch} does not match expected pattern`);
               return;
             }
-            const [, type, issue, slug] = match;
+            const [, rawType, issue, slug] = match;
+            const type = rawType === 'feat' ? 'feature' : rawType;
+
+            function isAlreadyInProjectError(err) {
+              const message = err instanceof Error ? err.message : String(err);
+              return message.includes('already exists in this project');
+            }
+
+            async function findProjectItemId(projectId, contentId) {
+              let cursor = null;
+
+              while (true) {
+                const response = await github.graphql(
+                  `query($projectId: ID!, $cursor: String) {
+                    node(id: $projectId) {
+                      ... on ProjectV2 {
+                        items(first: 100, after: $cursor) {
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                          nodes {
+                            id
+                            content {
+                              __typename
+                              ... on PullRequest {
+                                id
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }`,
+                  { projectId, cursor }
+                );
+                const items = response.node.items;
+                const existingItem = items.nodes.find(
+                  item => item.content && item.content.id === contentId
+                );
+
+                if (existingItem) {
+                  return existingItem.id;
+                }
+                if (!items.pageInfo.hasNextPage) {
+                  return null;
+                }
+                cursor = items.pageInfo.endCursor;
+              }
+            }
 
             const prs = await github.rest.pulls.list({ owner, repo, base: 'main', head: `${owner}:${branch}`, state: 'open' });
             let pr;
@@ -35,8 +84,11 @@ jobs:
             } else {
               const typeMap = {feature:'feat', bug:'fix', refactor:'refactor', chore:'chore'};
               const title = `${typeMap[type]}: ${slug.replace(/-/g,' ')}`;
-              const body = `Closes #${issue}`;
-              pr = (await github.rest.pulls.create({ owner, repo, head: branch, base: 'main', title, body })).data;
+              const createPayload = { owner, repo, head: branch, base: 'main', title };
+              if (issue) {
+                createPayload.body = `Closes #${issue}`;
+              }
+              pr = (await github.rest.pulls.create(createPayload)).data;
             }
 
             // Project configuration
@@ -50,24 +102,27 @@ jobs:
 
             // Add PR to project (idempotent)
             const contentId = pr.node_id;
-            const addResp = await github.graphql(
-              `mutation($projectId: ID!, $contentId: ID!) {
-                addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
-                  item { id }
-                }
-              }`,
-              { projectId, contentId }
-            ).catch(async err => {
-              // if already exists, fetch itemId via projectItems query (not ideal) -> skip update
-              core.info(`Add item failed (likely already added): ${err.message}`);
-              return null;
-            });
-
-            if (!addResp || !addResp.addProjectV2ItemById) {
-              core.info('Skipping field updates because item already exists or add failed.');
-              return;
+            let itemId;
+            try {
+              const addResp = await github.graphql(
+                `mutation($projectId: ID!, $contentId: ID!) {
+                  addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+                    item { id }
+                  }
+                }`,
+                { projectId, contentId }
+              );
+              itemId = addResp.addProjectV2ItemById.item.id;
+            } catch (err) {
+              if (!isAlreadyInProjectError(err)) {
+                throw err;
+              }
+              core.info(`PR already exists in the project: ${err.message}`);
+              itemId = await findProjectItemId(projectId, contentId);
+              if (!itemId) {
+                throw new Error('PR is already in the project but its item ID could not be found.');
+              }
             }
-            const itemId = addResp.addProjectV2ItemById.item.id;
 
             // Update fields
             const updates = [];

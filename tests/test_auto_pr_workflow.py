@@ -1,0 +1,68 @@
+# ruff: noqa: S101
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import yaml
+
+
+WORKFLOW_PATH = Path(".github/workflows/auto-pr.yml")
+
+
+def _load_workflow() -> dict[str, object]:
+    return yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+
+
+def _workflow_script() -> str:
+    workflow = _load_workflow()
+    jobs = workflow["jobs"]
+    ensure_pr = jobs["ensure-pr"]
+    steps = ensure_pr["steps"]
+    return steps[0]["with"]["script"]
+
+
+def _workflow_step() -> dict[str, object]:
+    workflow = _load_workflow()
+    jobs = workflow["jobs"]
+    ensure_pr = jobs["ensure-pr"]
+    return ensure_pr["steps"][0]
+
+
+def _branch_pattern(script: str) -> re.Pattern[str]:
+    match = re.search(r"branch\.match\(/(.+?)/\);", script)
+    assert match is not None
+    return re.compile(match.group(1))
+
+
+def test_auto_pr_workflow_accepts_current_branch_prefixes() -> None:
+    workflow = _load_workflow()
+
+    branches = workflow["on"]["push"]["branches"]
+    assert "feat/**" in branches
+
+    pattern = _branch_pattern(_workflow_script())
+
+    assert pattern.fullmatch("feat/llm-driven-wine-advisor")
+    assert pattern.fullmatch("chore/add-auto-pr-workflow")
+    assert pattern.fullmatch("feature/123-runtime-separation")
+
+
+def test_auto_pr_workflow_only_recovers_duplicate_project_adds() -> None:
+    script = _workflow_script()
+
+    assert "already exists" in script
+    assert "items(first:" in script
+    assert (
+        "Skipping field updates because item already exists or add failed."
+        not in script
+    )
+
+
+def test_auto_pr_workflow_uses_pat_for_project_automation() -> None:
+    workflow = _load_workflow()
+    permissions = workflow["permissions"]
+    step = _workflow_step()
+
+    assert "projects" not in permissions
+    assert step["with"]["github-token"] == "${{ secrets.PROJECT_AUTOMATION_TOKEN }}"
