@@ -1,0 +1,87 @@
+name: auto-pr
+on:
+  push:
+    branches:
+      - 'feature/**'
+      - 'bug/**'
+      - 'refactor/**'
+      - 'chore/**'
+permissions:
+  contents: read
+  pull-requests: write
+  projects: write
+jobs:
+  ensure-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure PR exists and add to project
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const {owner, repo} = context.repo;
+            const branch = context.ref.replace('refs/heads/','');
+            const match = branch.match(/^(feature|bug|refactor|chore)\/(\d+)-(.+)$/);
+            if (!match) {
+              core.warning(`Branch ${branch} does not match expected pattern`);
+              return;
+            }
+            const [, type, issue, slug] = match;
+
+            const prs = await github.rest.pulls.list({ owner, repo, base: 'main', head: `${owner}:${branch}`, state: 'open' });
+            let pr;
+            if (prs.data.length) {
+              pr = prs.data[0];
+            } else {
+              const typeMap = {feature:'feat', bug:'fix', refactor:'refactor', chore:'chore'};
+              const title = `${typeMap[type]}: ${slug.replace(/-/g,' ')}`;
+              const body = `Closes #${issue}`;
+              pr = (await github.rest.pulls.create({ owner, repo, head: branch, base: 'main', title, body })).data;
+            }
+
+            // Project configuration
+            const projectId = 'PVT_kwDOB2OsP84BRN75';
+            const fieldStatus = 'PVTSSF_lADOB2OsP84BRN75zg_HBVU';
+            const optionStatusReview = '883cdec6';
+            const fieldWorkType = 'PVTSSF_lADOB2OsP84BRN75zg_HEFM';
+            const workTypeOptions = { bug: '29b7e082', feature: '3e6662c5', refactor: 'a60aa747', chore: '748f009e' };
+            const fieldShipped = 'PVTSSF_lADOB2OsP84BRN75zg_HET4';
+            const optionShippedNo = 'ef0a02b7';
+
+            // Add PR to project (idempotent)
+            const contentId = pr.node_id;
+            const addResp = await github.graphql(
+              `mutation($projectId: ID!, $contentId: ID!) {
+                addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+                  item { id }
+                }
+              }`,
+              { projectId, contentId }
+            ).catch(async err => {
+              // if already exists, fetch itemId via projectItems query (not ideal) -> skip update
+              core.info(`Add item failed (likely already added): ${err.message}`);
+              return null;
+            });
+
+            if (!addResp || !addResp.addProjectV2ItemById) {
+              core.info('Skipping field updates because item already exists or add failed.');
+              return;
+            }
+            const itemId = addResp.addProjectV2ItemById.item.id;
+
+            // Update fields
+            const updates = [];
+            updates.push({ fieldId: fieldStatus, value: { singleSelectOptionId: optionStatusReview } });
+            if (workTypeOptions[type]) {
+              updates.push({ fieldId: fieldWorkType, value: { singleSelectOptionId: workTypeOptions[type] } });
+            }
+            updates.push({ fieldId: fieldShipped, value: { singleSelectOptionId: optionShippedNo } });
+
+            for (const u of updates) {
+              await github.graphql(
+                `mutation($projectId:ID!, $itemId:ID!, $fieldId:ID!, $value:ProjectV2FieldValue!) {
+                  updateProjectV2ItemFieldValue(input:{projectId:$projectId,itemId:$itemId,fieldId:$fieldId,value:$value}) { clientMutationId }
+                }`,
+                { projectId, itemId, fieldId: u.fieldId, value: u.value }
+              );
+            }
