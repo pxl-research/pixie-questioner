@@ -225,6 +225,33 @@ If a request is ambiguous or underspecified:
 
 ---
 
+## Branch Workflow
+
+- Before making Codex changes, inspect the current git branch.
+- If the current branch is `main` or `master`, create and switch to a new branch before editing, staging, or committing.
+- If the task context is clear, choose a short descriptive branch name based on that context.
+- If the task context is not clear enough to name the branch safely, ask the user for the branch name first.
+- If already on a non-main branch, continue there unless the user asks for a different branch.
+- Keep unrelated existing worktree changes intact; never discard user changes just to create the branch.
+- Commit Codex-made changes on that non-main branch after validation and approval.
+
+---
+
+## Push Workflow
+
+- Never push to a remote unless the user explicitly asks.
+- The exact phrase `Push deze branch` is the standard push approval shortcut in this repo.
+- Interpret `Push deze branch` as permission to run the full pre-push maintenance workflow on the current branch and then push it to `origin`.
+- Before pushing, review whether `README.md`, `AGENTS.md`, and any other relevant documentation are still accurate for the finished work.
+- Before pushing, verify whether `pixie-contracts` is still respected by the current code and documentation, and whether contract or example updates are required.
+- If the needed documentation or contract changes are clear, make them automatically, run the relevant validation, and commit them on the current non-main branch before pushing.
+- If the needed change is ambiguous, or if `pixie-contracts` is not available locally, stop and ask the user a focused question or report the blocker before pushing.
+- If the current branch has no upstream, use `git push -u origin <current-branch>` after the maintenance pass is complete.
+- If the current branch already tracks an upstream branch, use `git push` after the maintenance pass is complete.
+- If the user explicitly names a different remote or branch, follow that instruction instead of the default.
+
+---
+
 ## Definition of Done
 
 A task is complete only if:
@@ -233,6 +260,8 @@ A task is complete only if:
 - No invariants are violated
 - No forbidden changes were made
 - Changes are minimal and justified
+- Any Codex commit was created on a non-main branch
+- Any Codex-triggered push completed the required pre-push maintenance review first
 
 ---
 
@@ -276,4 +305,4 @@ Invoke explicitly:
 > Use `.agents/commit.md` to commit the approved changes.
 
 This agent follows **Conventional Commits**, groups changes logically,
-and splits commits when appropriate.
+and splits commits when appropriate. It must not commit on `main` or `master`.
