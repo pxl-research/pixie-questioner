@@ -237,6 +237,17 @@ If a request is ambiguous or underspecified:
 
 ---
 
+## Push Workflow
+
+- Never push to a remote unless the user explicitly asks.
+- The exact phrase `Push deze branch` is the standard push approval shortcut in this repo.
+- Interpret `Push deze branch` as permission to push the current local branch to `origin`.
+- If the current branch has no upstream, use `git push -u origin <current-branch>`.
+- If the current branch already tracks an upstream branch, use `git push`.
+- If the user explicitly names a different remote or branch, follow that instruction instead of the default.
+
+---
+
 ## Definition of Done
 
 A task is complete only if:
