@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .chat.policy import ChatDomainPolicy, ChatQuickReply
@@ -18,11 +18,14 @@ from .profile_prompt_loader import (
     load_profile_prompts,
     substitute_prompt_variables,
 )
+from .wine_advisor.profile_loader import (
+    ResolvedCretskensProfile,
+    load_cretskens_profile,
+)
 
 DEFAULT_WINE_CATALOG_PATH = Path("profiles/cretskens/cretskens_wijnen_reduced.xlsx")
 DEFAULT_BROOKLYN_PROFILE_PATH = Path("profiles/brooklyn/domain_profile.yml")
-DEFAULT_CRETSKENS_PROFILE_PATH = Path("profiles/cretskens/domain_profile.yml")
-DEFAULT_CASE2_PROFILE_PATH = DEFAULT_CRETSKENS_PROFILE_PATH
+DEFAULT_CRETSKENS_PROFILE_PATH = Path("profiles/cretskens/advisor_profile.yml")
 
 
 def load_prompt(path: Path) -> str:
@@ -469,25 +472,17 @@ class Settings(BaseSettings):
     advanced_azure_openai_max_tokens: int = Field(
         default=450, alias="ADVANCED_AZURE_OPENAI_MAX_TOKENS"
     )
-    domain_profile_path: Path = Field(alias="DOMAIN_PROFILE_PATH")
-    default_case: Literal["brooklyn", "cretskens"] = Field(
-        default="brooklyn", alias="DEFAULT_CASE"
+    brooklyn_domain_profile_path: Path = Field(
+        default=DEFAULT_BROOKLYN_PROFILE_PATH,
+        alias="BROOKLYN_DOMAIN_PROFILE_PATH",
     )
-    brooklyn_domain_profile_path_env: Path | None = Field(
-        default=None, alias="BROOKLYN_DOMAIN_PROFILE_PATH"
+    cretskens_profile_path: Path = Field(
+        default=DEFAULT_CRETSKENS_PROFILE_PATH,
+        alias="CRETSKENS_PROFILE_PATH",
     )
-    cretskens_domain_profile_path_env: Path | None = Field(
-        default=None, alias="CRETSKENS_DOMAIN_PROFILE_PATH"
-    )
-    case2_domain_profile_path_env: Path | None = Field(
-        default=None, alias="CASE2_DOMAIN_PROFILE_PATH"
-    )
-    wine_catalog_path_env: Path | None = Field(default=None, alias="WINE_CATALOG_PATH")
-    cretskens_wine_catalog_path_env: Path | None = Field(
-        default=None, alias="CRETSKENS_WINE_CATALOG_PATH"
-    )
-    case2_wine_catalog_path_env: Path | None = Field(
-        default=None, alias="CASE2_WINE_CATALOG_PATH"
+    cretskens_wine_catalog_path: Path = Field(
+        default=DEFAULT_WINE_CATALOG_PATH,
+        alias="CRETSKENS_WINE_CATALOG_PATH",
     )
     wine_advisor_candidate_limit: int = Field(
         default=40, alias="WINE_ADVISOR_CANDIDATE_LIMIT"
@@ -507,9 +502,6 @@ class Settings(BaseSettings):
     wine_advisor_max_history_item_chars: int = Field(
         default=240, alias="WINE_ADVISOR_MAX_HISTORY_ITEM_CHARS"
     )
-    wine_advisor_debug_enabled: bool = Field(
-        default=True, alias="WINE_ADVISOR_DEBUG_ENABLED"
-    )
     audit_api_url: str | None = Field(default=None, alias="AUDIT_API_URL")
     audit_api_key: str | None = Field(default=None, alias="AUDIT_API_KEY")
     audit_profile: str | None = Field(default=None, alias="AUDIT_PROFILE")
@@ -519,82 +511,13 @@ class Settings(BaseSettings):
         default=1800, alias="STATE_SESSION_TTL_SECONDS"
     )
 
-    @field_validator(
-        "brooklyn_domain_profile_path_env",
-        "cretskens_domain_profile_path_env",
-        "case2_domain_profile_path_env",
-        "wine_catalog_path_env",
-        "cretskens_wine_catalog_path_env",
-        "case2_wine_catalog_path_env",
-        mode="before",
-    )
-    @classmethod
-    def normalize_empty_optional_paths(cls, value: object) -> object:
-        if value is None:
-            return None
-        if isinstance(value, str) and not value.strip():
-            return None
-        return value
-
-    @field_validator("default_case", mode="before")
-    @classmethod
-    def normalize_default_case(cls, value: object) -> str:
-        if not isinstance(value, str):
-            raise ValueError("DEFAULT_CASE must be 'brooklyn' or 'cretskens'.")
-        normalized = value.strip().casefold()
-        if normalized == "case2":
-            return "cretskens"
-        if normalized not in {"brooklyn", "cretskens"}:
-            raise ValueError("DEFAULT_CASE must be 'brooklyn' or 'cretskens'.")
-        return normalized
-
-    @property
-    def brooklyn_domain_profile_path(self) -> Path:
-        if self.brooklyn_domain_profile_path_env is not None:
-            return self.brooklyn_domain_profile_path_env
-        return self.domain_profile_path or DEFAULT_BROOKLYN_PROFILE_PATH
-
-    @property
-    def cretskens_domain_profile_path(self) -> Path:
-        if self.cretskens_domain_profile_path_env is not None:
-            return self.cretskens_domain_profile_path_env
-        if self.case2_domain_profile_path_env is not None:
-            return self.case2_domain_profile_path_env
-        return DEFAULT_CRETSKENS_PROFILE_PATH
-
-    @property
-    def case2_domain_profile_path(self) -> Path:
-        return self.cretskens_domain_profile_path
-
-    @property
-    def domain_profile(self) -> ResolvedDomainProfile:
-        return load_domain_profile(self.brooklyn_domain_profile_path)
-
     @property
     def brooklyn_domain_profile(self) -> ResolvedDomainProfile:
         return load_domain_profile(self.brooklyn_domain_profile_path)
 
     @property
-    def case2_domain_profile(self) -> ResolvedDomainProfile:
-        return load_domain_profile(self.case2_domain_profile_path)
-
-    @property
-    def cretskens_wine_catalog_path(self) -> Path:
-        if self.cretskens_wine_catalog_path_env is not None:
-            return self.cretskens_wine_catalog_path_env
-        if self.case2_wine_catalog_path_env is not None:
-            return self.case2_wine_catalog_path_env
-        if self.wine_catalog_path_env is not None:
-            return self.wine_catalog_path_env
-        return DEFAULT_WINE_CATALOG_PATH
-
-    @property
-    def case2_wine_catalog_path(self) -> Path:
-        return self.cretskens_wine_catalog_path
-
-    @property
-    def wine_catalog_path(self) -> Path:
-        return self.case2_wine_catalog_path
+    def cretskens_profile(self) -> ResolvedCretskensProfile:
+        return load_cretskens_profile(self.cretskens_profile_path)
 
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.dev"),

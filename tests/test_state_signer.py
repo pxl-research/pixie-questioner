@@ -123,16 +123,18 @@ class TestStateSigner:
         brooklyn_signer = StateSigner(
             secret_key="test-secret", ttl_seconds=1800, scope="brooklyn"
         )
-        case2_signer = StateSigner(
-            secret_key="test-secret", ttl_seconds=1800, scope="case2"
+        cretskens_signer = StateSigner(
+            secret_key="test-secret", ttl_seconds=1800, scope="cretskens"
         )
-        signed = case2_signer.sign({"phase": "intake", "turn_count": 1})
+        signed = cretskens_signer.sign({"phase": "intake", "turn_count": 1})
 
         with pytest.raises(ValueError, match="scope invalid"):
             brooklyn_signer.verify_and_strip(signed)
 
     def test_unsigned_scope_mismatch_rejected(self) -> None:
-        signer = StateSigner(secret_key="test-secret", ttl_seconds=1800, scope="case2")
+        signer = StateSigner(
+            secret_key="test-secret", ttl_seconds=1800, scope="cretskens"
+        )
 
         with pytest.raises(ValueError, match="scope invalid"):
             signer.verify_and_strip({"location": "Antwerpen", "_scope": "brooklyn"})

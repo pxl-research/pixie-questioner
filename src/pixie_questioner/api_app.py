@@ -105,7 +105,7 @@ async def _post_audit_event(
         )
 
 
-def _build_case2_chat_response(
+def _build_cretskens_chat_response(
     request: ChatRequest,
     result: WineAdvisorResult,
     *,
@@ -171,9 +171,6 @@ def _build_brooklyn_chat_response(
 
 
 def _get_client_ip(raw_request: Request) -> str:
-    forwarded = raw_request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
     if raw_request.client:
         return raw_request.client.host
     return "unknown"
@@ -232,7 +229,7 @@ async def _handle_chat_request(
             signed_state=signed_state,
         )
 
-    result = await app_runtime.case2_wine_advisor_service.ask(
+    result = await app_runtime.cretskens_wine_advisor_service.ask(
         current_answer=request.current_answer,
         state=verified_state,
     )
@@ -242,7 +239,7 @@ async def _handle_chat_request(
         request,
         assistant_text=result.text,
     )
-    return _build_case2_chat_response(
+    return _build_cretskens_chat_response(
         request,
         result,
         signed_state=signed_state,
@@ -278,21 +275,6 @@ async def chat_for_case(
     return await _handle_chat_request(
         app_runtime=runtime,
         case_id=case_id,
-        request=request,
-        response=response,
-        raw_request=raw_request,
-    )
-
-
-@app.post(
-    "/chat",
-    response_model=CaseChatResponse,
-    response_model_exclude_none=True,
-)
-async def chat(request: ChatRequest, response: Response, raw_request: Request):
-    return await _handle_chat_request(
-        app_runtime=runtime,
-        case_id=runtime.settings.default_case,
         request=request,
         response=response,
         raw_request=raw_request,

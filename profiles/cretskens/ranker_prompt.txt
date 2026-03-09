@@ -1,0 +1,19 @@
+Select the best candidate barcodes for this customer.
+Return only JSON with keys:
+- barcodes: ordered array
+- selection_explanation: short factual reason for this shortlist
+Use only candidate barcodes from the catalog rows below.
+
+Working context:
+{working_context}
+
+Candidate catalog rows (one JSON object per line):
+{candidate_catalog_rows}
+
+Candidate barcodes:
+{candidate_barcodes}
+
+Target count between {min_count} and {max_count}.
+
+Retry reason (if any):
+{retry_reason}

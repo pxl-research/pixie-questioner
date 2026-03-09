@@ -445,117 +445,37 @@ def test_ask_shortlists_catalog_records_from_query_hints() -> None:
     assert [item.barcode for item in (result.recommendations or [])] == ["w4"]
 
 
-def test_ask_debug_mode_stores_controller_trace_for_question() -> None:
-    controller = StubController(
-        [
-            TurnDecision(
-                action="question",
-                question_text="Welke kleur wijn heb je liefst?",
-                meal_mode="drinking_only",
-                query_hints="",
-                explanation="Meal mode is drinking_only and color preference is missing.",
-            )
-        ]
-    )
-    ranker = StubRanker([])
-    service = WineAdvisorService(
-        catalog_records=_catalog(),
-        turn_controller=controller,
-        ranker=ranker,
-    )
-
-    result = asyncio.run(
-        service.ask(
-            current_answer="Gewoon los drinken",
-            state={"debug_mode": True},
-        )
-    )
-
-    assert result.response_type == "question"
-    debug = result.state["debug"]
-    assert debug["enabled"] is True
-    trace = debug["trace"]
-    assert isinstance(trace, list)
-    assert trace[0]["action"] == "question"
-    assert trace[0]["controller_explanation"] == (
-        "Meal mode is drinking_only and color preference is missing."
-    )
-
-
-def test_ask_debug_mode_stores_ranker_trace_for_recommendations() -> None:
+def test_ask_uses_full_catalog_when_query_hints_are_missing() -> None:
     controller = StubController(
         [
             TurnDecision(
                 action="recommend",
                 question_text="",
                 meal_mode="pairing",
-                query_hints="vol-au-vent romig",
-                explanation="Dish and wine preferences are sufficient for a shortlist.",
+                query_hints="",
             )
         ]
     )
-    ranker = StubRanker(
-        [["w1", "w2", "w3"]],
-        explanations=["Balanced match on acidity, texture and budget."],
-    )
+    ranker = EchoRanker()
     service = WineAdvisorService(
         catalog_records=_catalog(),
         turn_controller=controller,
         ranker=ranker,
+        candidate_limit=1,
     )
 
-    result = asyncio.run(
-        service.ask(
-            current_answer="Geef suggesties",
-            state={
-                "debug_mode": True,
-                "turn_count": 2,
-                "meal_mode": "pairing",
-                "working_context": "Vol-au-vent, budget rond 15 euro, liever wit.",
-            },
-        )
-    )
+    result = asyncio.run(service.ask(current_answer="Geef suggesties", state={}))
 
     assert result.response_type == "recommendations"
-    debug = result.state["debug"]
-    trace = debug["trace"]
-    assert isinstance(trace, list)
-    assert trace[0]["action"] == "recommend"
-    assert trace[0]["selected_barcodes"] == ["w1", "w2", "w3"]
-    assert trace[0]["ranker_explanation"] == (
-        "Balanced match on acidity, texture and budget."
-    )
-
-
-def test_ask_debug_mode_is_ignored_when_backend_debug_disabled() -> None:
-    controller = StubController(
-        [
-            TurnDecision(
-                action="question",
-                question_text="Welke kleur wijn heb je liefst?",
-                meal_mode="drinking_only",
-                query_hints="",
-                explanation="Missing color preference.",
-            )
-        ]
-    )
-    ranker = StubRanker([])
-    service = WineAdvisorService(
-        catalog_records=_catalog(),
-        turn_controller=controller,
-        ranker=ranker,
-        debug_mode_allowed=False,
-    )
-
-    result = asyncio.run(
-        service.ask(
-            current_answer="Gewoon los drinken",
-            state={"debug_mode": True},
-        )
-    )
-
-    assert result.response_type == "question"
-    assert "debug" not in result.state
+    assert len(ranker.calls) == 1
+    ranker_call = ranker.calls[0]
+    candidate_records = ranker_call["candidate_records"]
+    candidate_barcodes = ranker_call["candidate_barcodes"]
+    assert isinstance(candidate_records, list)
+    assert isinstance(candidate_barcodes, list)
+    assert len(candidate_records) == len(_catalog())
+    assert candidate_barcodes == ["w1", "w2", "w3", "w4"]
+    assert result.state["candidate_barcodes"] == []
 
 
 def test_ask_truncates_working_context_before_controller_call() -> None:

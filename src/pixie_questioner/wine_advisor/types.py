@@ -50,5 +50,3 @@ class WineAdvisorState:
     chat_history: list[ConversationTurn] = field(default_factory=list)
     candidate_barcodes: list[str] = field(default_factory=list)
     selected_barcodes: list[str] = field(default_factory=list)
-    debug_enabled: bool = False
-    debug_trace: list[dict[str, Any]] = field(default_factory=list)
