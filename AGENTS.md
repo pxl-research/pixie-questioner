@@ -237,11 +237,21 @@ If a request is ambiguous or underspecified:
 
 ---
 
+## Planning Documents
+
+- Files under `docs/plans/` are temporary working documents, not project documentation.
+- Never stage or commit files from `docs/plans/`, except `docs/plans/.gitkeep`.
+- Delete temporary planning documents after the planning phase is complete and before making implementation commits.
+- Before committing or pushing, verify that no temporary planning documents remain staged or present in `docs/plans/`.
+
+---
+
 ## Push Workflow
 
 - Never push to a remote unless the user explicitly asks.
 - The exact phrase `Push deze branch` is the standard push approval shortcut in this repo.
 - Interpret `Push deze branch` as permission to run the full pre-push maintenance workflow on the current branch and then push it to `origin`.
+- Before pushing, verify that `docs/plans/` contains no temporary planning documents.
 - Before pushing, review whether `README.md`, `AGENTS.md`, and any other relevant documentation are still accurate for the finished work.
 - Before pushing, verify whether `pixie-contracts` is still respected by the current code and documentation, and whether contract or example updates are required.
 - If the needed documentation or contract changes are clear, make them automatically, run the relevant validation, and commit them on the current non-main branch before pushing.
@@ -261,6 +271,7 @@ A task is complete only if:
 - No forbidden changes were made
 - Changes are minimal and justified
 - Any Codex commit was created on a non-main branch
+- No temporary planning documents under `docs/plans/` were committed
 - Any Codex-triggered push completed the required pre-push maintenance review first
 
 ---

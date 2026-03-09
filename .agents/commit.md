@@ -18,6 +18,12 @@ Use this agent to commit changes after they have been reviewed and approved. Can
 - If a new branch is required, prefer a short name that matches the task context, for example `fix/state-signing` or `chore/codex-branch-workflow`.
 - Do not discard unrelated working tree changes to satisfy this rule.
 
+## Planning Docs Guardrail
+
+- Never commit files under `docs/plans/`, except `docs/plans/.gitkeep`.
+- Delete temporary planning documents before staging or committing implementation work.
+- If `docs/plans/` contains temporary files, remove them and confirm they are absent from both the index and the working tree before committing.
+
 ## Commit Message Format
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
