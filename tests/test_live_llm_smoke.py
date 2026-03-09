@@ -23,6 +23,10 @@ _REQUIRED_ENV_VARS = (
 )
 
 
+def _should_run_live_llm_tests(env: Mapping[str, str]) -> bool:
+    return env.get("RUN_LIVE_LLM_TESTS", "0").strip() == "1"
+
+
 def _collect_live_env_issues(env: Mapping[str, str]) -> list[str]:
     issues: list[str] = []
     for key in _REQUIRED_ENV_VARS:
@@ -80,8 +84,8 @@ def _build_live_service() -> ChatService:
 
 
 @pytest.mark.skipif(
-    os.environ.get("RUN_LIVE_LLM_TESTS", "1") != "1",
-    reason="Set RUN_LIVE_LLM_TESTS=0 to skip live Azure OpenAI smoke tests.",
+    not _should_run_live_llm_tests(os.environ),
+    reason="Set RUN_LIVE_LLM_TESTS=1 to enable live Azure OpenAI smoke tests.",
 )
 def test_live_llm_initial_answer_proceeds_to_intake() -> None:
     issues = _collect_live_env_issues(os.environ)
@@ -110,6 +114,14 @@ def test_collect_live_env_issues_reports_missing_and_placeholder_values() -> Non
     assert "AZURE_OPENAI_ENDPOINT looks like a placeholder value." in issues
     assert "AZURE_OPENAI_KEY looks like a placeholder value." in issues
     assert "ADVANCED_AZURE_OPENAI_MODEL looks like a placeholder value." in issues
+
+
+def test_should_run_live_llm_tests_defaults_to_disabled() -> None:
+    assert _should_run_live_llm_tests({}) is False
+
+
+def test_should_run_live_llm_tests_accepts_explicit_opt_in() -> None:
+    assert _should_run_live_llm_tests({"RUN_LIVE_LLM_TESTS": "1"}) is True
 
 
 def test_collect_live_env_issues_accepts_valid_configuration() -> None:

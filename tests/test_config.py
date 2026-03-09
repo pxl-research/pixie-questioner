@@ -190,7 +190,7 @@ def test_get_settings_normalizes_default_case(
     config.get_settings.cache_clear()
     settings = config.get_settings()
 
-    assert settings.default_case == "case2"
+    assert settings.default_case == "cretskens"
     config.get_settings.cache_clear()
 
 

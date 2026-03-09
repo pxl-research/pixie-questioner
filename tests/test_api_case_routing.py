@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from xml.sax.saxutils import escape
 from zipfile import ZipFile
@@ -11,6 +12,10 @@ from fastapi.testclient import TestClient
 
 from pixie_questioner import config as config_module
 from pixie_questioner.chat.types import ChatResult
+from pixie_questioner.schemas import (
+    BROOKLYN_CHAT_CONTRACT_VERSION,
+    CRETSKENS_CHAT_CONTRACT_VERSION,
+)
 from pixie_questioner.wine_advisor.types import WineAdvisorResult
 
 
@@ -23,7 +28,7 @@ def _column_label(index: int) -> str:
     return label
 
 
-def _cell_xml(cell_ref: str, value: str | float) -> str:
+def _cell_xml(cell_ref: str, value: str | int | float) -> str:
     if isinstance(value, (int, float)):
         return f'<c r="{cell_ref}"><v>{value}</v></c>'
     escaped = escape(str(value))
@@ -58,7 +63,7 @@ def _build_catalog_xlsx(path: Path) -> None:
         ]
     ]
 
-    def _row_xml(row_index: int, values: list[str | float]) -> str:
+    def _row_xml(row_index: int, values: Sequence[str | int | float]) -> str:
         cells = [
             _cell_xml(f"{_column_label(column_index)}{row_index}", value)
             for column_index, value in enumerate(values)
@@ -223,6 +228,8 @@ def _load_main(monkeypatch, tmp_path: Path):
     project_root = Path(__file__).resolve().parents[1]
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
+    sys.modules.pop("pixie_questioner.app_runtime", None)
+    sys.modules.pop("pixie_questioner.api_app", None)
     sys.modules.pop("apps.api.main", None)
     import apps.api.main as main
 
@@ -270,8 +277,8 @@ def test_case_route_brooklyn_calls_brooklyn_handler(
     main = _load_main(monkeypatch, tmp_path)
     brooklyn_stub = StubBrooklynService()
     case2_stub = StubCase2Service()
-    main.brooklyn_chat_service = brooklyn_stub
-    main.case2_wine_advisor_service = case2_stub
+    main.runtime.brooklyn_chat_service = brooklyn_stub
+    main.runtime.case2_wine_advisor_service = case2_stub
 
     client = TestClient(main.app)
     response = client.post(
@@ -285,20 +292,21 @@ def test_case_route_brooklyn_calls_brooklyn_handler(
 
     assert response.status_code == 200
     assert response.headers["X-Pixie-Case"] == "brooklyn"
+    assert response.headers["X-Pixie-Case-Contract"] == BROOKLYN_CHAT_CONTRACT_VERSION
     assert len(brooklyn_stub.calls) == 1
     assert len(case2_stub.calls) == 0
 
 
-def test_case_route_case2_calls_case2_handler(monkeypatch, tmp_path: Path) -> None:
+def test_case_route_cretskens_calls_wine_handler(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     brooklyn_stub = StubBrooklynService()
     case2_stub = StubCase2Service()
-    main.brooklyn_chat_service = brooklyn_stub
-    main.case2_wine_advisor_service = case2_stub
+    main.runtime.brooklyn_chat_service = brooklyn_stub
+    main.runtime.case2_wine_advisor_service = case2_stub
 
     client = TestClient(main.app)
     response = client.post(
-        "/cases/case2/chat",
+        "/cases/cretskens/chat",
         json={
             "session_id": "session-2",
             "current_answer": "ik zoek wijn",
@@ -307,7 +315,34 @@ def test_case_route_case2_calls_case2_handler(monkeypatch, tmp_path: Path) -> No
     )
 
     assert response.status_code == 200
-    assert response.headers["X-Pixie-Case"] == "case2"
+    assert response.headers["X-Pixie-Case"] == "cretskens"
+    assert response.headers["X-Pixie-Case-Contract"] == CRETSKENS_CHAT_CONTRACT_VERSION
+    assert len(brooklyn_stub.calls) == 0
+    assert len(case2_stub.calls) == 1
+
+
+def test_case_route_case2_alias_resolves_to_cretskens(
+    monkeypatch, tmp_path: Path
+) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    brooklyn_stub = StubBrooklynService()
+    case2_stub = StubCase2Service()
+    main.runtime.brooklyn_chat_service = brooklyn_stub
+    main.runtime.case2_wine_advisor_service = case2_stub
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/cases/case2/chat",
+        json={
+            "session_id": "session-2b",
+            "current_answer": "ik zoek wijn",
+            "state": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["X-Pixie-Case"] == "cretskens"
+    assert response.headers["X-Pixie-Case-Contract"] == CRETSKENS_CHAT_CONTRACT_VERSION
     assert len(brooklyn_stub.calls) == 0
     assert len(case2_stub.calls) == 1
 
@@ -333,8 +368,8 @@ def test_legacy_chat_route_uses_default_case(monkeypatch, tmp_path: Path) -> Non
     main = _load_main(monkeypatch, tmp_path)
     brooklyn_stub = StubBrooklynService()
     case2_stub = StubCase2Service()
-    main.brooklyn_chat_service = brooklyn_stub
-    main.case2_wine_advisor_service = case2_stub
+    main.runtime.brooklyn_chat_service = brooklyn_stub
+    main.runtime.case2_wine_advisor_service = case2_stub
 
     client = TestClient(main.app)
     response = client.post(
@@ -348,6 +383,7 @@ def test_legacy_chat_route_uses_default_case(monkeypatch, tmp_path: Path) -> Non
 
     assert response.status_code == 200
     assert response.headers["X-Pixie-Case"] == "brooklyn"
+    assert response.headers["X-Pixie-Case-Contract"] == BROOKLYN_CHAT_CONTRACT_VERSION
     assert len(brooklyn_stub.calls) == 1
     assert len(case2_stub.calls) == 0
 
@@ -356,8 +392,8 @@ def test_case_route_rejects_state_from_other_case(monkeypatch, tmp_path: Path) -
     main = _load_main(monkeypatch, tmp_path)
     brooklyn_stub = StubBrooklynService()
     case2_stub = StubCase2Service()
-    main.brooklyn_chat_service = brooklyn_stub
-    main.case2_wine_advisor_service = case2_stub
+    main.runtime.brooklyn_chat_service = brooklyn_stub
+    main.runtime.case2_wine_advisor_service = case2_stub
 
     client = TestClient(main.app)
 

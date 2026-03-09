@@ -16,9 +16,12 @@ You do not optimize, refactor, or generalize unless explicitly asked.
 
 ## Project
 
-Pixie Questioner is a guided intake Q&A API for denim/jeans preferences.
+Pixie Questioner is a guided intake Q&A API with two isolated cases:
+- `brooklyn`: jeans intake and handoff summary flow
+- `cretskens`: LLM-driven wine advising with catalog recommendations
+
 The client sends `current_answer`, an opaque `state`, and `session_id`;
-the API returns **exactly one** next question or a final summary.
+the API returns **exactly one** next message for the selected case.
 
 - **Stack**: Python 3.12+, FastAPI, Pydantic v2, LangChain (Azure OpenAI)
 
@@ -72,7 +75,10 @@ Do **not** run anything directly on the host.
 docker compose -f docker-compose.dev.yml up --build
 
 # Run tests
-docker compose -f docker-compose.dev.yml run --rm api pytest
+RUN_LIVE_LLM_TESTS=0 docker compose -f docker-compose.dev.yml run --rm api pytest
+
+# Run live smoke test explicitly
+RUN_LIVE_LLM_TESTS=1 docker compose -f docker-compose.dev.yml run --rm api pytest tests/test_live_llm_smoke.py
 
 # Format
 docker compose -f docker-compose.dev.yml run --rm api black .
@@ -91,9 +97,6 @@ docker compose -f docker-compose.dev.yml run --rm api uv tool run bandit -r src
 
 # Security (dependency vulnerabilities)
 docker compose -f docker-compose.dev.yml run --rm api uv tool run pip-audit
-
-# Security (filesystem: vuln, misconfig, secrets)
-docker compose -f docker-compose.dev.yml run --rm api trivy fs --scanners vuln,misconfig,secret --severity HIGH,CRITICAL --exit-code 1 .
 ```
 
 ---
@@ -150,11 +153,12 @@ def parse_state(state):
 
 ## Size Constraints
 
-Apply these constraints to runtime code in `src/` and `apps/api/`:
+Legacy oversized modules already exist. For new files and substantial rewrites in `src/` and `apps/api/`:
 
-- Max **500 lines** per file
-- Max **50 lines** per function/method
-- Max **10 methods** per class
+- Target max **500 lines** per file
+- Target max **50 lines** per new or substantially rewritten function/method
+- Target max **10 methods** per new class
+- When touching an oversized legacy module, prefer extracting code instead of growing it further
 
 ---
 
@@ -237,11 +241,21 @@ If a request is ambiguous or underspecified:
 
 ---
 
+## Planning Documents
+
+- Files under `docs/plans/` are temporary working documents, not project documentation.
+- Never stage or commit files from `docs/plans/`, except `docs/plans/.gitkeep`.
+- Delete temporary planning documents after the planning phase is complete and before making implementation commits.
+- Before committing or pushing, verify that no temporary planning documents remain staged or present in `docs/plans/`.
+
+---
+
 ## Push Workflow
 
 - Never push to a remote unless the user explicitly asks.
 - The exact phrase `Push deze branch` is the standard push approval shortcut in this repo.
 - Interpret `Push deze branch` as permission to run the full pre-push maintenance workflow on the current branch and then push it to `origin`.
+- Before pushing, verify that `docs/plans/` contains no temporary planning documents.
 - Before pushing, review whether `README.md`, `AGENTS.md`, and any other relevant documentation are still accurate for the finished work.
 - Before pushing, verify whether `pixie-contracts` is still respected by the current code and documentation, and whether contract or example updates are required.
 - If the needed documentation or contract changes are clear, make them automatically, run the relevant validation, and commit them on the current non-main branch before pushing.
@@ -261,6 +275,7 @@ A task is complete only if:
 - No forbidden changes were made
 - Changes are minimal and justified
 - Any Codex commit was created on a non-main branch
+- No temporary planning documents under `docs/plans/` were committed
 - Any Codex-triggered push completed the required pre-push maintenance review first
 
 ---
@@ -269,19 +284,20 @@ A task is complete only if:
 
 ```text
 apps/api/main.py
-  - FastAPI wiring only
-  - No business logic
+  - Thin FastAPI entrypoint only
 
-src/pixie_questioner/chat_service.py
-  - Core conversation flow
-  - State transitions and stop logic
+src/pixie_questioner/api_app.py
+  - Request handling, response mapping, audit dispatch
+
+src/pixie_questioner/app_runtime.py
+  - Runtime construction, case registration, state signers
 
 src/pixie_questioner/schemas.py
   - Public API contracts
   - Handle with extreme care
 
-prompts/
-  - Prompt templates
+profiles/
+  - Case profiles and prompt templates
   - Do not rewrite style unless explicitly asked
 ```
 

@@ -5,6 +5,8 @@ from pydantic import TypeAdapter
 
 from pixie_questioner.schemas import (
     AUDIT_EVENT_CONTRACT_VERSION,
+    BROOKLYN_CHAT_CONTRACT_VERSION,
+    CRETSKENS_CHAT_CONTRACT_VERSION,
     CHAT_CONTRACT_VERSION,
     AuditEventPayload,
     ChatQuestionResponse,
@@ -26,6 +28,11 @@ def _allows_any_additional_properties(schema: dict[str, object]) -> bool:
 
 def test_chat_contract_version_is_pinned() -> None:
     assert CHAT_CONTRACT_VERSION == "chat-v2.0.0"
+
+
+def test_case_chat_contract_versions_are_pinned() -> None:
+    assert BROOKLYN_CHAT_CONTRACT_VERSION == "chat-brooklyn-v2.0.0"
+    assert CRETSKENS_CHAT_CONTRACT_VERSION == "chat-cretskens-v1.0.0"
 
 
 def test_audit_event_contract_version_is_pinned() -> None:

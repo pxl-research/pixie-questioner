@@ -21,7 +21,8 @@ from .profile_prompt_loader import (
 
 DEFAULT_WINE_CATALOG_PATH = Path("profiles/cretskens/cretskens_wijnen_reduced.xlsx")
 DEFAULT_BROOKLYN_PROFILE_PATH = Path("profiles/brooklyn/domain_profile.yml")
-DEFAULT_CASE2_PROFILE_PATH = Path("profiles/cretskens/domain_profile.yml")
+DEFAULT_CRETSKENS_PROFILE_PATH = Path("profiles/cretskens/domain_profile.yml")
+DEFAULT_CASE2_PROFILE_PATH = DEFAULT_CRETSKENS_PROFILE_PATH
 
 
 def load_prompt(path: Path) -> str:
@@ -469,16 +470,22 @@ class Settings(BaseSettings):
         default=450, alias="ADVANCED_AZURE_OPENAI_MAX_TOKENS"
     )
     domain_profile_path: Path = Field(alias="DOMAIN_PROFILE_PATH")
-    default_case: Literal["brooklyn", "case2"] = Field(
+    default_case: Literal["brooklyn", "cretskens"] = Field(
         default="brooklyn", alias="DEFAULT_CASE"
     )
     brooklyn_domain_profile_path_env: Path | None = Field(
         default=None, alias="BROOKLYN_DOMAIN_PROFILE_PATH"
     )
+    cretskens_domain_profile_path_env: Path | None = Field(
+        default=None, alias="CRETSKENS_DOMAIN_PROFILE_PATH"
+    )
     case2_domain_profile_path_env: Path | None = Field(
         default=None, alias="CASE2_DOMAIN_PROFILE_PATH"
     )
     wine_catalog_path_env: Path | None = Field(default=None, alias="WINE_CATALOG_PATH")
+    cretskens_wine_catalog_path_env: Path | None = Field(
+        default=None, alias="CRETSKENS_WINE_CATALOG_PATH"
+    )
     case2_wine_catalog_path_env: Path | None = Field(
         default=None, alias="CASE2_WINE_CATALOG_PATH"
     )
@@ -514,8 +521,10 @@ class Settings(BaseSettings):
 
     @field_validator(
         "brooklyn_domain_profile_path_env",
+        "cretskens_domain_profile_path_env",
         "case2_domain_profile_path_env",
         "wine_catalog_path_env",
+        "cretskens_wine_catalog_path_env",
         "case2_wine_catalog_path_env",
         mode="before",
     )
@@ -531,10 +540,12 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_default_case(cls, value: object) -> str:
         if not isinstance(value, str):
-            raise ValueError("DEFAULT_CASE must be 'brooklyn' or 'case2'.")
+            raise ValueError("DEFAULT_CASE must be 'brooklyn' or 'cretskens'.")
         normalized = value.strip().casefold()
-        if normalized not in {"brooklyn", "case2"}:
-            raise ValueError("DEFAULT_CASE must be 'brooklyn' or 'case2'.")
+        if normalized == "case2":
+            return "cretskens"
+        if normalized not in {"brooklyn", "cretskens"}:
+            raise ValueError("DEFAULT_CASE must be 'brooklyn' or 'cretskens'.")
         return normalized
 
     @property
@@ -544,10 +555,16 @@ class Settings(BaseSettings):
         return self.domain_profile_path or DEFAULT_BROOKLYN_PROFILE_PATH
 
     @property
-    def case2_domain_profile_path(self) -> Path:
+    def cretskens_domain_profile_path(self) -> Path:
+        if self.cretskens_domain_profile_path_env is not None:
+            return self.cretskens_domain_profile_path_env
         if self.case2_domain_profile_path_env is not None:
             return self.case2_domain_profile_path_env
-        return DEFAULT_CASE2_PROFILE_PATH
+        return DEFAULT_CRETSKENS_PROFILE_PATH
+
+    @property
+    def case2_domain_profile_path(self) -> Path:
+        return self.cretskens_domain_profile_path
 
     @property
     def domain_profile(self) -> ResolvedDomainProfile:
@@ -562,12 +579,18 @@ class Settings(BaseSettings):
         return load_domain_profile(self.case2_domain_profile_path)
 
     @property
-    def case2_wine_catalog_path(self) -> Path:
+    def cretskens_wine_catalog_path(self) -> Path:
+        if self.cretskens_wine_catalog_path_env is not None:
+            return self.cretskens_wine_catalog_path_env
         if self.case2_wine_catalog_path_env is not None:
             return self.case2_wine_catalog_path_env
         if self.wine_catalog_path_env is not None:
             return self.wine_catalog_path_env
         return DEFAULT_WINE_CATALOG_PATH
+
+    @property
+    def case2_wine_catalog_path(self) -> Path:
+        return self.cretskens_wine_catalog_path
 
     @property
     def wine_catalog_path(self) -> Path:

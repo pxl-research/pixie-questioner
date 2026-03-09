@@ -211,3 +211,7 @@ marimo/_lsp/
 __marimo__/
 
 .codex/
+
+# Temporary planning documents
+docs/plans/*
+!docs/plans/.gitkeep

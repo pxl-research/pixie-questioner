@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET  # nosec B405
 import zipfile
 from pathlib import Path
+from typing import Any
+
+from defusedxml import ElementTree as ET
 
 from .catalog_models import WineCatalogRecord
 
@@ -43,9 +45,7 @@ def _column_index_from_ref(cell_ref: str) -> int:
 def _load_shared_strings(archive: zipfile.ZipFile) -> list[str]:
     if "xl/sharedStrings.xml" not in archive.namelist():
         return []
-    root = ET.fromstring(
-        archive.read("xl/sharedStrings.xml")
-    )  # nosec B314  # noqa: S314
+    root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
     values: list[str] = []
     for shared_item in root.findall(f"{{{NS_MAIN}}}si"):
         tokens = [
@@ -56,9 +56,7 @@ def _load_shared_strings(archive: zipfile.ZipFile) -> list[str]:
 
 
 def _resolve_sheet_path(archive: zipfile.ZipFile) -> str:
-    workbook = ET.fromstring(
-        archive.read("xl/workbook.xml")
-    )  # nosec B314  # noqa: S314
+    workbook = ET.fromstring(archive.read("xl/workbook.xml"))
     sheets = workbook.findall(f".//{{{NS_MAIN}}}sheet")
     if not sheets:
         raise RuntimeError("Wine catalog workbook has no sheets.")
@@ -70,9 +68,7 @@ def _resolve_sheet_path(archive: zipfile.ZipFile) -> str:
             break
 
     relation_id = selected.attrib.get(f"{{{NS_REL}}}id", "")
-    relations = ET.fromstring(
-        archive.read("xl/_rels/workbook.xml.rels")
-    )  # nosec B314  # noqa: S314
+    relations = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
     for relation in relations.findall(f"{{{NS_PACKAGE_REL}}}Relationship"):
         if relation.attrib.get("Id") != relation_id:
             continue
@@ -81,7 +77,7 @@ def _resolve_sheet_path(archive: zipfile.ZipFile) -> str:
     raise RuntimeError("Wine catalog worksheet relationship is missing.")
 
 
-def _read_cell_value(cell: ET.Element, shared_strings: list[str]) -> str:
+def _read_cell_value(cell: Any, shared_strings: list[str]) -> str:
     cell_type = cell.attrib.get("t", "")
     if cell_type == "inlineStr":
         return "".join(
@@ -100,7 +96,7 @@ def _read_cell_value(cell: ET.Element, shared_strings: list[str]) -> str:
     return raw_value.strip()
 
 
-def _row_values(row: ET.Element, shared_strings: list[str]) -> list[str]:
+def _row_values(row: Any, shared_strings: list[str]) -> list[str]:
     values: list[str] = []
     for cell in row.findall(f"{{{NS_MAIN}}}c"):
         cell_ref = cell.attrib.get("r", "")
@@ -147,9 +143,7 @@ def load_wine_catalog(path: Path) -> list[WineCatalogRecord]:
         with zipfile.ZipFile(resolved_path) as archive:
             shared_strings = _load_shared_strings(archive)
             sheet_path = _resolve_sheet_path(archive)
-            worksheet = ET.fromstring(
-                archive.read(sheet_path)
-            )  # nosec B314  # noqa: S314
+            worksheet = ET.fromstring(archive.read(sheet_path))
     except zipfile.BadZipFile as exc:
         raise RuntimeError(f"Invalid wine catalog file: {path}") from exc
 

@@ -26,7 +26,20 @@ jobs:
       - name: Run lint checks
         run: docker compose -f docker-compose.dev.yml run --rm api ruff check .
 
+      - name: Run type checks
+        run: docker compose -f docker-compose.dev.yml run --rm api uv tool run ty check
+
+      - name: Run security lint
+        run: docker compose -f docker-compose.dev.yml run --rm api ruff check . --select S
+
+      - name: Run Bandit
+        run: docker compose -f docker-compose.dev.yml run --rm api uv tool run bandit -r src
+
+      - name: Run pip-audit
+        run: docker compose -f docker-compose.dev.yml run --rm api uv tool run pip-audit
+
       - name: Validate live Azure config for CI
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
         env:
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
           AZURE_OPENAI_KEY: ${{ secrets.AZURE_OPENAI_KEY }}
@@ -71,6 +84,7 @@ jobs:
           fi
 
       - name: Run test suite
+        if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
         env:
           RUN_LIVE_LLM_TESTS: "1"
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}

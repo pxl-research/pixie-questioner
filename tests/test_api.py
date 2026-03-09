@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from xml.sax.saxutils import escape
 from zipfile import ZipFile
@@ -26,7 +27,7 @@ def _column_label(index: int) -> str:
     return label
 
 
-def _cell_xml(cell_ref: str, value: str | float) -> str:
+def _cell_xml(cell_ref: str, value: str | int | float) -> str:
     if isinstance(value, (int, float)):
         return f'<c r="{cell_ref}"><v>{value}</v></c>'
     escaped = escape(str(value))
@@ -61,7 +62,7 @@ def _build_catalog_xlsx(path: Path) -> None:
         ]
     ]
 
-    def _row_xml(row_index: int, values: list[str | float]) -> str:
+    def _row_xml(row_index: int, values: Sequence[str | int | float]) -> str:
         cells = [
             _cell_xml(f"{_column_label(column_index)}{row_index}", value)
             for column_index, value in enumerate(values)
@@ -224,6 +225,8 @@ def _load_main(monkeypatch, tmp_path: Path):
     project_root = Path(__file__).resolve().parents[1]
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
+    sys.modules.pop("pixie_questioner.app_runtime", None)
+    sys.modules.pop("pixie_questioner.api_app", None)
     sys.modules.pop("apps.api.main", None)
     import apps.api.main as main
 
@@ -256,6 +259,14 @@ class StubAuditClient:
         self.calls.append(payload)
 
 
+class PassthroughStateSigner:
+    def verify_and_strip(self, state: dict[str, object]) -> dict[str, object]:
+        return state
+
+    def sign(self, state: dict[str, object]) -> dict[str, object]:
+        return state
+
+
 def test_health_endpoint(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     client = TestClient(main.app)
@@ -275,9 +286,8 @@ def test_chat_returns_question_and_audits(monkeypatch, tmp_path: Path) -> None:
     )
     advisor_stub = StubWineAdvisorService(result)
     audit_stub = StubAuditClient()
-    main.case2_wine_advisor_service = advisor_stub
-    main.wine_advisor_service = advisor_stub
-    main.audit_client = audit_stub
+    main.runtime.case2_wine_advisor_service = advisor_stub
+    main.runtime.audit_client = audit_stub
     request_state = {"location": "Antwerpen"}
 
     client = TestClient(main.app)
@@ -332,9 +342,8 @@ def test_chat_returns_recommendations(monkeypatch, tmp_path: Path) -> None:
         ],
     )
     advisor_stub = StubWineAdvisorService(result)
-    main.case2_wine_advisor_service = advisor_stub
-    main.wine_advisor_service = advisor_stub
-    main.audit_client = None
+    main.runtime.case2_wine_advisor_service = advisor_stub
+    main.runtime.audit_client = None
 
     client = TestClient(main.app)
     response = client.post(
@@ -371,9 +380,8 @@ def test_chat_audit_omits_blank_location_metadata(monkeypatch, tmp_path: Path) -
     )
     advisor_stub = StubWineAdvisorService(result)
     audit_stub = StubAuditClient()
-    main.case2_wine_advisor_service = advisor_stub
-    main.wine_advisor_service = advisor_stub
-    main.audit_client = audit_stub
+    main.runtime.case2_wine_advisor_service = advisor_stub
+    main.runtime.audit_client = audit_stub
 
     client = TestClient(main.app)
     response = client.post(
@@ -408,6 +416,32 @@ def test_chat_rejects_overlong_input(monkeypatch, tmp_path: Path) -> None:
     assert response.status_code == 422
 
 
+def test_chat_respects_configured_input_limit(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("WINE_ADVISOR_MAX_INPUT_CHARS", "5")
+    main = _load_main(monkeypatch, tmp_path)
+    advisor_stub = StubWineAdvisorService(
+        WineAdvisorResult(
+            text="Vraag",
+            response_type="question",
+            state={"phase": "intake", "turn_count": 1},
+            recommendations=None,
+        )
+    )
+    main.runtime.case2_wine_advisor_service = advisor_stub
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "session-tight-input-limit",
+            "current_answer": "abcdef",
+            "state": {},
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_chat_rejects_oversized_state_payload(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     client = TestClient(main.app)
@@ -420,6 +454,35 @@ def test_chat_rejects_oversized_state_payload(monkeypatch, tmp_path: Path) -> No
             "state": {
                 "blob": "x" * (main.settings.wine_advisor_max_state_bytes + 256),
             },
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_chat_respects_configured_state_size_limit(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("WINE_ADVISOR_MAX_STATE_BYTES", "32")
+    main = _load_main(monkeypatch, tmp_path)
+    advisor_stub = StubWineAdvisorService(
+        WineAdvisorResult(
+            text="Vraag",
+            response_type="question",
+            state={"phase": "intake", "turn_count": 1},
+            recommendations=None,
+        )
+    )
+    signer = PassthroughStateSigner()
+    main.runtime.case2_wine_advisor_service = advisor_stub
+    main.runtime.case2_state_signer = signer
+    main.runtime.brooklyn_state_signer = signer
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "session-tight-state-limit",
+            "current_answer": "hallo",
+            "state": {"blob": "x" * 40},
         },
     )
 
