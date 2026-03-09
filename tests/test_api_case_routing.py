@@ -319,6 +319,14 @@ def test_case_route_brooklyn_calls_brooklyn_handler(
     assert len(cretskens_stub.calls) == 0
 
 
+def test_main_entrypoint_exports_only_runtime_surface(
+    monkeypatch, tmp_path: Path
+) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+
+    assert main.__all__ == ["app", "runtime", "settings"]
+
+
 def test_case_route_cretskens_calls_wine_handler(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     brooklyn_stub = StubBrooklynService()

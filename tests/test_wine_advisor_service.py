@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from typing import Any, get_type_hints
 
 import pytest
 
@@ -208,6 +209,13 @@ def test_ask_returns_one_question_in_intake_phase() -> None:
     assert result.recommendations is None
     assert result.state["phase"] == "intake"
     assert result.state["turn_count"] == 1
+
+
+def test_service_collaborators_are_not_typed_as_any() -> None:
+    hints = get_type_hints(WineAdvisorService)
+
+    assert hints["turn_controller"] is not Any
+    assert hints["ranker"] is not Any
 
 
 def test_ask_can_complete_before_turn_six() -> None:

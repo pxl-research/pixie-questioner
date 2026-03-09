@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import ast
 import json
+import logging
 import re
 from dataclasses import dataclass
 
 from ..llm_client import LLMPromptInvoker
+
+logger = logging.getLogger(__name__)
 
 FOODPAIR_KEY_ORDER: tuple[str, ...] = (
     "foodpair_aperitief",
@@ -361,6 +364,10 @@ class CategorizedHandoffBuilder:
                 summary=_build_core_classifier_rules(),
             )
         except Exception:
+            logger.warning(
+                "Failed to classify categorized handoff core categories.",
+                exc_info=True,
+            )
             return {}
         parsed = parse_json_object(classifier_output)
         return sanitize_handoff_core_categories(parsed)
@@ -376,6 +383,10 @@ class CategorizedHandoffBuilder:
                 summary=allowed_keys,
             )
         except Exception:
+            logger.warning(
+                "Failed to classify aroma and taste flags.",
+                exc_info=True,
+            )
             return {}
         parsed = parse_aroma_taste_flags(classified)
         if parsed:
@@ -391,5 +402,9 @@ class CategorizedHandoffBuilder:
                 summary=strict_summary,
             )
         except Exception:
+            logger.warning(
+                "Failed to reclassify aroma and taste flags with strict JSON retry.",
+                exc_info=True,
+            )
             return {}
         return parse_aroma_taste_flags(retried)

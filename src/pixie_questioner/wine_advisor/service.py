@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from .catalog_models import WineCatalogRecord
 from .llm_controller import TurnDecision
@@ -17,6 +17,37 @@ from .types import (
     WineAdvisorState,
     WineCatalogRecommendation,
 )
+
+
+class RankerSelectionProtocol(Protocol):
+    barcodes: list[str]
+    explanation: str
+
+
+class TurnControllerProtocol(Protocol):
+    async def decide(
+        self,
+        *,
+        current_answer: str,
+        working_context: str,
+        turn_count: int,
+        max_turns: int,
+        current_meal_mode: str,
+        last_question: str,
+        conversation_history: str,
+    ) -> TurnDecision: ...
+
+
+class WineRankerProtocol(Protocol):
+    async def select_with_explanation(
+        self,
+        *,
+        working_context: str,
+        candidate_records: list[WineCatalogRecord],
+        candidate_barcodes: list[str],
+        min_count: int,
+        max_count: int,
+    ) -> RankerSelectionProtocol: ...
 
 
 def _truncate_text(value: str, max_chars: int) -> str:
@@ -100,8 +131,8 @@ def _history_to_prompt(
 @dataclass
 class WineAdvisorService:
     catalog_records: list[WineCatalogRecord]
-    turn_controller: Any
-    ranker: Any
+    turn_controller: TurnControllerProtocol
+    ranker: WineRankerProtocol
     recommendation_intro: str = "Leuk, ik heb een paar mooie opties voor je klaargezet."
     max_turns: int = 6
     candidate_limit: int = 40

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 
@@ -20,6 +21,16 @@ class FakeLLM:
         if not self.responses:
             raise AssertionError("No responses left for FakeLLM")
         return self.responses.pop(0)
+
+
+class RaisingLLM:
+    def __init__(self, exception: Exception):
+        self.exception = exception
+        self.calls: list[list[dict[str, str]]] = []
+
+    async def ainvoke(self, messages: list[dict[str, str]]) -> str:
+        self.calls.append(messages)
+        raise self.exception
 
 
 def _candidate_records() -> list[WineCatalogRecord]:
@@ -208,3 +219,26 @@ def test_ranker_raises_when_two_attempts_are_invalid() -> None:
             )
         )
     assert len(llm.calls) == 2
+
+
+def test_ranker_logs_warning_when_attempts_raise(caplog) -> None:
+    llm = RaisingLLM(RuntimeError("ranker failed"))
+    ranker = LLMWineRanker(
+        llm=llm,
+        system_prompt_template="context={working_context};candidates={candidate_barcodes}",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(RuntimeError):
+            asyncio.run(
+                ranker.select_with_explanation(
+                    working_context="Klant zoekt wijn bij rund",
+                    candidate_records=_candidate_records(),
+                    candidate_barcodes=["c1", "c2", "c3"],
+                    min_count=1,
+                    max_count=3,
+                )
+            )
+
+    assert len(llm.calls) == 2
+    assert "ranker attempt" in caplog.text

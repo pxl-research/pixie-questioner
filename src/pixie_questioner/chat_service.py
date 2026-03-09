@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 
 from dataclasses import dataclass
@@ -41,6 +42,8 @@ from .chat.types import (
     ChatState,
 )
 from .llm_client import LLMPromptInvoker, extract_llm_content, resolve_llm_client
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -258,6 +261,10 @@ async def _rewrite_summary_in_preferred_language(
             [{"role": "system", "content": rewrite_prompt}]
         )
     except Exception:
+        logger.warning(
+            "Failed to rewrite summary in preferred language.",
+            exc_info=True,
+        )
         return None
 
     rewritten_summary = extract_llm_content(response).strip()
@@ -393,6 +400,10 @@ async def _classify_intake_answer(
             questionnaire=current_state.questionnaire,
         )
     except Exception:
+        logger.warning(
+            "Answer relevance classifier failed; defaulting to on_topic.",
+            exc_info=True,
+        )
         return "on_topic"
 
 

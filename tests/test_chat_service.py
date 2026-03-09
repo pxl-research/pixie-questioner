@@ -1,6 +1,7 @@
 # ruff: noqa: S101,S105,S106
 import asyncio
 import json
+import logging
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -62,6 +63,35 @@ class StubRelevanceClassifier:
                 "No relevance responses left for StubRelevanceClassifier."
             )
         return self.responses.pop(0)
+
+
+class RaisingRelevanceClassifier:
+    def __init__(self, exception: Exception) -> None:
+        self.exception = exception
+        self.calls: list[tuple[str, str, str]] = []
+
+    async def classify(
+        self, current_question: str, current_answer: str, questionnaire: str
+    ) -> ClassificationLabel:
+        await asyncio.sleep(0)
+        self.calls.append((current_question, current_answer, questionnaire))
+        raise self.exception
+
+
+class SequencedLLM:
+    def __init__(self, outcomes: list[str | Exception]) -> None:
+        self.outcomes = list(outcomes)
+        self.calls: list[list[dict[str, str]]] = []
+
+    async def ainvoke(self, messages: list[dict[str, str]]) -> str:
+        await asyncio.sleep(0)
+        self.calls.append(messages)
+        if not self.outcomes:
+            raise AssertionError("No outcomes left for SequencedLLM.")
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
 
 def _make_notulist(llm):
@@ -2157,6 +2187,169 @@ def test_ask_rewrites_summary_when_primary_language_is_unsupported(
     assert result.summary == "Klant zoekt een lange mom fit of straight fit jeans."
     assert result.state["post_summary_language"] == "nl"
     assert len(question_llm.calls) == 1
+
+
+def test_ask_logs_warning_when_summary_rewrite_fails(caplog) -> None:
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Filled\n1. Occasion, Vibe, Setting: Filled"]
+    )
+    summarizer_llm = FakeLLM(
+        [
+            "La persona busca unos jeans largos mom o straight fit para un contexto casual."
+        ]
+    )
+    service = ChatService(
+        llm=RaisingLLM(RuntimeError("rewrite failed")),
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = asyncio.run(
+            service.ask(
+                current_answer="Ik zoek een lange mom of straight fit jeans",
+                state={
+                    "questionnaire": "Prev []",
+                    "summary": "Bestaande samenvatting",
+                    "last_question": "AI question",
+                },
+            )
+        )
+
+    assert result.response_type == "answer"
+    assert result.summary == "Bestaande samenvatting"
+    assert "rewrite summary" in caplog.text
+
+
+def test_ask_logs_warning_when_relevance_classifier_fails(caplog) -> None:
+    question_llm = FakeLLM(["Volgende vraag"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Hallo\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt hulp."])
+    relevance_classifier = RaisingRelevanceClassifier(RuntimeError("classifier failed"))
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+        answer_relevance_classifier=relevance_classifier,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = asyncio.run(
+            service.ask(
+                current_answer="Hallo",
+                state={
+                    "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                    "summary": "",
+                    "last_question": "Waar wil je de jeans voor dragen?",
+                },
+            )
+        )
+
+    assert result.text == "Volgende vraag"
+    assert len(relevance_classifier.calls) == 1
+    assert "relevance classifier" in caplog.text
+
+
+def test_ask_logs_warning_when_handoff_classifier_fails(caplog) -> None:
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): rundstoofvlees\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): red meat\n"
+            "3. Cooking method (BBQ or grill, stew, or none): stew\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): Rioja\n"
+            "7. Maximum budget in euro: 25\n"
+            "8. Gewenste geur/smaak (vrije tekst): fruitig en fris"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant eet rundstoofvlees."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        handoff_classifier=_make_handoff_classifier(
+            RaisingLLM(RuntimeError("handoff failed"))
+        ),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = asyncio.run(
+            service.ask(
+                current_answer="Rundstoofvlees met rode wijn, liefst uit Rioja",
+                state={
+                    "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+                    "summary": "",
+                    "last_question": "Welk gerecht eten jullie?",
+                },
+            )
+        )
+
+    assert result.response_type == "answer"
+    assert json.loads(result.state["handoff_categories_v1"]) == {}
+    assert "handoff core categories" in caplog.text
+
+
+def test_ask_logs_warning_when_aroma_retry_fails(caplog) -> None:
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): gegrilde kip\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
+            "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+            "6. Herkomst (land en/of regio): Frankrijk\n"
+            "7. Maximum budget in euro: 20\n"
+            "8. Gewenste geur/smaak (vrije tekst): kruidig"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant eet gegrilde kip."])
+    aroma_llm = SequencedLLM(["kruidig", RuntimeError("retry failed")])
+    handoff_llm = FakeLLM(
+        ['{"foodpair_witvlees_gevogelte":true,"foodpair_bbq_grill":true}']
+    )
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
+        handoff_classifier=_make_handoff_classifier(handoff_llm),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = asyncio.run(
+            service.ask(
+                current_answer="kruidig",
+                state={
+                    "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+                    "summary": "",
+                    "last_question": "Welke geur of smaak zoek je?",
+                },
+            )
+        )
+
+    handoff = json.loads(result.state["handoff_categories_v1"])
+    assert "smaak_kruidig" not in handoff
+    assert len(aroma_llm.calls) == 3
+    assert "aroma and taste flags" in caplog.text
 
 
 def test_ask_seeds_questionnaire_from_template_when_state_empty():
