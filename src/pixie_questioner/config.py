@@ -510,6 +510,7 @@ class Settings(BaseSettings):
     state_session_ttl_seconds: int = Field(
         default=1800, alias="STATE_SESSION_TTL_SECONDS"
     )
+    trusted_proxy_ips_raw: str = Field(default="", alias="TRUSTED_PROXY_IPS")
 
     @field_validator("brooklyn_domain_profile_path", mode="before")
     @classmethod
@@ -539,6 +540,14 @@ class Settings(BaseSettings):
     @property
     def cretskens_profile(self) -> ResolvedCretskensProfile:
         return load_cretskens_profile(self.cretskens_profile_path)
+
+    @property
+    def trusted_proxy_ips(self) -> frozenset[str]:
+        return frozenset(
+            item.strip().casefold()
+            for item in self.trusted_proxy_ips_raw.split(",")
+            if item.strip()
+        )
 
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.dev"),

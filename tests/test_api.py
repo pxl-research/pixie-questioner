@@ -582,6 +582,48 @@ def test_chat_ignores_x_forwarded_for_for_ip_rate_limits(
     assert second_response.status_code == 429
 
 
+def test_chat_uses_x_forwarded_for_for_trusted_proxy_ip_rate_limits(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("TRUSTED_PROXY_IPS", "testclient")
+    main = _load_main(monkeypatch, tmp_path)
+    advisor_stub = StubWineAdvisorService(
+        WineAdvisorResult(
+            text="Vraag",
+            response_type="question",
+            state={"phase": "intake", "turn_count": 1},
+            recommendations=None,
+        )
+    )
+    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    main.runtime.ip_rate_limiter = SlidingWindowRateLimiter(
+        max_requests=1, window_seconds=60
+    )
+    client = TestClient(main.app)
+
+    first_response = client.post(
+        "/cases/cretskens/chat",
+        headers={"X-Forwarded-For": "198.51.100.10"},
+        json={
+            "session_id": "session-trusted-forwarded-1",
+            "current_answer": "hallo",
+            "state": {},
+        },
+    )
+    second_response = client.post(
+        "/cases/cretskens/chat",
+        headers={"X-Forwarded-For": "203.0.113.20"},
+        json={
+            "session_id": "session-trusted-forwarded-2",
+            "current_answer": "hallo",
+            "state": {},
+        },
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+
 def test_turn_controller_prompt_includes_preference_loop_rules(
     monkeypatch, tmp_path: Path
 ) -> None:

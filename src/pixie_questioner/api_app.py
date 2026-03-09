@@ -170,10 +170,17 @@ def _build_brooklyn_chat_response(
     )
 
 
-def _get_client_ip(raw_request: Request) -> str:
-    if raw_request.client:
-        return raw_request.client.host
-    return "unknown"
+def _get_client_ip(raw_request: Request, *, trusted_proxy_ips: frozenset[str]) -> str:
+    immediate_client_ip = raw_request.client.host if raw_request.client else "unknown"
+    if immediate_client_ip.casefold() not in trusted_proxy_ips:
+        return immediate_client_ip
+
+    forwarded_for = raw_request.headers.get("x-forwarded-for", "")
+    for candidate in forwarded_for.split(","):
+        normalized = candidate.strip()
+        if normalized:
+            return normalized
+    return immediate_client_ip
 
 
 async def _handle_chat_request(
@@ -185,7 +192,10 @@ async def _handle_chat_request(
     raw_request: Request,
 ) -> CaseChatResponse:
     normalized_case_id = app_runtime.normalize_case_id(case_id)
-    client_ip = _get_client_ip(raw_request)
+    client_ip = _get_client_ip(
+        raw_request,
+        trusted_proxy_ips=app_runtime.settings.trusted_proxy_ips,
+    )
     if not app_runtime.ip_rate_limiter.is_allowed(client_ip):
         logger.warning("Rate limit exceeded for IP %s", client_ip)
         raise HTTPException(status_code=429, detail="Too many requests.")

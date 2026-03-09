@@ -98,6 +98,7 @@ Set environment variables in `.env.dev`:
 - `AUDIT_TIMEOUT_SECONDS` (optional, default 5)
 - `STATE_SIGNING_KEY` (recommended; if omitted, signed state breaks across restarts)
 - `STATE_SESSION_TTL_SECONDS` (optional, default `1800`)
+- `TRUSTED_PROXY_IPS` (optional comma-separated list of proxy IPs/hosts allowed to supply `X-Forwarded-For`)
 
 `CRETSKENS_WINE_CATALOG_PATH` points to the XLSX catalog with required columns:
 - `barcode`
