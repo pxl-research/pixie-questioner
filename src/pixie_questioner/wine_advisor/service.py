@@ -274,10 +274,7 @@ class WineAdvisorService:
             if candidate_records:
                 return candidate_records, True
 
-        limit = self.candidate_limit
-        if limit > 0:
-            return list(self.catalog_records), False
-        return list(self.catalog_records), False
+        return [], False
 
     async def ask(
         self,
@@ -325,13 +322,16 @@ class WineAdvisorService:
             decision,
         )
         candidate_barcodes = [record.barcode for record in candidate_records]
-        if not candidate_barcodes:
-            raise RuntimeError("No candidate barcodes available for ranker.")
         state_candidate_barcodes = candidate_barcodes if persist_candidates else []
 
         should_recommend = (
             decision.action == "recommend" or next_turn_count >= self.max_turns
         )
+        if should_recommend and not candidate_barcodes:
+            raise RuntimeError(
+                "Turn controller must provide query hints or persisted candidates "
+                "before recommendations."
+            )
         if should_recommend:
             return await self._finalize_recommendation(
                 parsed_state,

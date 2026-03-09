@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 
+import pytest
+
 from pixie_questioner.wine_advisor.catalog_models import WineCatalogRecord
 from pixie_questioner.wine_advisor.llm_controller import TurnDecision
 from pixie_questioner.wine_advisor.service import WineAdvisorService
@@ -386,7 +388,7 @@ def test_ask_respects_controller_recommend_action_for_drinking_only() -> None:
                 action="recommend",
                 question_text="",
                 meal_mode="drinking_only",
-                query_hints="",
+                query_hints="frisse witte wijn",
             )
         ]
     )
@@ -445,12 +447,12 @@ def test_ask_shortlists_catalog_records_from_query_hints() -> None:
     assert [item.barcode for item in (result.recommendations or [])] == ["w4"]
 
 
-def test_ask_uses_full_catalog_when_query_hints_are_missing() -> None:
+def test_ask_question_without_query_hints_keeps_candidate_list_empty() -> None:
     controller = StubController(
         [
             TurnDecision(
-                action="recommend",
-                question_text="",
+                action="question",
+                question_text="Welke kleur wijn heb je in gedachten?",
                 meal_mode="pairing",
                 query_hints="",
             )
@@ -464,18 +466,39 @@ def test_ask_uses_full_catalog_when_query_hints_are_missing() -> None:
         candidate_limit=1,
     )
 
-    result = asyncio.run(service.ask(current_answer="Geef suggesties", state={}))
+    result = asyncio.run(service.ask(current_answer="Ik zoek wijn", state={}))
 
-    assert result.response_type == "recommendations"
-    assert len(ranker.calls) == 1
-    ranker_call = ranker.calls[0]
-    candidate_records = ranker_call["candidate_records"]
-    candidate_barcodes = ranker_call["candidate_barcodes"]
-    assert isinstance(candidate_records, list)
-    assert isinstance(candidate_barcodes, list)
-    assert len(candidate_records) == len(_catalog())
-    assert candidate_barcodes == ["w1", "w2", "w3", "w4"]
+    assert result.response_type == "question"
+    assert len(ranker.calls) == 0
     assert result.state["candidate_barcodes"] == []
+
+
+def test_ask_recommend_without_query_hints_or_candidates_raises() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="",
+            )
+        ]
+    )
+    ranker = StubRanker([["w1", "w2", "w3"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        candidate_limit=1,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="query hints or persisted candidates",
+    ):
+        asyncio.run(service.ask(current_answer="Geef suggesties", state={}))
+
+    assert len(ranker.calls) == 0
 
 
 def test_ask_truncates_working_context_before_controller_call() -> None:

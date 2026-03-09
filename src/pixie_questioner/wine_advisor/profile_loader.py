@@ -44,8 +44,15 @@ def _load_yaml_file(path: Path) -> dict[str, Any]:
     return loaded
 
 
-def _read_prompt_file(profile_dir: Path, relative_path: str) -> str:
-    prompt_path = (profile_dir / relative_path).resolve()
+def _resolve_prompt_path(profile_dir: Path, prompt_path: str) -> Path:
+    candidate = Path(prompt_path).expanduser()
+    if candidate.is_absolute():
+        return candidate
+    return (profile_dir / candidate).resolve()
+
+
+def _read_prompt_file(profile_dir: Path, configured_path: str) -> str:
+    prompt_path = _resolve_prompt_path(profile_dir, configured_path)
     try:
         return prompt_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:

@@ -206,6 +206,25 @@ def test_get_settings_uses_default_cretskens_wine_catalog_path(
     config.get_settings.cache_clear()
 
 
+def test_get_settings_ignores_blank_path_overrides(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    profile_path = _write_default_profile_assets(tmp_path)
+
+    _set_required_env(monkeypatch, profile_path)
+    monkeypatch.setenv("BROOKLYN_DOMAIN_PROFILE_PATH", "   ")
+    monkeypatch.setenv("CRETSKENS_PROFILE_PATH", "")
+    monkeypatch.setenv("CRETSKENS_WINE_CATALOG_PATH", " ")
+    config.get_settings.cache_clear()
+    settings = config.get_settings()
+
+    assert settings.brooklyn_domain_profile_path == config.DEFAULT_BROOKLYN_PROFILE_PATH
+    assert settings.cretskens_profile_path == config.DEFAULT_CRETSKENS_PROFILE_PATH
+    assert settings.cretskens_wine_catalog_path == config.DEFAULT_WINE_CATALOG_PATH
+    config.get_settings.cache_clear()
+
+
 def test_domain_profile_missing_prompt_file_raises(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -249,6 +268,44 @@ def test_load_cretskens_profile_reads_prompts_and_intro(tmp_path: Path) -> None:
     assert profile.recommendation_intro == (
         "Leuk, ik heb een paar mooie opties voor je klaargezet."
     )
+
+
+def test_load_cretskens_profile_supports_tilde_prompt_paths(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    home_dir = tmp_path / "home"
+    prompts_dir = home_dir / "prompts"
+    prompts_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home_dir))
+    (prompts_dir / "turn_controller_prompt.txt").write_text(
+        "tilde controller prompt",
+        encoding="utf-8",
+    )
+    (prompts_dir / "ranker_prompt.txt").write_text(
+        "tilde ranker prompt",
+        encoding="utf-8",
+    )
+    profile_path = tmp_path / "advisor_profile.yml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "prompts:",
+                "  turn_controller_path: ~/prompts/turn_controller_prompt.txt",
+                "  ranker_path: ~/prompts/ranker_prompt.txt",
+                'recommendation_intro: "Tilde intro"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    from pixie_questioner.wine_advisor.profile_loader import load_cretskens_profile
+
+    profile = load_cretskens_profile(profile_path)
+
+    assert profile.turn_controller_prompt == "tilde controller prompt"
+    assert profile.ranker_prompt == "tilde ranker prompt"
+    assert profile.recommendation_intro == "Tilde intro"
 
 
 # --- Profile layering (extends + variables) tests ---

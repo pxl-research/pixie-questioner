@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .chat.policy import ChatDomainPolicy, ChatQuickReply
@@ -510,6 +510,27 @@ class Settings(BaseSettings):
     state_session_ttl_seconds: int = Field(
         default=1800, alias="STATE_SESSION_TTL_SECONDS"
     )
+
+    @field_validator("brooklyn_domain_profile_path", mode="before")
+    @classmethod
+    def _normalize_blank_brooklyn_domain_profile_path(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return DEFAULT_BROOKLYN_PROFILE_PATH
+        return value
+
+    @field_validator("cretskens_profile_path", mode="before")
+    @classmethod
+    def _normalize_blank_cretskens_profile_path(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return DEFAULT_CRETSKENS_PROFILE_PATH
+        return value
+
+    @field_validator("cretskens_wine_catalog_path", mode="before")
+    @classmethod
+    def _normalize_blank_cretskens_wine_catalog_path(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return DEFAULT_WINE_CATALOG_PATH
+        return value
 
     @property
     def brooklyn_domain_profile(self) -> ResolvedDomainProfile:
