@@ -158,6 +158,10 @@ docker compose -f docker-compose.dev.yml up --build
 RUN_LIVE_LLM_TESTS=0 docker compose -f docker-compose.dev.yml run --rm api pytest
 ```
 
+This is the recommended local default. Use
+`docker compose -f docker-compose.dev.yml run --rm api pytest`
+only when you explicitly want the environment default.
+
 ## Live Smoke Test
 
 ```bash
@@ -176,15 +180,6 @@ docker compose -f docker-compose.dev.yml run --rm api uv tool run ty check
 docker compose -f docker-compose.dev.yml run --rm api ruff check . --select S
 docker compose -f docker-compose.dev.yml run --rm api uv tool run bandit -r src
 ```
-
-## Test Notes
-
-```bash
-docker compose -f docker-compose.dev.yml run --rm api pytest
-```
-
-Use the command above only when you explicitly want the environment default. For local development,
-prefer `RUN_LIVE_LLM_TESTS=0` so the suite does not require Azure credentials.
 
 ## Format
 

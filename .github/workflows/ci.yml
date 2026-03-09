@@ -84,6 +84,15 @@ jobs:
           fi
 
       - name: Run test suite
+        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/main'
+        env:
+          RUN_LIVE_LLM_TESTS: "0"
+        run: |
+          docker compose -f docker-compose.dev.yml run --rm \
+            -e RUN_LIVE_LLM_TESTS \
+            api pytest
+
+      - name: Run live-enabled test suite
         if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
         env:
           RUN_LIVE_LLM_TESTS: "1"
