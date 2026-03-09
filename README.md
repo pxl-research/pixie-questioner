@@ -23,7 +23,6 @@ Open `http://localhost:8000/docs` for the OpenAPI UI.
 ### POST /cases/{case_id}/chat
 
 - `case_id` supports `brooklyn` and `cretskens`.
-- `case2` is still accepted as a backward-compatible alias for `cretskens`.
 - Request JSON:
   - `session_id` (str)
   - `current_answer` (str)
@@ -31,22 +30,10 @@ Open `http://localhost:8000/docs` for the OpenAPI UI.
 - Response shape depends on case:
   - `brooklyn`: `answer` or `summary`
   - `cretskens`: `question` or `recommendations`
-
-### POST /chat
-
-- Request JSON:
-  - `session_id` (str)
-  - `current_answer` (str)
-  - `state` (object, default empty)
-- Legacy route that forwards to `DEFAULT_CASE`.
-- Response for `cretskens` question: `{"type": "question", "text": "...", "conversation_id": "...", "state": {...}}`.
-- Response for `cretskens` recommendations: `{"type": "recommendations", "text": "...", "recommendations": [...], "conversation_id": "...", "state": {...}}`.
 The `conversation_id` echoes the request `session_id`.
 Store the returned `state` and send it back on the next turn.
 On the first turn, send an empty object for `state`.
 Treat `state` as opaque; its contents are service-specific.
-Optional: set `state.debug_mode=true` to request compact debug traces in `state.debug.trace`
-when backend debug mode is enabled.
 When `type` is `recommendations`, each recommendation item contains:
 - `name`
 - `price_eur`
@@ -67,9 +54,6 @@ Response headers:
 Canonical chat contracts live in `pixie-contracts`:
 - `pixie-contracts/contracts/chat/brooklyn/v2/openapi.yaml`
 - `pixie-contracts/contracts/chat/cretskens/v1/openapi.yaml`
-
-`POST /chat` remains supported as a convenience alias to `DEFAULT_CASE`, but the
-case-qualified routes above are the stable source of truth for clients.
 
 ### GET /health
 
@@ -99,29 +83,24 @@ Set environment variables in `.env.dev`:
 - `ADVANCED_AZURE_OPENAI_TEMPERATURE`
 - `ADVANCED_AZURE_OPENAI_TIMEOUT_SECONDS` (optional, default `15`)
 - `ADVANCED_AZURE_OPENAI_MAX_TOKENS` (optional, default `450`)
-- `DEFAULT_CASE` (optional; `brooklyn` or `cretskens`, default `brooklyn`; legacy `case2` is still accepted)
-- `DOMAIN_PROFILE_PATH` (legacy fallback for Brooklyn profile path)
-- `BROOKLYN_DOMAIN_PROFILE_PATH` (optional override for Brooklyn profile path)
-- `CRETSKENS_DOMAIN_PROFILE_PATH` (optional preferred override for the Cretskens profile path)
-- `CASE2_DOMAIN_PROFILE_PATH` (legacy override for the Cretskens profile path)
-- `WINE_CATALOG_PATH` (legacy fallback for the Cretskens catalog path)
-- `CRETSKENS_WINE_CATALOG_PATH` (optional preferred override for the Cretskens catalog path)
-- `CASE2_WINE_CATALOG_PATH` (legacy override for the Cretskens catalog path)
+- `BROOKLYN_DOMAIN_PROFILE_PATH` (optional, default `profiles/brooklyn/domain_profile.yml`)
+- `CRETSKENS_PROFILE_PATH` (optional, default `profiles/cretskens/advisor_profile.yml`)
+- `CRETSKENS_WINE_CATALOG_PATH` (optional, default `profiles/cretskens/cretskens_wijnen_reduced.xlsx`)
 - `WINE_ADVISOR_CANDIDATE_LIMIT` (optional, default `40`)
 - `WINE_ADVISOR_MAX_INPUT_CHARS` (optional, default `600`)
 - `WINE_ADVISOR_MAX_STATE_BYTES` (optional, default `12000`)
 - `WINE_ADVISOR_MAX_WORKING_CONTEXT_CHARS` (optional, default `2200`)
 - `WINE_ADVISOR_MAX_HISTORY_ITEMS` (optional, default `8`)
 - `WINE_ADVISOR_MAX_HISTORY_ITEM_CHARS` (optional, default `240`)
-- `WINE_ADVISOR_DEBUG_ENABLED` (optional; default `true`, set `false` to disable debug traces server-side)
 - `AUDIT_API_URL` (optional)
 - `AUDIT_API_KEY` (optional)
 - `AUDIT_PROFILE` (optional)
 - `AUDIT_TIMEOUT_SECONDS` (optional, default 5)
 - `STATE_SIGNING_KEY` (recommended; if omitted, signed state breaks across restarts)
 - `STATE_SESSION_TTL_SECONDS` (optional, default `1800`)
+- `TRUSTED_PROXY_IPS` (optional comma-separated list of proxy IPs/hosts allowed to supply `X-Forwarded-For`)
 
-`CRETSKENS_WINE_CATALOG_PATH` (or legacy `CASE2_WINE_CATALOG_PATH` / `WINE_CATALOG_PATH`) points to the XLSX catalog with required columns:
+`CRETSKENS_WINE_CATALOG_PATH` points to the XLSX catalog with required columns:
 - `barcode`
 - `naam`
 - `prijs`
@@ -133,12 +112,16 @@ Set environment variables in `.env.dev`:
 - `smaak_beschrijving`
 - `foodpair_beschrijving`
 
-`BROOKLYN_DOMAIN_PROFILE_PATH` (or legacy `DOMAIN_PROFILE_PATH`) points to a YAML domain profile that defines:
+`BROOKLYN_DOMAIN_PROFILE_PATH` points to a YAML domain profile that defines:
 - prompt file paths (question asker, notulist, template, summarizer, relevance classifier)
 - localized runtime copy (handoff, feedback, off-topic, goodbye)
 - quick replies and normalization tokens
 - stop detection phrases/context tokens
 - behavior knobs (`completion_token`, off-topic threshold)
+
+`CRETSKENS_PROFILE_PATH` points to a YAML advisor profile that defines:
+- prompt file paths for the turn controller and ranker
+- the recommendation intro copy used in API responses
 
 Prompt paths inside the profile can be absolute or relative to the profile file directory.
 If `AUDIT_API_URL` is set, the service posts interaction events to `/events` using `AUDIT_PROFILE`

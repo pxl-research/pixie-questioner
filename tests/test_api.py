@@ -11,6 +11,7 @@ from zipfile import ZipFile
 from fastapi.testclient import TestClient
 
 from pixie_questioner import config as config_module
+from pixie_questioner.rate_limiter import SlidingWindowRateLimiter
 from pixie_questioner.schemas import CHAT_CONTRACT_VERSION
 from pixie_questioner.wine_advisor.types import (
     WineAdvisorResult,
@@ -130,6 +131,40 @@ def _write_prompt(path: Path, content: str) -> Path:
     return path
 
 
+def _write_cretskens_profile(tmp_path: Path) -> Path:
+    _write_prompt(
+        tmp_path / "turn_controller_prompt.txt",
+        "\n".join(
+            [
+                "You are a wine-advice intake controller.",
+                "Preference loop before recommendation",
+                "budget, country/region of origin, grape variety, and style",
+                "friendly in-store wine advisor",
+                "Use upbeat openers only occasionally",
+                "Vary how questions start across turns",
+                "Mirror the customer's language (NL/EN/FR) used in recent messages.",
+                'If unsure between question vs recommend, choose action "question".',
+            ]
+        ),
+    )
+    _write_prompt(
+        tmp_path / "ranker_prompt.txt",
+        "Select the best candidate barcodes for this customer.",
+    )
+    return _write_prompt(
+        tmp_path / "advisor_profile.yml",
+        "\n".join(
+            [
+                "version: 1",
+                "prompts:",
+                "  turn_controller_path: turn_controller_prompt.txt",
+                "  ranker_path: ranker_prompt.txt",
+                'recommendation_intro: "Leuk, ik heb een paar mooie opties voor je klaargezet."',
+            ]
+        ),
+    )
+
+
 def _set_env(monkeypatch, tmp_path: Path) -> None:
     _write_prompt(tmp_path / "question_asker.txt", "system {summary}")
     _write_prompt(
@@ -144,7 +179,7 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
         tmp_path / "relevance_classifier.txt",
         "Return ON_TOPIC or OFF_TOPIC for {current_question} and {current_answer}",
     )
-    profile_path = _write_prompt(
+    brooklyn_profile_path = _write_prompt(
         tmp_path / "domain_profile.yml",
         "\n".join(
             [
@@ -205,6 +240,7 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
             ]
         ),
     )
+    cretskens_profile_path = _write_cretskens_profile(tmp_path)
 
     catalog_path = tmp_path / "catalog.xlsx"
     _build_catalog_xlsx(catalog_path)
@@ -213,9 +249,9 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("AZURE_OPENAI_KEY", "test-key")
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_API_VERSION", "2024-01-01")
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_MODEL", "gpt-test")
-    monkeypatch.setenv("DOMAIN_PROFILE_PATH", str(profile_path))
-    monkeypatch.setenv("WINE_CATALOG_PATH", str(catalog_path))
-    monkeypatch.setenv("DEFAULT_CASE", "case2")
+    monkeypatch.setenv("BROOKLYN_DOMAIN_PROFILE_PATH", str(brooklyn_profile_path))
+    monkeypatch.setenv("CRETSKENS_PROFILE_PATH", str(cretskens_profile_path))
+    monkeypatch.setenv("CRETSKENS_WINE_CATALOG_PATH", str(catalog_path))
 
 
 def _load_main(monkeypatch, tmp_path: Path):
@@ -286,13 +322,13 @@ def test_chat_returns_question_and_audits(monkeypatch, tmp_path: Path) -> None:
     )
     advisor_stub = StubWineAdvisorService(result)
     audit_stub = StubAuditClient()
-    main.runtime.case2_wine_advisor_service = advisor_stub
+    main.runtime.cretskens_wine_advisor_service = advisor_stub
     main.runtime.audit_client = audit_stub
     request_state = {"location": "Antwerpen"}
 
     client = TestClient(main.app)
     response = client.post(
-        "/chat",
+        "/cases/cretskens/chat",
         json={
             "session_id": "session-1",
             "current_answer": "Ik eet rund",
@@ -342,12 +378,12 @@ def test_chat_returns_recommendations(monkeypatch, tmp_path: Path) -> None:
         ],
     )
     advisor_stub = StubWineAdvisorService(result)
-    main.runtime.case2_wine_advisor_service = advisor_stub
+    main.runtime.cretskens_wine_advisor_service = advisor_stub
     main.runtime.audit_client = None
 
     client = TestClient(main.app)
     response = client.post(
-        "/chat",
+        "/cases/cretskens/chat",
         json={
             "session_id": "session-2",
             "current_answer": "Toon opties",
@@ -380,12 +416,12 @@ def test_chat_audit_omits_blank_location_metadata(monkeypatch, tmp_path: Path) -
     )
     advisor_stub = StubWineAdvisorService(result)
     audit_stub = StubAuditClient()
-    main.runtime.case2_wine_advisor_service = advisor_stub
+    main.runtime.cretskens_wine_advisor_service = advisor_stub
     main.runtime.audit_client = audit_stub
 
     client = TestClient(main.app)
     response = client.post(
-        "/chat",
+        "/cases/cretskens/chat",
         json={
             "session_id": "session-3",
             "current_answer": "geen idee",
@@ -405,7 +441,7 @@ def test_chat_rejects_overlong_input(monkeypatch, tmp_path: Path) -> None:
     client = TestClient(main.app)
 
     response = client.post(
-        "/chat",
+        "/cases/cretskens/chat",
         json={
             "session_id": "session-too-long",
             "current_answer": "x" * (main.settings.wine_advisor_max_input_chars + 1),
@@ -427,11 +463,11 @@ def test_chat_respects_configured_input_limit(monkeypatch, tmp_path: Path) -> No
             recommendations=None,
         )
     )
-    main.runtime.case2_wine_advisor_service = advisor_stub
+    main.runtime.cretskens_wine_advisor_service = advisor_stub
     client = TestClient(main.app)
 
     response = client.post(
-        "/chat",
+        "/cases/cretskens/chat",
         json={
             "session_id": "session-tight-input-limit",
             "current_answer": "abcdef",
@@ -447,7 +483,7 @@ def test_chat_rejects_oversized_state_payload(monkeypatch, tmp_path: Path) -> No
     client = TestClient(main.app)
 
     response = client.post(
-        "/chat",
+        "/cases/cretskens/chat",
         json={
             "session_id": "session-large-state",
             "current_answer": "hallo",
@@ -472,13 +508,13 @@ def test_chat_respects_configured_state_size_limit(monkeypatch, tmp_path: Path) 
         )
     )
     signer = PassthroughStateSigner()
-    main.runtime.case2_wine_advisor_service = advisor_stub
-    main.runtime.case2_state_signer = signer
+    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    main.runtime.cretskens_state_signer = signer
     main.runtime.brooklyn_state_signer = signer
     client = TestClient(main.app)
 
     response = client.post(
-        "/chat",
+        "/cases/cretskens/chat",
         json={
             "session_id": "session-tight-state-limit",
             "current_answer": "hallo",
@@ -489,11 +525,110 @@ def test_chat_respects_configured_state_size_limit(monkeypatch, tmp_path: Path) 
     assert response.status_code == 422
 
 
+def test_legacy_chat_route_returns_404(monkeypatch, tmp_path: Path) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    client = TestClient(main.app)
+
+    response = client.post(
+        "/chat",
+        json={
+            "session_id": "legacy-chat-route",
+            "current_answer": "hallo",
+            "state": {},
+        },
+    )
+
+    assert response.status_code == 404
+
+
+def test_chat_ignores_x_forwarded_for_for_ip_rate_limits(
+    monkeypatch, tmp_path: Path
+) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    advisor_stub = StubWineAdvisorService(
+        WineAdvisorResult(
+            text="Vraag",
+            response_type="question",
+            state={"phase": "intake", "turn_count": 1},
+            recommendations=None,
+        )
+    )
+    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    main.runtime.ip_rate_limiter = SlidingWindowRateLimiter(
+        max_requests=1, window_seconds=60
+    )
+    client = TestClient(main.app)
+
+    first_response = client.post(
+        "/cases/cretskens/chat",
+        headers={"X-Forwarded-For": "198.51.100.10"},
+        json={
+            "session_id": "session-forwarded-1",
+            "current_answer": "hallo",
+            "state": {},
+        },
+    )
+    second_response = client.post(
+        "/cases/cretskens/chat",
+        headers={"X-Forwarded-For": "203.0.113.20"},
+        json={
+            "session_id": "session-forwarded-2",
+            "current_answer": "hallo",
+            "state": {},
+        },
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 429
+
+
+def test_chat_uses_x_forwarded_for_for_trusted_proxy_ip_rate_limits(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("TRUSTED_PROXY_IPS", "testclient")
+    main = _load_main(monkeypatch, tmp_path)
+    advisor_stub = StubWineAdvisorService(
+        WineAdvisorResult(
+            text="Vraag",
+            response_type="question",
+            state={"phase": "intake", "turn_count": 1},
+            recommendations=None,
+        )
+    )
+    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    main.runtime.ip_rate_limiter = SlidingWindowRateLimiter(
+        max_requests=1, window_seconds=60
+    )
+    client = TestClient(main.app)
+
+    first_response = client.post(
+        "/cases/cretskens/chat",
+        headers={"X-Forwarded-For": "198.51.100.10"},
+        json={
+            "session_id": "session-trusted-forwarded-1",
+            "current_answer": "hallo",
+            "state": {},
+        },
+    )
+    second_response = client.post(
+        "/cases/cretskens/chat",
+        headers={"X-Forwarded-For": "203.0.113.20"},
+        json={
+            "session_id": "session-trusted-forwarded-2",
+            "current_answer": "hallo",
+            "state": {},
+        },
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+
 def test_turn_controller_prompt_includes_preference_loop_rules(
     monkeypatch, tmp_path: Path
 ) -> None:
     main = _load_main(monkeypatch, tmp_path)
-    prompt = main.TURN_CONTROLLER_PROMPT
+    prompt = main.settings.cretskens_profile.turn_controller_prompt
 
     assert "Preference loop before recommendation" in prompt
     assert "budget, country/region of origin, grape variety, and style" in prompt

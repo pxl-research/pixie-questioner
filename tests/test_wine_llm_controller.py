@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+from collections.abc import Awaitable
 
 import pytest
 
@@ -16,10 +18,35 @@ class FakeLLM:
         self.calls: list[list[dict[str, str]]] = []
 
     async def ainvoke(self, messages: list[dict[str, str]]) -> str:
+        await asyncio.sleep(0)
         self.calls.append(messages)
         if not self.responses:
             raise AssertionError("No responses left for FakeLLM")
         return self.responses.pop(0)
+
+
+class RaisingLLM:
+    def __init__(self, exception: Exception):
+        self.exception = exception
+        self.calls: list[list[dict[str, str]]] = []
+
+    async def ainvoke(self, messages: list[dict[str, str]]) -> str:
+        await asyncio.sleep(0)
+        self.calls.append(messages)
+        raise self.exception
+
+
+async def _observe_coroutine_yield(coro: Awaitable[object]) -> list[str]:
+    order: list[str] = []
+    loop = asyncio.get_running_loop()
+    loop.call_soon(order.append, "loop")
+    try:
+        await coro
+    except Exception as exc:
+        order.append(type(exc).__name__)
+    order.append("done")
+    await asyncio.sleep(0)
+    return order
 
 
 def _candidate_records() -> list[WineCatalogRecord]:
@@ -87,6 +114,26 @@ def test_turn_controller_returns_structured_decision() -> None:
     assert decision.action == "question"
     assert decision.question_text == "Welke smaken vind je lekker?"
     assert decision.meal_mode == "pairing"
+
+
+def test_fake_llm_ainvoke_yields_to_event_loop() -> None:
+    llm = FakeLLM(['{"action":"question","question_text":"Vraag"}'])
+
+    order = asyncio.run(
+        _observe_coroutine_yield(llm.ainvoke([{"role": "system", "content": "test"}]))
+    )
+
+    assert order[0] == "loop"
+
+
+def test_raising_llm_ainvoke_yields_to_event_loop() -> None:
+    llm = RaisingLLM(RuntimeError("boom"))
+
+    order = asyncio.run(
+        _observe_coroutine_yield(llm.ainvoke([{"role": "system", "content": "test"}]))
+    )
+
+    assert order[0] == "loop"
 
 
 def test_turn_controller_includes_stateful_context_in_prompt() -> None:
@@ -208,3 +255,26 @@ def test_ranker_raises_when_two_attempts_are_invalid() -> None:
             )
         )
     assert len(llm.calls) == 2
+
+
+def test_ranker_logs_warning_when_attempts_raise(caplog) -> None:
+    llm = RaisingLLM(RuntimeError("ranker failed"))
+    ranker = LLMWineRanker(
+        llm=llm,
+        system_prompt_template="context={working_context};candidates={candidate_barcodes}",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(RuntimeError):
+            asyncio.run(
+                ranker.select_with_explanation(
+                    working_context="Klant zoekt wijn bij rund",
+                    candidate_records=_candidate_records(),
+                    candidate_barcodes=["c1", "c2", "c3"],
+                    min_count=1,
+                    max_count=3,
+                )
+            )
+
+    assert len(llm.calls) == 2
+    assert "ranker attempt" in caplog.text

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 
@@ -12,6 +13,7 @@ from ..llm_client import extract_llm_content, resolve_llm_client
 from .catalog_models import WineCatalogRecord
 
 _JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", flags=re.DOTALL)
+logger = logging.getLogger(__name__)
 
 
 class _RankerPayload(BaseModel):
@@ -175,6 +177,7 @@ class LLMWineRanker:
                 retry_reason="",
             )
         except Exception:
+            logger.warning("Wine ranker attempt 1 failed.", exc_info=True)
             first_attempt = RankerSelection(barcodes=[], explanation="")
 
         first_valid, reason = self._validate_selection(
@@ -196,6 +199,7 @@ class LLMWineRanker:
                 retry_reason=reason,
             )
         except Exception:
+            logger.warning("Wine ranker attempt 2 failed.", exc_info=True)
             second_attempt = RankerSelection(barcodes=[], explanation="")
 
         second_valid, _ = self._validate_selection(

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable
 from dataclasses import dataclass
+from typing import Any, get_type_hints
 
 from pixie_questioner.wine_advisor.catalog_models import WineCatalogRecord
 from pixie_questioner.wine_advisor.llm_controller import TurnDecision
@@ -25,6 +27,7 @@ class StubController:
         last_question: str,
         conversation_history: str,
     ) -> TurnDecision:
+        await asyncio.sleep(0)
         self.calls.append(
             {
                 "current_answer": current_answer,
@@ -64,6 +67,7 @@ class StubRanker:
         min_count: int,
         max_count: int,
     ) -> list[str]:
+        await asyncio.sleep(0)
         self.calls.append(
             {
                 "working_context": working_context,
@@ -112,6 +116,7 @@ class EchoRanker:
         min_count: int,
         max_count: int,
     ) -> _StubRankerSelection:
+        await asyncio.sleep(0)
         self.calls.append(
             {
                 "working_context": working_context,
@@ -126,6 +131,16 @@ class EchoRanker:
             barcodes=list(candidate_barcodes[:count]),
             explanation="echo selection",
         )
+
+
+async def _observe_coroutine_yield(coro: Awaitable[object]) -> list[str]:
+    order: list[str] = []
+    loop = asyncio.get_running_loop()
+    loop.call_soon(order.append, "loop")
+    await coro
+    order.append("done")
+    await asyncio.sleep(0)
+    return order
 
 
 def _catalog() -> list[WineCatalogRecord]:
@@ -206,6 +221,78 @@ def test_ask_returns_one_question_in_intake_phase() -> None:
     assert result.recommendations is None
     assert result.state["phase"] == "intake"
     assert result.state["turn_count"] == 1
+
+
+def test_service_collaborators_are_not_typed_as_any() -> None:
+    hints = get_type_hints(WineAdvisorService)
+
+    assert hints["turn_controller"] is not Any
+    assert hints["ranker"] is not Any
+
+
+def test_stub_controller_decide_yields_to_event_loop() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="question",
+                question_text="Welke stijl zoek je?",
+                meal_mode="pairing",
+                query_hints="",
+            )
+        ]
+    )
+
+    order = asyncio.run(
+        _observe_coroutine_yield(
+            controller.decide(
+                current_answer="Ik eet rund",
+                working_context="Klant zoekt wijn",
+                turn_count=1,
+                max_turns=6,
+                current_meal_mode="unknown",
+                last_question="Wat eet je?",
+                conversation_history="",
+            )
+        )
+    )
+
+    assert order[0] == "loop"
+
+
+def test_stub_ranker_select_barcodes_yields_to_event_loop() -> None:
+    ranker = StubRanker([["w1"]])
+
+    order = asyncio.run(
+        _observe_coroutine_yield(
+            ranker.select_barcodes(
+                working_context="Klant zoekt wijn",
+                candidate_records=_catalog(),
+                candidate_barcodes=["w1", "w2"],
+                min_count=1,
+                max_count=2,
+            )
+        )
+    )
+
+    assert order[0] == "loop"
+
+
+def test_echo_ranker_select_with_explanation_yields_to_event_loop() -> None:
+    ranker = EchoRanker()
+
+    order = asyncio.run(
+        _observe_coroutine_yield(
+            ranker.select_with_explanation(
+                working_context="Klant zoekt wijn",
+                candidate_records=_catalog(),
+                candidate_barcodes=["w1", "w2"],
+                min_count=1,
+                max_count=2,
+            )
+        )
+    )
+
+    assert order[0] == "loop"
 
 
 def test_ask_can_complete_before_turn_six() -> None:
@@ -386,7 +473,7 @@ def test_ask_respects_controller_recommend_action_for_drinking_only() -> None:
                 action="recommend",
                 question_text="",
                 meal_mode="drinking_only",
-                query_hints="",
+                query_hints="frisse witte wijn",
             )
         ]
     )
@@ -445,117 +532,59 @@ def test_ask_shortlists_catalog_records_from_query_hints() -> None:
     assert [item.barcode for item in (result.recommendations or [])] == ["w4"]
 
 
-def test_ask_debug_mode_stores_controller_trace_for_question() -> None:
+def test_ask_question_without_query_hints_keeps_candidate_list_empty() -> None:
     controller = StubController(
         [
             TurnDecision(
                 action="question",
-                question_text="Welke kleur wijn heb je liefst?",
-                meal_mode="drinking_only",
+                question_text="Welke kleur wijn heb je in gedachten?",
+                meal_mode="pairing",
                 query_hints="",
-                explanation="Meal mode is drinking_only and color preference is missing.",
             )
         ]
     )
-    ranker = StubRanker([])
+    ranker = EchoRanker()
     service = WineAdvisorService(
         catalog_records=_catalog(),
         turn_controller=controller,
         ranker=ranker,
+        candidate_limit=1,
     )
 
-    result = asyncio.run(
-        service.ask(
-            current_answer="Gewoon los drinken",
-            state={"debug_mode": True},
-        )
-    )
+    result = asyncio.run(service.ask(current_answer="Ik zoek wijn", state={}))
 
     assert result.response_type == "question"
-    debug = result.state["debug"]
-    assert debug["enabled"] is True
-    trace = debug["trace"]
-    assert isinstance(trace, list)
-    assert trace[0]["action"] == "question"
-    assert trace[0]["controller_explanation"] == (
-        "Meal mode is drinking_only and color preference is missing."
-    )
+    assert len(ranker.calls) == 0
+    assert result.state["candidate_barcodes"] == []
 
 
-def test_ask_debug_mode_stores_ranker_trace_for_recommendations() -> None:
+def test_ask_recommend_without_query_hints_or_candidates_raises() -> None:
     controller = StubController(
         [
             TurnDecision(
                 action="recommend",
                 question_text="",
                 meal_mode="pairing",
-                query_hints="vol-au-vent romig",
-                explanation="Dish and wine preferences are sufficient for a shortlist.",
-            )
-        ]
-    )
-    ranker = StubRanker(
-        [["w1", "w2", "w3"]],
-        explanations=["Balanced match on acidity, texture and budget."],
-    )
-    service = WineAdvisorService(
-        catalog_records=_catalog(),
-        turn_controller=controller,
-        ranker=ranker,
-    )
-
-    result = asyncio.run(
-        service.ask(
-            current_answer="Geef suggesties",
-            state={
-                "debug_mode": True,
-                "turn_count": 2,
-                "meal_mode": "pairing",
-                "working_context": "Vol-au-vent, budget rond 15 euro, liever wit.",
-            },
-        )
-    )
-
-    assert result.response_type == "recommendations"
-    debug = result.state["debug"]
-    trace = debug["trace"]
-    assert isinstance(trace, list)
-    assert trace[0]["action"] == "recommend"
-    assert trace[0]["selected_barcodes"] == ["w1", "w2", "w3"]
-    assert trace[0]["ranker_explanation"] == (
-        "Balanced match on acidity, texture and budget."
-    )
-
-
-def test_ask_debug_mode_is_ignored_when_backend_debug_disabled() -> None:
-    controller = StubController(
-        [
-            TurnDecision(
-                action="question",
-                question_text="Welke kleur wijn heb je liefst?",
-                meal_mode="drinking_only",
                 query_hints="",
-                explanation="Missing color preference.",
             )
         ]
     )
-    ranker = StubRanker([])
+    ranker = StubRanker([["w1", "w2", "w3"]])
     service = WineAdvisorService(
         catalog_records=_catalog(),
         turn_controller=controller,
         ranker=ranker,
-        debug_mode_allowed=False,
+        candidate_limit=1,
     )
 
-    result = asyncio.run(
-        service.ask(
-            current_answer="Gewoon los drinken",
-            state={"debug_mode": True},
-        )
-    )
+    try:
+        asyncio.run(service.ask(current_answer="Geef suggesties", state={}))
+    except RuntimeError as exc:
+        assert "query hints or persisted candidates" in str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError for missing query hints.")
 
-    assert result.response_type == "question"
-    assert "debug" not in result.state
+    assert len(ranker.calls) == 0
 
 
 def test_ask_truncates_working_context_before_controller_call() -> None:

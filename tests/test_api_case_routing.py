@@ -131,6 +131,29 @@ def _write_prompt(path: Path, content: str) -> Path:
     return path
 
 
+def _write_cretskens_profile(tmp_path: Path) -> Path:
+    _write_prompt(
+        tmp_path / "turn_controller_prompt.txt",
+        "You are a wine-advice intake controller.",
+    )
+    _write_prompt(
+        tmp_path / "ranker_prompt.txt",
+        "Select the best candidate barcodes for this customer.",
+    )
+    return _write_prompt(
+        tmp_path / "advisor_profile.yml",
+        "\n".join(
+            [
+                "version: 1",
+                "prompts:",
+                "  turn_controller_path: turn_controller_prompt.txt",
+                "  ranker_path: ranker_prompt.txt",
+                'recommendation_intro: "Leuk, ik heb een paar mooie opties voor je klaargezet."',
+            ]
+        ),
+    )
+
+
 def _set_env(monkeypatch, tmp_path: Path) -> None:
     _write_prompt(tmp_path / "question_asker.txt", "system {summary}")
     _write_prompt(
@@ -145,7 +168,7 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
         tmp_path / "relevance_classifier.txt",
         "Return ON_TOPIC or OFF_TOPIC for {current_question} and {current_answer}",
     )
-    profile_path = _write_prompt(
+    brooklyn_profile_path = _write_prompt(
         tmp_path / "domain_profile.yml",
         "\n".join(
             [
@@ -206,6 +229,7 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
             ]
         ),
     )
+    cretskens_profile_path = _write_cretskens_profile(tmp_path)
 
     catalog_path = tmp_path / "catalog.xlsx"
     _build_catalog_xlsx(catalog_path)
@@ -214,11 +238,9 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("AZURE_OPENAI_KEY", "test-key")
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_API_VERSION", "2024-01-01")
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_MODEL", "gpt-test")
-    monkeypatch.setenv("DOMAIN_PROFILE_PATH", str(profile_path))
-    monkeypatch.setenv("WINE_CATALOG_PATH", str(catalog_path))
-    monkeypatch.setenv("BROOKLYN_DOMAIN_PROFILE_PATH", str(profile_path))
-    monkeypatch.setenv("CASE2_DOMAIN_PROFILE_PATH", str(profile_path))
-    monkeypatch.setenv("CASE2_WINE_CATALOG_PATH", str(catalog_path))
+    monkeypatch.setenv("BROOKLYN_DOMAIN_PROFILE_PATH", str(brooklyn_profile_path))
+    monkeypatch.setenv("CRETSKENS_PROFILE_PATH", str(cretskens_profile_path))
+    monkeypatch.setenv("CRETSKENS_WINE_CATALOG_PATH", str(catalog_path))
 
 
 def _load_main(monkeypatch, tmp_path: Path):
@@ -251,7 +273,7 @@ class StubBrooklynService:
         )
 
 
-class StubCase2Service:
+class StubCretskensService:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object]]] = []
 
@@ -264,7 +286,7 @@ class StubCase2Service:
         await asyncio.sleep(0)
         self.calls.append((current_answer, state))
         return WineAdvisorResult(
-            text="Case2 vraag",
+            text="Cretskens vraag",
             response_type="question",
             state={"phase": "intake", "turn_count": 1},
             recommendations=None,
@@ -276,9 +298,9 @@ def test_case_route_brooklyn_calls_brooklyn_handler(
 ) -> None:
     main = _load_main(monkeypatch, tmp_path)
     brooklyn_stub = StubBrooklynService()
-    case2_stub = StubCase2Service()
+    cretskens_stub = StubCretskensService()
     main.runtime.brooklyn_chat_service = brooklyn_stub
-    main.runtime.case2_wine_advisor_service = case2_stub
+    main.runtime.cretskens_wine_advisor_service = cretskens_stub
 
     client = TestClient(main.app)
     response = client.post(
@@ -294,15 +316,23 @@ def test_case_route_brooklyn_calls_brooklyn_handler(
     assert response.headers["X-Pixie-Case"] == "brooklyn"
     assert response.headers["X-Pixie-Case-Contract"] == BROOKLYN_CHAT_CONTRACT_VERSION
     assert len(brooklyn_stub.calls) == 1
-    assert len(case2_stub.calls) == 0
+    assert len(cretskens_stub.calls) == 0
+
+
+def test_main_entrypoint_exports_only_runtime_surface(
+    monkeypatch, tmp_path: Path
+) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+
+    assert main.__all__ == ["app", "runtime", "settings"]
 
 
 def test_case_route_cretskens_calls_wine_handler(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     brooklyn_stub = StubBrooklynService()
-    case2_stub = StubCase2Service()
+    cretskens_stub = StubCretskensService()
     main.runtime.brooklyn_chat_service = brooklyn_stub
-    main.runtime.case2_wine_advisor_service = case2_stub
+    main.runtime.cretskens_wine_advisor_service = cretskens_stub
 
     client = TestClient(main.app)
     response = client.post(
@@ -318,17 +348,15 @@ def test_case_route_cretskens_calls_wine_handler(monkeypatch, tmp_path: Path) ->
     assert response.headers["X-Pixie-Case"] == "cretskens"
     assert response.headers["X-Pixie-Case-Contract"] == CRETSKENS_CHAT_CONTRACT_VERSION
     assert len(brooklyn_stub.calls) == 0
-    assert len(case2_stub.calls) == 1
+    assert len(cretskens_stub.calls) == 1
 
 
-def test_case_route_case2_alias_resolves_to_cretskens(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_case_route_case2_alias_returns_404(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     brooklyn_stub = StubBrooklynService()
-    case2_stub = StubCase2Service()
+    cretskens_stub = StubCretskensService()
     main.runtime.brooklyn_chat_service = brooklyn_stub
-    main.runtime.case2_wine_advisor_service = case2_stub
+    main.runtime.cretskens_wine_advisor_service = cretskens_stub
 
     client = TestClient(main.app)
     response = client.post(
@@ -340,11 +368,9 @@ def test_case_route_case2_alias_resolves_to_cretskens(
         },
     )
 
-    assert response.status_code == 200
-    assert response.headers["X-Pixie-Case"] == "cretskens"
-    assert response.headers["X-Pixie-Case-Contract"] == CRETSKENS_CHAT_CONTRACT_VERSION
+    assert response.status_code == 404
     assert len(brooklyn_stub.calls) == 0
-    assert len(case2_stub.calls) == 1
+    assert len(cretskens_stub.calls) == 0
 
 
 def test_case_route_unknown_case_returns_404(monkeypatch, tmp_path: Path) -> None:
@@ -363,13 +389,12 @@ def test_case_route_unknown_case_returns_404(monkeypatch, tmp_path: Path) -> Non
     assert response.status_code == 404
 
 
-def test_legacy_chat_route_uses_default_case(monkeypatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("DEFAULT_CASE", "brooklyn")
+def test_legacy_chat_route_returns_404(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     brooklyn_stub = StubBrooklynService()
-    case2_stub = StubCase2Service()
+    cretskens_stub = StubCretskensService()
     main.runtime.brooklyn_chat_service = brooklyn_stub
-    main.runtime.case2_wine_advisor_service = case2_stub
+    main.runtime.cretskens_wine_advisor_service = cretskens_stub
 
     client = TestClient(main.app)
     response = client.post(
@@ -381,39 +406,37 @@ def test_legacy_chat_route_uses_default_case(monkeypatch, tmp_path: Path) -> Non
         },
     )
 
-    assert response.status_code == 200
-    assert response.headers["X-Pixie-Case"] == "brooklyn"
-    assert response.headers["X-Pixie-Case-Contract"] == BROOKLYN_CHAT_CONTRACT_VERSION
-    assert len(brooklyn_stub.calls) == 1
-    assert len(case2_stub.calls) == 0
+    assert response.status_code == 404
+    assert len(brooklyn_stub.calls) == 0
+    assert len(cretskens_stub.calls) == 0
 
 
 def test_case_route_rejects_state_from_other_case(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     brooklyn_stub = StubBrooklynService()
-    case2_stub = StubCase2Service()
+    cretskens_stub = StubCretskensService()
     main.runtime.brooklyn_chat_service = brooklyn_stub
-    main.runtime.case2_wine_advisor_service = case2_stub
+    main.runtime.cretskens_wine_advisor_service = cretskens_stub
 
     client = TestClient(main.app)
 
-    case2_response = client.post(
-        "/cases/case2/chat",
+    cretskens_response = client.post(
+        "/cases/cretskens/chat",
         json={
             "session_id": "session-5",
             "current_answer": "ik zoek wijn",
             "state": {},
         },
     )
-    assert case2_response.status_code == 200
-    case2_state = case2_response.json()["state"]
+    assert cretskens_response.status_code == 200
+    cretskens_state = cretskens_response.json()["state"]
 
     brooklyn_response = client.post(
         "/cases/brooklyn/chat",
         json={
             "session_id": "session-6",
             "current_answer": "ik zoek een broek",
-            "state": case2_state,
+            "state": cretskens_state,
         },
     )
 

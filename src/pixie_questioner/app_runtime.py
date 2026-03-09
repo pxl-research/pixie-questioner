@@ -28,116 +28,32 @@ logger = logging.getLogger(__name__)
 
 CASE_BROOKLYN = "brooklyn"
 CASE_CRETSKENS = "cretskens"
-CASE_CASE2 = "case2"
 CaseId = Literal["brooklyn", "cretskens"]
-
-TURN_CONTROLLER_PROMPT = """
-You are a wine-advice intake controller.
-Decide if you need ONE next question or if you can recommend now.
-
-Rules:
-- Ask at most one question in this turn.
-- If this is the first turn, always choose action "question".
-- Question style for question_text:
-  - Sound like a friendly in-store wine advisor: warm, upbeat, and human.
-  - Use upbeat openers only occasionally; they are optional, not required.
-  - Vary how questions start across turns and avoid repeating the same opener.
-  - Keep it concise and natural, not robotic.
-  - Mirror the customer's language (NL/EN/FR) used in recent messages.
-  - Ask for one preference at a time in plain everyday wording.
-- Do not recommend until wine preference information is available:
-  color OR budget OR preferred style/aroma/taste OR origin (country/region),
-  unless the customer explicitly states no preference.
-- Preference loop before recommendation:
-  1) Proactively ask whether the customer has preferences for
-     budget, country/region of origin, grape variety, and style.
-  2) If the customer gives one preference, continue with the next
-     highest-value missing preference dimension.
-  3) Keep asking while the customer still has additional preferences.
-  4) Recommend only after the customer says there are no additional
-     preferences, or clearly asks to proceed with current constraints.
-- If meal_mode is "drinking_only", ask only wine preference questions
-  (never dish/taste-of-dish questions).
-- If meal_mode is "pairing", first clarify dish context only when still unclear,
-  then ask the highest-value missing wine preference question.
-- Recommend only when the context is specific enough for a confident shortlist.
-- If unsure between question vs recommend, choose action "question".
-- Return only JSON with keys:
-  action: "question" or "recommend"
-  question_text: string (required when action is question)
-  meal_mode: "pairing" | "drinking_only" | "unknown"
-  query_hints: concise search hints
-  decision_explanation: short factual reason for this action (no hidden reasoning)
-
-Current meal mode guess:
-{current_meal_mode}
-
-Last assistant question:
-{last_question}
-
-Recent conversation history:
-{conversation_history}
-
-Working context:
-{working_context}
-
-Latest user answer:
-{current_answer}
-
-Turn:
-{turn_count} / {max_turns}
-""".strip()
-
-RANKER_PROMPT = """
-Select the best candidate barcodes for this customer.
-Return only JSON with keys:
-- barcodes: ordered array
-- selection_explanation: short factual reason for this shortlist
-Use only candidate barcodes from the catalog rows below.
-
-Working context:
-{working_context}
-
-Candidate catalog rows (one JSON object per line):
-{candidate_catalog_rows}
-
-Candidate barcodes:
-{candidate_barcodes}
-
-Target count between {min_count} and {max_count}.
-
-Retry reason (if any):
-{retry_reason}
-""".strip()
 
 
 @dataclass
 class AppRuntime:
     settings: Settings
     brooklyn_chat_service: ChatService
-    case2_wine_advisor_service: WineAdvisorService
+    cretskens_wine_advisor_service: WineAdvisorService
     brooklyn_state_signer: StateSigner
-    case2_state_signer: StateSigner
+    cretskens_state_signer: StateSigner
     audit_client: AuditClient | None
     ip_rate_limiter: SlidingWindowRateLimiter
     session_rate_limiter: SlidingWindowRateLimiter
-
-    @property
-    def wine_advisor_service(self) -> WineAdvisorService:
-        return self.case2_wine_advisor_service
 
     def normalize_case_id(self, case_id: str) -> CaseId:
         normalized = case_id.strip().casefold()
         if normalized == CASE_BROOKLYN:
             return CASE_BROOKLYN
-        if normalized in {CASE_CRETSKENS, CASE_CASE2}:
+        if normalized == CASE_CRETSKENS:
             return CASE_CRETSKENS
         raise HTTPException(status_code=404, detail="Unknown case.")
 
     def state_signer_for(self, case_id: CaseId) -> StateSigner:
         if case_id == CASE_BROOKLYN:
             return self.brooklyn_state_signer
-        return self.case2_state_signer
+        return self.cretskens_state_signer
 
     def case_contract_version_for(self, case_id: CaseId) -> str:
         if case_id == CASE_BROOKLYN:
@@ -209,28 +125,29 @@ def _build_brooklyn_chat_service(
     )
 
 
-def _build_case2_wine_advisor_service(
+def _build_cretskens_wine_advisor_service(
     *, llm_client: object, settings: Settings
 ) -> WineAdvisorService:
-    catalog_records = load_wine_catalog(settings.case2_wine_catalog_path)
+    profile = settings.cretskens_profile
+    catalog_records = load_wine_catalog(settings.cretskens_wine_catalog_path)
     turn_controller = LLMTurnController(
         llm=llm_client,
-        system_prompt_template=TURN_CONTROLLER_PROMPT,
+        system_prompt_template=profile.turn_controller_prompt,
     )
     ranker = LLMWineRanker(
         llm=llm_client,
-        system_prompt_template=RANKER_PROMPT,
+        system_prompt_template=profile.ranker_prompt,
     )
     return WineAdvisorService(
         catalog_records=catalog_records,
         turn_controller=turn_controller,
         ranker=ranker,
+        recommendation_intro=profile.recommendation_intro,
         candidate_limit=settings.wine_advisor_candidate_limit,
         max_input_chars=settings.wine_advisor_max_input_chars,
         max_working_context_chars=settings.wine_advisor_max_working_context_chars,
         max_history_items=settings.wine_advisor_max_history_items,
         max_history_item_chars=settings.wine_advisor_max_history_item_chars,
-        debug_mode_allowed=settings.wine_advisor_debug_enabled,
     )
 
 
@@ -279,7 +196,7 @@ def build_runtime(settings: Settings | None = None) -> AppRuntime:
             llm_client=llm,
             profile=resolved_settings.brooklyn_domain_profile,
         ),
-        case2_wine_advisor_service=_build_case2_wine_advisor_service(
+        cretskens_wine_advisor_service=_build_cretskens_wine_advisor_service(
             llm_client=llm,
             settings=resolved_settings,
         ),
@@ -288,11 +205,10 @@ def build_runtime(settings: Settings | None = None) -> AppRuntime:
             ttl_seconds=resolved_settings.state_session_ttl_seconds,
             scope=CASE_BROOKLYN,
         ),
-        case2_state_signer=StateSigner(
+        cretskens_state_signer=StateSigner(
             secret_key=signing_key,
             ttl_seconds=resolved_settings.state_session_ttl_seconds,
-            # Keep the legacy scope so existing signed state remains valid.
-            scope=CASE_CASE2,
+            scope=CASE_CRETSKENS,
         ),
         audit_client=_build_audit_client(resolved_settings),
         ip_rate_limiter=SlidingWindowRateLimiter(max_requests=30, window_seconds=60),

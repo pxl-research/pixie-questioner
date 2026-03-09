@@ -12,11 +12,16 @@ WORKFLOW_PATH = Path(".github/workflows/auto-pr.yml")
 
 
 def _load_workflow() -> dict[str, Any]:
-    loaded = yaml.load(
-        WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
-    )
+    loaded = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
     assert isinstance(loaded, dict)
     return cast(dict[str, Any], loaded)
+
+
+def _workflow_on() -> dict[str, Any]:
+    workflow = cast(dict[Any, Any], _load_workflow())
+    on_config = workflow["on"] if "on" in workflow else workflow[True]
+    assert isinstance(on_config, dict)
+    return cast(dict[str, Any], on_config)
 
 
 def _workflow_script() -> str:
@@ -41,9 +46,7 @@ def _branch_pattern(script: str) -> re.Pattern[str]:
 
 
 def test_auto_pr_workflow_accepts_current_branch_prefixes() -> None:
-    workflow = _load_workflow()
-
-    branches = workflow["on"]["push"]["branches"]
+    branches = _workflow_on()["push"]["branches"]
     assert "feat/**" in branches
 
     pattern = _branch_pattern(_workflow_script())

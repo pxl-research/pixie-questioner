@@ -16,7 +16,7 @@ def _set_required_env(
     monkeypatch.setenv("AZURE_OPENAI_KEY", "test-key")
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_API_VERSION", "2024-01-01")
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_MODEL", "gpt-test")
-    monkeypatch.setenv("DOMAIN_PROFILE_PATH", str(profile_path))
+    monkeypatch.setenv("BROOKLYN_DOMAIN_PROFILE_PATH", str(profile_path))
 
 
 def _write_default_profile_assets(tmp_path: Path) -> Path:
@@ -101,13 +101,39 @@ term_replacements:
     return profile_path
 
 
+def _write_cretskens_profile_assets(tmp_path: Path) -> Path:
+    (tmp_path / "turn_controller_prompt.txt").write_text(
+        "friendly in-store wine advisor\nPreference loop before recommendation",
+        encoding="utf-8",
+    )
+    (tmp_path / "ranker_prompt.txt").write_text(
+        "Select the best candidate barcodes\nselection_explanation",
+        encoding="utf-8",
+    )
+
+    profile_path = tmp_path / "advisor_profile.yml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "prompts:",
+                "  turn_controller_path: turn_controller_prompt.txt",
+                "  ranker_path: ranker_prompt.txt",
+                'recommendation_intro: "Leuk, ik heb een paar mooie opties voor je klaargezet."',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return profile_path
+
+
 def test_load_prompt_missing_file_raises(tmp_path: Path) -> None:
     missing_path = tmp_path / "missing.txt"
     with pytest.raises(RuntimeError, match="Prompt file not found"):
         config.load_prompt(missing_path)
 
 
-def test_get_settings_loads_domain_profile(
+def test_get_settings_loads_brooklyn_domain_profile(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -116,7 +142,7 @@ def test_get_settings_loads_domain_profile(
     _set_required_env(monkeypatch, profile_path)
     config.get_settings.cache_clear()
     settings = config.get_settings()
-    profile = settings.domain_profile
+    profile = settings.brooklyn_domain_profile
 
     assert profile.question_asker_prompt == "asker {summary} {completion_token}"
     assert (
@@ -133,7 +159,23 @@ def test_get_settings_loads_domain_profile(
     config.get_settings.cache_clear()
 
 
-def test_get_settings_prefers_env_wine_catalog_path(
+def test_get_settings_prefers_cretskens_profile_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    brooklyn_profile_path = _write_default_profile_assets(tmp_path)
+    cretskens_profile_path = _write_cretskens_profile_assets(tmp_path)
+
+    _set_required_env(monkeypatch, brooklyn_profile_path)
+    monkeypatch.setenv("CRETSKENS_PROFILE_PATH", str(cretskens_profile_path))
+    config.get_settings.cache_clear()
+    settings = config.get_settings()
+
+    assert settings.cretskens_profile_path == cretskens_profile_path
+    config.get_settings.cache_clear()
+
+
+def test_get_settings_prefers_cretskens_wine_catalog_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -141,110 +183,45 @@ def test_get_settings_prefers_env_wine_catalog_path(
     catalog_path = tmp_path / "catalog.xlsx"
 
     _set_required_env(monkeypatch, profile_path)
-    monkeypatch.setenv("WINE_CATALOG_PATH", str(catalog_path))
+    monkeypatch.setenv("CRETSKENS_WINE_CATALOG_PATH", str(catalog_path))
     config.get_settings.cache_clear()
     settings = config.get_settings()
 
-    assert settings.wine_catalog_path == catalog_path
+    assert settings.cretskens_wine_catalog_path == catalog_path
     config.get_settings.cache_clear()
 
 
-def test_get_settings_uses_default_wine_catalog_path(
+def test_get_settings_uses_default_cretskens_wine_catalog_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
     profile_path = _write_default_profile_assets(tmp_path)
 
     _set_required_env(monkeypatch, profile_path)
-    monkeypatch.delenv("WINE_CATALOG_PATH", raising=False)
+    monkeypatch.delenv("CRETSKENS_WINE_CATALOG_PATH", raising=False)
     config.get_settings.cache_clear()
     settings = config.get_settings()
 
-    assert settings.wine_catalog_path == config.DEFAULT_WINE_CATALOG_PATH
+    assert settings.cretskens_wine_catalog_path == config.DEFAULT_WINE_CATALOG_PATH
     config.get_settings.cache_clear()
 
 
-def test_get_settings_can_disable_wine_advisor_debug(
+def test_get_settings_ignores_blank_path_overrides(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
     profile_path = _write_default_profile_assets(tmp_path)
 
     _set_required_env(monkeypatch, profile_path)
-    monkeypatch.setenv("WINE_ADVISOR_DEBUG_ENABLED", "false")
+    monkeypatch.setenv("BROOKLYN_DOMAIN_PROFILE_PATH", "   ")
+    monkeypatch.setenv("CRETSKENS_PROFILE_PATH", "")
+    monkeypatch.setenv("CRETSKENS_WINE_CATALOG_PATH", " ")
     config.get_settings.cache_clear()
     settings = config.get_settings()
 
-    assert settings.wine_advisor_debug_enabled is False
-    config.get_settings.cache_clear()
-
-
-def test_get_settings_normalizes_default_case(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    profile_path = _write_default_profile_assets(tmp_path)
-
-    _set_required_env(monkeypatch, profile_path)
-    monkeypatch.setenv("DEFAULT_CASE", "CaSe2")
-    config.get_settings.cache_clear()
-    settings = config.get_settings()
-
-    assert settings.default_case == "cretskens"
-    config.get_settings.cache_clear()
-
-
-def test_get_settings_rejects_invalid_default_case(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    profile_path = _write_default_profile_assets(tmp_path)
-
-    _set_required_env(monkeypatch, profile_path)
-    monkeypatch.setenv("DEFAULT_CASE", "unknown")
-    config.get_settings.cache_clear()
-
-    with pytest.raises(Exception):
-        config.get_settings()
-    config.get_settings.cache_clear()
-
-
-def test_case2_wine_catalog_path_prefers_case2_env(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    profile_path = _write_default_profile_assets(tmp_path)
-    legacy_catalog_path = tmp_path / "legacy_catalog.xlsx"
-    case2_catalog_path = tmp_path / "case2_catalog.xlsx"
-
-    _set_required_env(monkeypatch, profile_path)
-    monkeypatch.setenv("WINE_CATALOG_PATH", str(legacy_catalog_path))
-    monkeypatch.setenv("CASE2_WINE_CATALOG_PATH", str(case2_catalog_path))
-    config.get_settings.cache_clear()
-    settings = config.get_settings()
-
-    assert settings.case2_wine_catalog_path == case2_catalog_path
-    assert settings.wine_catalog_path == case2_catalog_path
-    config.get_settings.cache_clear()
-
-
-def test_empty_optional_case_paths_do_not_override_defaults(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    profile_path = _write_default_profile_assets(tmp_path)
-
-    _set_required_env(monkeypatch, profile_path)
-    monkeypatch.setenv("BROOKLYN_DOMAIN_PROFILE_PATH", "")
-    monkeypatch.setenv("CASE2_DOMAIN_PROFILE_PATH", "")
-    monkeypatch.setenv("WINE_CATALOG_PATH", "")
-    monkeypatch.setenv("CASE2_WINE_CATALOG_PATH", "")
-    config.get_settings.cache_clear()
-    settings = config.get_settings()
-
-    assert settings.brooklyn_domain_profile_path == profile_path
-    assert settings.case2_domain_profile_path == config.DEFAULT_CASE2_PROFILE_PATH
-    assert settings.case2_wine_catalog_path == config.DEFAULT_WINE_CATALOG_PATH
+    assert settings.brooklyn_domain_profile_path == config.DEFAULT_BROOKLYN_PROFILE_PATH
+    assert settings.cretskens_profile_path == config.DEFAULT_CRETSKENS_PROFILE_PATH
+    assert settings.cretskens_wine_catalog_path == config.DEFAULT_WINE_CATALOG_PATH
     config.get_settings.cache_clear()
 
 
@@ -260,7 +237,7 @@ def test_domain_profile_missing_prompt_file_raises(
     settings = config.get_settings()
 
     with pytest.raises(RuntimeError, match="Prompt file not found"):
-        _ = settings.domain_profile
+        _ = settings.brooklyn_domain_profile
     config.get_settings.cache_clear()
 
 
@@ -275,24 +252,60 @@ def test_domain_profile_invalid_yaml_raises(
     config.get_settings.cache_clear()
     settings = config.get_settings()
     with pytest.raises(RuntimeError, match="Invalid domain profile YAML"):
-        _ = settings.domain_profile
+        _ = settings.brooklyn_domain_profile
     config.get_settings.cache_clear()
 
 
-def test_domain_profile_path_is_required(
+def test_load_cretskens_profile_reads_prompts_and_intro(tmp_path: Path) -> None:
+    profile_path = _write_cretskens_profile_assets(tmp_path)
+
+    from pixie_questioner.wine_advisor.profile_loader import load_cretskens_profile
+
+    profile = load_cretskens_profile(profile_path)
+
+    assert "friendly in-store wine advisor" in profile.turn_controller_prompt
+    assert "Select the best candidate barcodes" in profile.ranker_prompt
+    assert profile.recommendation_intro == (
+        "Leuk, ik heb een paar mooie opties voor je klaargezet."
+    )
+
+
+def test_load_cretskens_profile_supports_tilde_prompt_paths(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.com")
-    monkeypatch.setenv("AZURE_OPENAI_KEY", "test-key")
-    monkeypatch.setenv("ADVANCED_AZURE_OPENAI_API_VERSION", "2024-01-01")
-    monkeypatch.setenv("ADVANCED_AZURE_OPENAI_MODEL", "gpt-test")
-    monkeypatch.delenv("DOMAIN_PROFILE_PATH", raising=False)
+    home_dir = tmp_path / "home"
+    prompts_dir = home_dir / "prompts"
+    prompts_dir.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home_dir))
+    (prompts_dir / "turn_controller_prompt.txt").write_text(
+        "tilde controller prompt",
+        encoding="utf-8",
+    )
+    (prompts_dir / "ranker_prompt.txt").write_text(
+        "tilde ranker prompt",
+        encoding="utf-8",
+    )
+    profile_path = tmp_path / "advisor_profile.yml"
+    profile_path.write_text(
+        "\n".join(
+            [
+                "version: 1",
+                "prompts:",
+                "  turn_controller_path: ~/prompts/turn_controller_prompt.txt",
+                "  ranker_path: ~/prompts/ranker_prompt.txt",
+                'recommendation_intro: "Tilde intro"',
+            ]
+        ),
+        encoding="utf-8",
+    )
 
-    config.get_settings.cache_clear()
-    with pytest.raises(Exception):
-        config.get_settings()
-    config.get_settings.cache_clear()
+    from pixie_questioner.wine_advisor.profile_loader import load_cretskens_profile
+
+    profile = load_cretskens_profile(profile_path)
+
+    assert profile.turn_controller_prompt == "tilde controller prompt"
+    assert profile.ranker_prompt == "tilde ranker prompt"
+    assert profile.recommendation_intro == "Tilde intro"
 
 
 # --- Profile layering (extends + variables) tests ---
@@ -519,62 +532,19 @@ def test_profile_domain_overrides_base_values(tmp_path: Path) -> None:
     assert profile.completion_mode == "categorized_handoff"
 
 
-def test_cretskens_prompts_reduce_irrelevant_followup_questions() -> None:
-    profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
+def test_cretskens_profile_loads_runtime_prompt_text() -> None:
+    from pixie_questioner.wine_advisor.profile_loader import load_cretskens_profile
 
-    assert "Avoid unnatural follow-up questions." in profile.question_asker_prompt
-    assert (
-        "If a dish has multiple common protein variants"
-        in profile.question_asker_prompt
+    profile = load_cretskens_profile(Path("profiles/cretskens/advisor_profile.yml"))
+
+    assert "Preference loop before recommendation" in profile.turn_controller_prompt
+    assert "friendly in-store wine advisor" in profile.turn_controller_prompt
+    assert "Mirror the customer's language (NL/EN/FR)" in (
+        profile.turn_controller_prompt
     )
-    assert "If course type is cheese course" in profile.question_asker_prompt
-    assert "do not ask it" in profile.question_asker_prompt
-    assert (
-        "origin (country and/or region in one question)"
-        in profile.question_asker_prompt
-    )
-    assert "desired aroma/taste profile" in profile.question_asker_prompt
-    assert "ask one combined preference question" in profile.question_asker_prompt
-    assert 'If the customer says "geen voorkeur"' in profile.question_asker_prompt
-    assert (
-        "ask at most one extra clarification question" in profile.question_asker_prompt
-    )
-    assert (
-        "Do NOT expose internal categorization language or field labels"
-        in profile.question_asker_prompt
-    )
-    assert "Avoid checklist wording" in profile.question_asker_prompt
-    assert (
-        "For main protein, use a stricter threshold"
-        in profile.questionnaire_notulist_prompt
-    )
-    assert (
-        "If a dish has multiple common protein variants, keep main protein as []"
-        in (profile.questionnaire_notulist_prompt)
-    )
-    assert (
-        "If the dish is clearly not a cheese dish"
-        in profile.questionnaire_notulist_prompt
-    )
-    assert "cheese type = none" in profile.questionnaire_notulist_prompt
-    assert "Region priority:" in profile.questionnaire_notulist_prompt
-    assert "If both country and region are present but conflicting, region wins." in (
-        profile.questionnaire_notulist_prompt
-    )
-    assert "If the user gives a range, use the upper bound." in (
-        profile.questionnaire_notulist_prompt
-    )
-    assert "For field 8 (desired aroma/taste profile):" in (
-        profile.questionnaire_notulist_prompt
-    )
-    assert "if the customer corrects themselves, keep the latest statement." in (
-        profile.questionnaire_notulist_prompt
-    )
-    assert "Return ONLY one compact JSON object." in (
-        profile.aroma_taste_classifier_prompt
-    )
-    assert "the latest statement wins." in profile.aroma_taste_classifier_prompt
-    assert "include only keys that are true." in profile.handoff_classifier_prompt
+    assert "Select the best candidate barcodes" in profile.ranker_prompt
+    assert "selection_explanation" in profile.ranker_prompt
+    assert profile.recommendation_intro
 
 
 def test_brooklyn_prompt_encourages_warm_non_repetitive_tone() -> None:

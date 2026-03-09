@@ -1,0 +1,5 @@
+version: 1
+prompts:
+  turn_controller_path: turn_controller_prompt.txt
+  ranker_path: ranker_prompt.txt
+recommendation_intro: "Leuk, ik heb een paar mooie opties voor je klaargezet."

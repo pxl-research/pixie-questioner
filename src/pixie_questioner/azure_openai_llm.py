@@ -1,6 +1,10 @@
 """Base wrapper that instantiates an Azure ChatCompletion client if available."""
 
+import logging
+
 from pydantic import SecretStr
+
+logger = logging.getLogger(__name__)
 
 
 class AzureOpenAILLM:
@@ -18,6 +22,10 @@ class AzureOpenAILLM:
         try:  # optional dependency
             from langchain_openai import AzureChatOpenAI
         except Exception:
+            logger.warning(
+                "Failed to import langchain_openai AzureChatOpenAI client.",
+                exc_info=True,
+            )
             self.model = None
             return
 
@@ -29,7 +37,7 @@ class AzureOpenAILLM:
             deployment_name=model_version,
             verbose=False,
             temperature=temperature,
-            streaming=True,
+            streaming=False,
             request_timeout=request_timeout_seconds,
             max_tokens=normalized_max_tokens,
         )

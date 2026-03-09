@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from .catalog_models import WineCatalogRecord
 from .llm_controller import TurnDecision
@@ -17,6 +18,37 @@ from .types import (
     WineAdvisorState,
     WineCatalogRecommendation,
 )
+
+
+class RankerSelectionProtocol(Protocol):
+    barcodes: list[str]
+    explanation: str
+
+
+class TurnControllerProtocol(Protocol):
+    async def decide(
+        self,
+        *,
+        current_answer: str,
+        working_context: str,
+        turn_count: int,
+        max_turns: int,
+        current_meal_mode: str,
+        last_question: str,
+        conversation_history: str,
+    ) -> TurnDecision: ...
+
+
+class WineRankerProtocol(Protocol):
+    def select_with_explanation(
+        self,
+        *,
+        working_context: str,
+        candidate_records: list[WineCatalogRecord],
+        candidate_barcodes: list[str],
+        min_count: int,
+        max_count: int,
+    ) -> Awaitable[RankerSelectionProtocol]: ...
 
 
 def _truncate_text(value: str, max_chars: int) -> str:
@@ -40,22 +72,6 @@ def _to_string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str) and item.strip()]
-
-
-def _to_bool(value: Any, default: bool = False) -> bool:
-    if isinstance(value, bool):
-        return value
-    return default
-
-
-def _to_debug_trace(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    trace: list[dict[str, Any]] = []
-    for item in value:
-        if isinstance(item, dict):
-            trace.append(dict(item))
-    return trace
 
 
 def _to_chat_history(
@@ -113,38 +129,11 @@ def _history_to_prompt(
     )
 
 
-def _build_debug_trace(
-    state: WineAdvisorState,
-    turn_count: int,
-    decision: TurnDecision,
-    *,
-    selected_barcodes: list[str] | None = None,
-    ranker_explanation: str = "",
-    question_text: str = "",
-) -> list[dict[str, Any]]:
-    """Build the updated debug trace, appending an event when debug is enabled."""
-    trace = list(state.debug_trace)
-    if not state.debug_enabled:
-        return trace
-    event: dict[str, Any] = {
-        "turn": turn_count,
-        "action": decision.action,
-        "meal_mode": decision.meal_mode,
-        "controller_explanation": decision.explanation,
-    }
-    if selected_barcodes is not None:
-        event["selected_barcodes"] = list(selected_barcodes)
-        event["ranker_explanation"] = ranker_explanation
-    if question_text:
-        event["question_text"] = question_text
-    return [*trace, event][-20:]
-
-
 @dataclass
 class WineAdvisorService:
     catalog_records: list[WineCatalogRecord]
-    turn_controller: Any
-    ranker: Any
+    turn_controller: TurnControllerProtocol
+    ranker: WineRankerProtocol
     recommendation_intro: str = "Leuk, ik heb een paar mooie opties voor je klaargezet."
     max_turns: int = 6
     candidate_limit: int = 40
@@ -152,7 +141,6 @@ class WineAdvisorService:
     max_working_context_chars: int = 2_200
     max_history_items: int = 8
     max_history_item_chars: int = 240
-    debug_mode_allowed: bool = True
 
     def __post_init__(self) -> None:
         if not self.catalog_records:
@@ -195,16 +183,6 @@ class WineAdvisorService:
             if raw_meal_mode in {"pairing", "drinking_only", MEAL_MODE_UNKNOWN}
             else MEAL_MODE_UNKNOWN
         )
-        requested_debug_enabled = _to_bool(state.get("debug_mode"), False)
-        debug_trace: list[dict[str, Any]] = []
-        raw_debug = state.get("debug")
-        if isinstance(raw_debug, dict):
-            requested_debug_enabled = _to_bool(
-                raw_debug.get("enabled"), requested_debug_enabled
-            )
-            if self.debug_mode_allowed:
-                debug_trace = _to_debug_trace(raw_debug.get("trace"))
-        debug_enabled = self.debug_mode_allowed and requested_debug_enabled
         last_question = state.get("last_question")
         working_context = state.get("working_context")
         return WineAdvisorState(
@@ -228,8 +206,6 @@ class WineAdvisorService:
             ),
             candidate_barcodes=_to_string_list(state.get("candidate_barcodes")),
             selected_barcodes=_to_string_list(state.get("selected_barcodes")),
-            debug_enabled=debug_enabled,
-            debug_trace=debug_trace,
         )
 
     def _serialize_state(self, state: WineAdvisorState) -> dict[str, Any]:
@@ -245,11 +221,6 @@ class WineAdvisorService:
             "candidate_barcodes": list(state.candidate_barcodes),
             "selected_barcodes": list(state.selected_barcodes),
         }
-        if state.debug_enabled or state.debug_trace:
-            serialized["debug"] = {
-                "enabled": state.debug_enabled,
-                "trace": list(state.debug_trace),
-            }
         return serialized
 
     def _recommendations_for_barcodes(
@@ -307,19 +278,35 @@ class WineAdvisorService:
         return deduped
 
     def _candidate_records_for_decision(
-        self, decision: TurnDecision
-    ) -> list[WineCatalogRecord]:
-        limit = self.candidate_limit
-        if not decision.query_hints.strip():
-            return list(
-                self.catalog_records[:limit] if limit > 0 else self.catalog_records
+        self,
+        parsed_state: WineAdvisorState,
+        decision: TurnDecision,
+    ) -> tuple[list[WineCatalogRecord], bool]:
+        if decision.query_hints.strip():
+            shortlist_limit = (
+                self.candidate_limit
+                if self.candidate_limit > 0
+                else len(self.catalog_records)
             )
-        shortlist_limit = limit if limit > 0 else len(self.catalog_records)
-        return rank_catalog_records(
-            self.catalog_records,
-            query=decision.query_hints,
-            limit=shortlist_limit,
-        )
+            return (
+                rank_catalog_records(
+                    self.catalog_records,
+                    query=decision.query_hints,
+                    limit=shortlist_limit,
+                ),
+                True,
+            )
+
+        if parsed_state.candidate_barcodes:
+            candidate_records = [
+                self._catalog_by_barcode[barcode]
+                for barcode in parsed_state.candidate_barcodes
+                if barcode in self._catalog_by_barcode
+            ]
+            if candidate_records:
+                return candidate_records, True
+
+        return [], False
 
     async def ask(
         self,
@@ -362,14 +349,21 @@ class WineAdvisorService:
             ),
         )
 
-        candidate_records = self._candidate_records_for_decision(decision)
+        candidate_records, persist_candidates = self._candidate_records_for_decision(
+            parsed_state,
+            decision,
+        )
         candidate_barcodes = [record.barcode for record in candidate_records]
-        if not candidate_barcodes:
-            raise RuntimeError("No candidate barcodes available for ranker.")
+        state_candidate_barcodes = candidate_barcodes if persist_candidates else []
 
         should_recommend = (
             decision.action == "recommend" or next_turn_count >= self.max_turns
         )
+        if should_recommend and not candidate_barcodes:
+            raise RuntimeError(
+                "Turn controller must provide query hints or persisted candidates "
+                "before recommendations."
+            )
         if should_recommend:
             return await self._finalize_recommendation(
                 parsed_state,
@@ -379,6 +373,7 @@ class WineAdvisorService:
                 decision,
                 candidate_records,
                 candidate_barcodes,
+                state_candidate_barcodes,
             )
         return self._finalize_question(
             parsed_state,
@@ -386,7 +381,7 @@ class WineAdvisorService:
             next_turn_count,
             working_context,
             decision,
-            candidate_barcodes,
+            state_candidate_barcodes,
         )
 
     async def _finalize_recommendation(
@@ -398,8 +393,8 @@ class WineAdvisorService:
         decision: TurnDecision,
         candidate_records: list[WineCatalogRecord],
         candidate_barcodes: list[str],
+        state_candidate_barcodes: list[str],
     ) -> WineAdvisorResult:
-        """Build the final recommendation result via the LLM ranker."""
         min_count = 3 if len(candidate_barcodes) >= 3 else 1
         max_count = min(5, len(candidate_barcodes))
         selection = await self.ranker.select_with_explanation(
@@ -432,16 +427,8 @@ class WineAdvisorService:
                 max_chars=self.max_history_item_chars,
                 max_items=self.max_history_items,
             ),
-            candidate_barcodes=candidate_barcodes,
+            candidate_barcodes=state_candidate_barcodes,
             selected_barcodes=[item.barcode for item in recommendations],
-            debug_enabled=parsed_state.debug_enabled,
-            debug_trace=_build_debug_trace(
-                parsed_state,
-                turn_count,
-                decision,
-                selected_barcodes=normalized,
-                ranker_explanation=selection.explanation,
-            ),
         )
         return WineAdvisorResult(
             text=self._format_recommendation_text(recommendations),
@@ -459,7 +446,6 @@ class WineAdvisorService:
         decision: TurnDecision,
         candidate_barcodes: list[str],
     ) -> WineAdvisorResult:
-        """Build the next-question result from a turn controller decision."""
         question_text = decision.question_text.strip()
         if not question_text:
             raise RuntimeError("Turn controller returned an empty question.")
@@ -487,13 +473,6 @@ class WineAdvisorService:
             chat_history=next_history,
             candidate_barcodes=candidate_barcodes,
             selected_barcodes=[],
-            debug_enabled=parsed_state.debug_enabled,
-            debug_trace=_build_debug_trace(
-                parsed_state,
-                turn_count,
-                decision,
-                question_text=question_text,
-            ),
         )
         return WineAdvisorResult(
             text=question_text,

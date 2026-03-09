@@ -19,7 +19,7 @@ _REQUIRED_ENV_VARS = (
     "AZURE_OPENAI_KEY",
     "ADVANCED_AZURE_OPENAI_API_VERSION",
     "ADVANCED_AZURE_OPENAI_MODEL",
-    "DOMAIN_PROFILE_PATH",
+    "BROOKLYN_DOMAIN_PROFILE_PATH",
 )
 
 
@@ -54,7 +54,7 @@ def _collect_live_env_issues(env: Mapping[str, str]) -> list[str]:
 
 
 def _build_live_service() -> ChatService:
-    profile = load_domain_profile(Path(os.environ["DOMAIN_PROFILE_PATH"]))
+    profile = load_domain_profile(Path(os.environ["BROOKLYN_DOMAIN_PROFILE_PATH"]))
     llm = AzureOpenAILLM(
         api_version=os.environ["ADVANCED_AZURE_OPENAI_API_VERSION"],
         api_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
@@ -106,11 +106,11 @@ def test_collect_live_env_issues_reports_missing_and_placeholder_values() -> Non
             "AZURE_OPENAI_KEY": "replace-me",
             "ADVANCED_AZURE_OPENAI_API_VERSION": "2024-12-01-preview",
             "ADVANCED_AZURE_OPENAI_MODEL": "replace-me",
-            "DOMAIN_PROFILE_PATH": "",
+            "BROOKLYN_DOMAIN_PROFILE_PATH": "",
         }
     )
 
-    assert "DOMAIN_PROFILE_PATH is missing or empty." in issues
+    assert "BROOKLYN_DOMAIN_PROFILE_PATH is missing or empty." in issues
     assert "AZURE_OPENAI_ENDPOINT looks like a placeholder value." in issues
     assert "AZURE_OPENAI_KEY looks like a placeholder value." in issues
     assert "ADVANCED_AZURE_OPENAI_MODEL looks like a placeholder value." in issues
@@ -131,7 +131,7 @@ def test_collect_live_env_issues_accepts_valid_configuration() -> None:
             "AZURE_OPENAI_KEY": "live-secret",
             "ADVANCED_AZURE_OPENAI_API_VERSION": "2024-12-01-preview",
             "ADVANCED_AZURE_OPENAI_MODEL": "gpt-5-chat",
-            "DOMAIN_PROFILE_PATH": "profiles/brooklyn/domain_profile.yml",
+            "BROOKLYN_DOMAIN_PROFILE_PATH": "profiles/brooklyn/domain_profile.yml",
         }
     )
 
