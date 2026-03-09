@@ -225,6 +225,18 @@ If a request is ambiguous or underspecified:
 
 ---
 
+## Branch Workflow
+
+- Before making Codex changes, inspect the current git branch.
+- If the current branch is `main` or `master`, create and switch to a new branch before editing, staging, or committing.
+- If the task context is clear, choose a short descriptive branch name based on that context.
+- If the task context is not clear enough to name the branch safely, ask the user for the branch name first.
+- If already on a non-main branch, continue there unless the user asks for a different branch.
+- Keep unrelated existing worktree changes intact; never discard user changes just to create the branch.
+- Commit Codex-made changes on that non-main branch after validation and approval.
+
+---
+
 ## Definition of Done
 
 A task is complete only if:
@@ -233,6 +245,7 @@ A task is complete only if:
 - No invariants are violated
 - No forbidden changes were made
 - Changes are minimal and justified
+- Any Codex commit was created on a non-main branch
 
 ---
 
@@ -276,4 +289,4 @@ Invoke explicitly:
 > Use `.agents/commit.md` to commit the approved changes.
 
 This agent follows **Conventional Commits**, groups changes logically,
-and splits commits when appropriate.
+and splits commits when appropriate. It must not commit on `main` or `master`.

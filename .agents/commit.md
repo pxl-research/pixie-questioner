@@ -4,10 +4,19 @@ Use this agent to commit changes after they have been reviewed and approved. Can
 
 ## Workflow
 
-1. Check for staged changes first (`git diff --cached`)
-2. If no staged changes, use unstaged changes (`git diff`)
-3. Analyze changes and group them logically
-4. Create atomic commits for each logical unit
+1. Check the current branch with `git branch --show-current`
+2. If the current branch is `main` or `master`, create and switch to a new branch before staging or committing
+3. If the task context is clear, use a short descriptive branch name; otherwise ask the user for the branch name
+4. Check for staged changes first (`git diff --cached`)
+5. If no staged changes, use unstaged changes (`git diff`)
+6. Analyze changes and group them logically
+7. Create atomic commits for each logical unit
+
+## Branch Guardrail
+
+- Never create a commit on `main` or `master`.
+- If a new branch is required, prefer a short name that matches the task context, for example `fix/state-signing` or `chore/codex-branch-workflow`.
+- Do not discard unrelated working tree changes to satisfy this rule.
 
 ## Commit Message Format
 
@@ -55,6 +64,12 @@ Keep in single commit when:
 ## Commands
 
 ```bash
+# View current branch
+git branch --show-current
+
+# Create and switch to a branch
+git switch -c <type/short-name>
+
 # View staged changes
 git diff --cached
 
