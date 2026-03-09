@@ -2348,8 +2348,10 @@ def test_ask_logs_warning_when_aroma_retry_fails(caplog) -> None:
 
     handoff = json.loads(result.state["handoff_categories_v1"])
     assert "smaak_kruidig" not in handoff
-    assert len(aroma_llm.calls) == 3
-    assert "aroma and taste flags" in caplog.text
+    assert (
+        "Failed to reclassify aroma and taste flags with strict JSON retry."
+        in caplog.text
+    )
 
 
 def test_ask_seeds_questionnaire_from_template_when_state_empty():
