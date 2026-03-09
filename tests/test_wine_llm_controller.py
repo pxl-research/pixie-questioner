@@ -42,8 +42,8 @@ async def _observe_coroutine_yield(coro: Awaitable[object]) -> list[str]:
     loop.call_soon(order.append, "loop")
     try:
         await coro
-    except Exception:
-        pass
+    except Exception as exc:
+        order.append(type(exc).__name__)
     order.append("done")
     await asyncio.sleep(0)
     return order
