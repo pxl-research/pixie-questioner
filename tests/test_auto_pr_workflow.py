@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any, cast
 
 import yaml
 
@@ -10,8 +11,12 @@ import yaml
 WORKFLOW_PATH = Path(".github/workflows/auto-pr.yml")
 
 
-def _load_workflow() -> dict[str, object]:
-    return yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+def _load_workflow() -> dict[str, Any]:
+    loaded = yaml.load(
+        WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+    )
+    assert isinstance(loaded, dict)
+    return cast(dict[str, Any], loaded)
 
 
 def _workflow_script() -> str:
@@ -22,7 +27,7 @@ def _workflow_script() -> str:
     return steps[0]["with"]["script"]
 
 
-def _workflow_step() -> dict[str, object]:
+def _workflow_step() -> dict[str, Any]:
     workflow = _load_workflow()
     jobs = workflow["jobs"]
     ensure_pr = jobs["ensure-pr"]
