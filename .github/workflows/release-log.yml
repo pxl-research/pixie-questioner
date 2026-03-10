@@ -1,0 +1,176 @@
+name: release-log
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: read
+  actions: read
+  projects: write
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release + bump tag + update project item
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const {owner, repo} = context.repo;
+            const pr = context.payload.pull_request;
+
+            const projectId = 'PVT_kwDOB2OsP84BRN75';
+            const targetReleaseFieldId = 'PVTF_lADOB2OsP84BRN75zg_HENk';
+            const shippedFieldId = 'PVTSSF_lADOB2OsP84BRN75zg_HET4';
+            const shippedYesOptionId = 'f0a9980b';
+
+            if (!pr.merge_commit_sha) {
+              core.info('No merge commit sha; skipping release.');
+              return;
+            }
+
+            const toVersion = (tag) => {
+              const m = tag.trim().match(/^v?(\d+)\.(\d+)\.(\d+)$/);
+              if (!m) return null;
+              return { major: +m[1], minor: +m[2], patch: +m[3] };
+            };
+
+            const cmp = (a, b) => {
+              if (a.major !== b.major) return a.major - b.major;
+              if (a.minor !== b.minor) return a.minor - b.minor;
+              return a.patch - b.patch;
+            };
+
+            // List tags and pick highest semver tag
+            const tags = await github.paginate(github.rest.repos.listTags, {
+              owner, repo,
+              per_page: 100
+            });
+
+            let highest = { major: 0, minor: 0, patch: 0, tag: 'v0.1.0' };
+            for (const t of tags) {
+              const v = toVersion(t.name);
+              if (!v) continue;
+              if (cmp(highest, v) <= 0) highest = {...v, tag: t.name};
+            }
+
+            let newVersion = { major: highest.major, minor: highest.minor, patch: highest.patch };
+            const title = (pr.title || '').trim().toLowerCase();
+
+            if (title.startsWith('feat') || title.startsWith('feature')) {
+              newVersion.minor += 1;
+              newVersion.patch = 0;
+            } else {
+              // fix / refactor / chore / anything else = patch
+              newVersion.patch += 1;
+            }
+
+            const newTag = `v${newVersion.major}.${newVersion.minor}.${newVersion.patch}`;
+            core.info(`Release tag will be: ${newTag}`);
+
+            // Release body = PR title + summary + link
+            const summary = (pr.body || '').trim();
+            const releaseBody = [
+              `### ${pr.title}`,
+              '',
+              summary,
+              '',
+              `- PR #${pr.number} (${pr.html_url})`
+            ].join('\n').trim();
+
+            // Create release (also creates the tag if it doesn't exist)
+            try {
+              await github.rest.repos.createRelease({
+                owner,
+                repo,
+                tag_name: newTag,
+                target_commitish: pr.merge_commit_sha,
+                name: newTag,
+                body: releaseBody
+              });
+              core.info(`Created release ${newTag}`);
+            } catch (e) {
+              core.warning(`Creating release failed (likely tag exists already): ${e.message}`);
+            }
+
+            // Update project item: find project item for this PR by scanning project items and matching content.id
+            let itemId = null;
+            let cursor = null;
+
+            while (true) {
+              const resp = await github.graphql(`
+                query($projectId: ID!, $cursor: String) {
+                  node(id: $projectId) {
+                    ... on ProjectV2 {
+                      items(first: 100, after: $cursor) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                          id
+                          content {
+                            __typename
+                            ... on PullRequest { id }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }`, { projectId, cursor });
+
+              const items = resp.node.items.nodes;
+              for (const it of items) {
+                if (it.content && it.content.__typename === 'PullRequest' && it.content.id === pr.node_id) {
+                  itemId = it.id;
+                  break;
+                }
+              }
+
+              if (itemId || !resp.node.items.pageInfo.hasNextPage) break;
+              cursor = resp.node.items.pageInfo.endCursor;
+            }
+
+            if (!itemId) {
+              core.info('Project item for this PR not found; skipping project update.');
+              return;
+            }
+
+            // Set Target release text
+            await github.graphql(`
+              mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $text: String!) {
+                updateProjectV2ItemFieldValue(
+                  input: {
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    fieldId: $fieldId,
+                    value: { text: $text }
+                  }
+                ) { projectV2Item { id } }
+              }`, {
+                projectId,
+                itemId,
+                fieldId: targetReleaseFieldId,
+                text: newTag
+              });
+
+            // Set Shipped = yes
+            await github.graphql(`
+              mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                updateProjectV2ItemFieldValue(
+                  input: {
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    fieldId: $fieldId,
+                    value: { singleSelectOptionId: $optionId }
+                  }
+                ) { projectV2Item { id } }
+              }`, {
+                projectId,
+                itemId,
+                fieldId: shippedFieldId,
+                optionId: shippedYesOptionId
+              });
+
+            core.info('Project updated: Target release + Shipped=yes');
