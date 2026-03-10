@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from .language import SUPPORTED_RESPONSE_LANGUAGES, detect_language
 from .types import (
     FEEDBACK_PENDING,
     PHASE_AWAITING_FEEDBACK,
@@ -153,6 +154,19 @@ def _normalize_questionnaire(
     return questionnaire_template
 
 
+def _infer_legacy_conversation_language(
+    summary_text: str,
+    default_language: str,
+) -> str:
+    if not summary_text.strip():
+        return default_language
+    return detect_language(
+        summary_text,
+        supported_language_set=set(SUPPORTED_RESPONSE_LANGUAGES),
+        default_language_code=default_language,
+    )
+
+
 def _normalize_phase_context(
     phase: str,
     feedback_status: str,
@@ -162,11 +176,18 @@ def _normalize_phase_context(
     post_summary_language: str,
     default_language: str,
 ) -> tuple[str, str, str, str, str]:
+    normalized_final_summary = final_summary if final_summary.strip() else summary
     normalized_conversation_language = (
-        conversation_language.strip()
-        or post_summary_language.strip()
-        or default_language
+        conversation_language.strip() or post_summary_language.strip()
     )
+    if not normalized_conversation_language:
+        if phase == PHASE_INTAKE:
+            normalized_conversation_language = default_language
+        else:
+            normalized_conversation_language = _infer_legacy_conversation_language(
+                normalized_final_summary,
+                default_language,
+            )
     if phase == PHASE_INTAKE:
         return (
             phase,
@@ -185,7 +206,6 @@ def _normalize_phase_context(
             normalized_conversation_language,
         )
 
-    normalized_final_summary = final_summary if final_summary.strip() else summary
     normalized_phase = phase
     if phase == PHASE_AWAITING_FEEDBACK and feedback_status != FEEDBACK_PENDING:
         normalized_phase = PHASE_COMPLETED

@@ -43,6 +43,8 @@ from .llm_client import LLMPromptInvoker, extract_llm_content, resolve_llm_clien
 
 logger = logging.getLogger(__name__)
 
+SUMMARY_LANGUAGE_MIN_WORDS = 4
+
 
 @dataclass
 class ChatService:
@@ -248,7 +250,7 @@ def _summary_matches_conversation_language(
     primary_language_code, _ = max(candidates, key=lambda candidate: candidate[1])
     if primary_language_code != conversation_language:
         word_count = len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", summary_text))
-        if word_count < 4:
+        if word_count < SUMMARY_LANGUAGE_MIN_WORDS:
             return True
     return primary_language_code == conversation_language
 
@@ -296,9 +298,8 @@ async def _rewrite_summary_in_conversation_language(
 def _handle_terminated_phase(
     service: ChatService,
     current_state: ChatState,
-    current_answer: str,
+    _current_answer: str,
 ) -> ChatResult:
-    _ = current_answer
     language = (
         current_state.conversation_language or service._language.default_language_code
     )
@@ -360,7 +361,7 @@ async def _handle_completed_phase(
 async def _build_completed_categorized_handoff_result(
     service: ChatService,
     current_state: ChatState,
-    current_answer: str,
+    _current_answer: str,
 ) -> ChatResult:
     handoff_categories_v1 = current_state.handoff_categories_v1.strip()
     if not handoff_categories_v1:
@@ -370,7 +371,6 @@ async def _build_completed_categorized_handoff_result(
             )
         )
 
-    _ = current_answer
     language = (
         current_state.conversation_language or service._language.default_language_code
     )
@@ -415,10 +415,9 @@ async def _classify_intake_answer(
 def _handle_off_topic_intake(
     service: ChatService,
     current_state: ChatState,
-    current_answer: str,
+    _current_answer: str,
 ) -> ChatResult:
     current_state.boundary_violation_count += 1
-    _ = current_answer
     language = (
         current_state.conversation_language or service._language.default_language_code
     )
@@ -542,7 +541,7 @@ async def _apply_intake_updates(
 async def _build_completion_result(
     service: ChatService,
     current_state: ChatState,
-    current_answer: str,
+    _current_answer: str,
     updated_questionnaire: str,
     updated_summary: str,
 ) -> ChatResult:
@@ -550,12 +549,11 @@ async def _build_completion_result(
         return await _build_categorized_completion_result(
             service,
             current_state,
-            current_answer,
+            _current_answer,
             updated_questionnaire,
             updated_summary,
         )
 
-    _ = current_answer
     language = (
         current_state.conversation_language or service._language.default_language_code
     )
@@ -577,11 +575,10 @@ async def _build_completion_result(
 async def _build_categorized_completion_result(
     service: ChatService,
     current_state: ChatState,
-    current_answer: str,
+    _current_answer: str,
     updated_questionnaire: str,
     updated_summary: str,
 ) -> ChatResult:
-    _ = current_answer
     language = (
         current_state.conversation_language or service._language.default_language_code
     )
@@ -608,11 +605,10 @@ async def _build_categorized_completion_result(
 async def _build_next_question_result(
     service: ChatService,
     current_state: ChatState,
-    current_answer: str,
+    _current_answer: str,
     updated_questionnaire: str,
     updated_summary: str,
 ) -> ChatResult:
-    _ = current_answer
     conversation_language = (
         current_state.conversation_language or service._language.default_language_code
     )

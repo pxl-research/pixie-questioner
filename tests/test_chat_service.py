@@ -1759,6 +1759,56 @@ def test_ask_uses_locked_post_summary_language_for_feedback_retry():
     assert summarizer_llm.calls == []
 
 
+def test_ask_infers_legacy_feedback_language_from_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+    )
+
+    def fake_detect_langs(text: str):
+        if text.startswith("English summary should keep the legacy language."):
+            return [FakeLangCandidate("en", 0.99)]
+        return [FakeLangCandidate("nl", 0.99)]
+
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Maybe",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "English summary should keep the legacy language.",
+                "last_question": "AI question",
+                "phase": "awaiting_feedback",
+                "feedback_status": "pending",
+                "final_summary": "English summary should keep the legacy language.",
+                "post_summary_language": "",
+                "conversation_language": "",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text in FEEDBACK_QUESTION_EN
+    assert result.quick_replies == [
+        {"label": "Yes", "value": "yes"},
+        {"label": "No", "value": "no"},
+    ]
+    assert result.state["conversation_language"] == "en"
+    assert result.state["post_summary_language"] == "en"
+
+
 def test_ask_uses_conversation_language_for_feedback_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
