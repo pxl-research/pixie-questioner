@@ -18,8 +18,6 @@ from .chat.flow import (
     to_terminated_state,
 )
 from .chat.language import (
-    SUPPORTED_NON_DUTCH_MIN_WORDS,
-    SUPPORTED_RESPONSE_LANGUAGES,
     create_language_support,
     detect_language_candidates,
 )
@@ -84,7 +82,7 @@ class ChatService:
         return parse_state(
             state,
             questionnaire_template=self.questionnaire_template,
-            detect_language=self._language.detect,
+            default_language=self._language.default_language_code,
         )
 
     def _answer_result(
@@ -112,6 +110,22 @@ class ChatService:
             summary=summary,
         )
 
+    def _update_conversation_context(
+        self,
+        current_state: ChatState,
+        current_answer: str,
+    ) -> ChatState:
+        (
+            current_state.conversation_language,
+            current_state.recent_user_turns,
+        ) = self._language.resolve_conversation(
+            current_answer=current_answer,
+            conversation_language=current_state.conversation_language,
+            recent_user_turns=current_state.recent_user_turns,
+        )
+        current_state.post_summary_language = current_state.conversation_language
+        return current_state
+
     def _is_categorized_handoff_mode(self) -> bool:
         return self.domain_policy.completion_mode == "categorized_handoff"
 
@@ -121,6 +135,10 @@ class ChatService:
         state: dict[str, str] | None,
     ) -> ChatResult:
         current_state = self._parse_state(state)
+        current_state = self._update_conversation_context(
+            current_state,
+            current_answer,
+        )
 
         if current_state.phase == PHASE_TERMINATED:
             return _handle_terminated_phase(self, current_state, current_answer)
@@ -215,38 +233,34 @@ def _ensure_initial_question_field(
     )
 
 
-def _has_supported_summary_language_signal(
+def _summary_matches_conversation_language(
     service: ChatService,
     summary_text: str,
+    conversation_language: str,
 ) -> bool:
-    effective_supported_languages = (
-        service._language.supported_language_set & SUPPORTED_RESPONSE_LANGUAGES
-    )
-    if not effective_supported_languages:
-        return False
+    if not summary_text.strip():
+        return True
+    if conversation_language not in service._language.supported_language_set:
+        return True
     candidates = detect_language_candidates(summary_text)
     if not candidates:
         return True
     primary_language_code, _ = max(candidates, key=lambda candidate: candidate[1])
-    if primary_language_code in effective_supported_languages:
-        return True
-    word_count = len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", summary_text))
-    return word_count < SUPPORTED_NON_DUTCH_MIN_WORDS
+    if primary_language_code != conversation_language:
+        word_count = len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", summary_text))
+        if word_count < 4:
+            return True
+    return primary_language_code == conversation_language
 
 
-async def _rewrite_summary_in_preferred_language(
+async def _rewrite_summary_in_conversation_language(
     service: ChatService,
-    current_state: ChatState,
-    current_answer: str,
+    conversation_language: str,
     generated_summary: str,
 ) -> str | None:
-    preferred_language = service._language.detect_preferred(
-        current_answer=current_answer,
-        previous_summary=current_state.summary,
-    )
     language_name = service._language.supported_language_names.get(
-        preferred_language,
-        preferred_language.upper(),
+        conversation_language,
+        conversation_language.upper(),
     )
     rewrite_prompt = (
         "Rewrite the intake summary below in "
@@ -270,24 +284,13 @@ async def _rewrite_summary_in_preferred_language(
     rewritten_summary = extract_llm_content(response).strip()
     if not rewritten_summary:
         return None
-    if not _has_supported_summary_language_signal(service, rewritten_summary):
-        return None
-    if service._language.detect(rewritten_summary) != preferred_language:
+    if not _summary_matches_conversation_language(
+        service,
+        rewritten_summary,
+        conversation_language,
+    ):
         return None
     return rewritten_summary
-
-
-def _resolve_goodbye_language(
-    service: ChatService,
-    current_state: ChatState,
-    current_answer: str,
-) -> str:
-    if current_state.post_summary_language:
-        return current_state.post_summary_language
-    return service._language.detect_preferred(
-        current_answer=current_answer,
-        previous_summary=current_state.summary,
-    )
 
 
 def _handle_terminated_phase(
@@ -295,8 +298,10 @@ def _handle_terminated_phase(
     current_state: ChatState,
     current_answer: str,
 ) -> ChatResult:
-    language = _resolve_goodbye_language(service, current_state, current_answer)
-    current_state.post_summary_language = language
+    _ = current_answer
+    language = (
+        current_state.conversation_language or service._language.default_language_code
+    )
     return service._answer_result(
         text=service._messages.goodbye(language),
         state=current_state,
@@ -310,7 +315,7 @@ def _handle_awaiting_feedback_phase(
 ) -> ChatResult:
     feedback_state, summary_text, language = ensure_feedback_context(
         current_state,
-        detect_language=service._language.detect,
+        default_language=service._language.default_language_code,
     )
     feedback_response = service._messages.normalize_feedback(current_answer)
     if feedback_response is None:
@@ -343,7 +348,7 @@ async def _handle_completed_phase(
 
     completed_state, summary_text, language = ensure_feedback_context(
         current_state,
-        detect_language=service._language.detect,
+        default_language=service._language.default_language_code,
     )
     return service._summary_result(
         text=service._messages.feedback_thanks(language),
@@ -365,9 +370,9 @@ async def _build_completed_categorized_handoff_result(
             )
         )
 
-    language = service._language.detect_preferred(
-        current_answer=current_answer,
-        previous_summary=current_state.summary,
+    _ = current_answer
+    language = (
+        current_state.conversation_language or service._language.default_language_code
     )
     completed_state = to_categorized_handoff_completed_state(
         state=current_state,
@@ -413,9 +418,9 @@ def _handle_off_topic_intake(
     current_answer: str,
 ) -> ChatResult:
     current_state.boundary_violation_count += 1
-    language = service._language.detect_preferred(
-        current_answer=current_answer,
-        previous_summary=current_state.summary,
+    _ = current_answer
+    language = (
+        current_state.conversation_language or service._language.default_language_code
     )
     if (
         current_state.boundary_violation_count
@@ -465,6 +470,7 @@ async def _update_summary(
     service: ChatService,
     current_state: ChatState,
     current_answer: str,
+    conversation_language: str,
     enforce_supported_language: bool,
 ) -> str:
     try:
@@ -479,13 +485,16 @@ async def _update_summary(
     if not enforce_supported_language:
         return generated_summary
 
-    if _has_supported_summary_language_signal(service, generated_summary):
+    if _summary_matches_conversation_language(
+        service,
+        generated_summary,
+        conversation_language,
+    ):
         return generated_summary
 
-    rewritten_summary = await _rewrite_summary_in_preferred_language(
+    rewritten_summary = await _rewrite_summary_in_conversation_language(
         service,
-        current_state,
-        current_answer,
+        conversation_language,
         generated_summary,
     )
     if rewritten_summary is not None:
@@ -524,6 +533,7 @@ async def _apply_intake_updates(
         service,
         current_state,
         current_answer,
+        current_state.conversation_language,
         enforce_supported_language=intake_complete,
     )
     return updated_questionnaire, updated_summary
@@ -545,7 +555,10 @@ async def _build_completion_result(
             updated_summary,
         )
 
-    language = service._language.detect(updated_summary)
+    _ = current_answer
+    language = (
+        current_state.conversation_language or service._language.default_language_code
+    )
     feedback_state = to_feedback_state(
         state=current_state,
         updated_questionnaire=updated_questionnaire,
@@ -568,9 +581,9 @@ async def _build_categorized_completion_result(
     updated_questionnaire: str,
     updated_summary: str,
 ) -> ChatResult:
-    language = service._language.detect_preferred(
-        current_answer=current_answer,
-        previous_summary=updated_summary,
+    _ = current_answer
+    language = (
+        current_state.conversation_language or service._language.default_language_code
     )
     handoff_categories_v1 = (
         await service._categorized_handoff.build_handoff_categories_v1(
@@ -599,9 +612,9 @@ async def _build_next_question_result(
     updated_questionnaire: str,
     updated_summary: str,
 ) -> ChatResult:
-    preferred_language = service._language.detect_preferred(
-        current_answer=current_answer,
-        previous_summary=current_state.summary,
+    _ = current_answer
+    conversation_language = (
+        current_state.conversation_language or service._language.default_language_code
     )
     focused_questionnaire = _mask_later_blank_fields(
         updated_questionnaire,
@@ -609,7 +622,7 @@ async def _build_next_question_result(
     )
     next_question = await service._question_asker.ask(
         focused_questionnaire,
-        preferred_language,
+        conversation_language,
     )
     next_state = to_intake_state_with_next_question(
         state=current_state,

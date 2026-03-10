@@ -92,7 +92,7 @@ def test_feedback_helpers_complete_and_fill_missing_context() -> None:
 
     enriched, summary_text, language = ensure_feedback_context(
         initial,
-        detect_language=lambda _: "de",
+        default_language="de",
     )
     completed = mark_feedback_completed(enriched, "yes")
 

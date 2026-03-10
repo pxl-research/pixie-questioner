@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 
-from pixie_questioner.chat.language import detect_preferred_language
+from pixie_questioner.chat.language import resolve_conversation_language
 from pixie_questioner.chat.messages import (
     build_feedback_quick_replies,
     get_localized_options,
@@ -34,46 +34,82 @@ class FakeLLM:
         return self.responses.pop(0)
 
 
-def test_detect_preferred_language_prefers_supported_on_small_score_gap(
+def test_resolve_conversation_language_keeps_dutch_for_short_history(
     monkeypatch,
 ) -> None:
     def fake_detect_langs(_: str):
-        return [FakeLangCandidate("de", 0.56), FakeLangCandidate("nl", 0.49)]
+        return [FakeLangCandidate("en", 0.99)]
 
     monkeypatch.setattr(
         "pixie_questioner.chat.language.detect_langs", fake_detect_langs
     )
 
-    preferred = detect_preferred_language(
+    conversation_language, recent_user_turns = resolve_conversation_language(
         current_answer="kurzer text",
-        previous_summary="",
+        conversation_language="",
+        recent_user_turns="",
         supported_language_set={"nl", "en", "fr"},
         supported_language_priority={"nl": 0, "en": 1, "fr": 2},
+        supported_language_names={"nl": "Dutch", "en": "English", "fr": "French"},
         default_language_code="nl",
     )
 
-    assert preferred == "nl"
+    assert conversation_language == "nl"
+    assert recent_user_turns == "kurzer text"
 
 
-def test_detect_preferred_language_keeps_dutch_for_strong_unsupported_signal(
+def test_resolve_conversation_language_switches_on_explicit_request(
     monkeypatch,
 ) -> None:
     def fake_detect_langs(_: str):
-        return [FakeLangCandidate("de", 0.96), FakeLangCandidate("nl", 0.02)]
+        return [FakeLangCandidate("nl", 0.99)]
 
     monkeypatch.setattr(
         "pixie_questioner.chat.language.detect_langs", fake_detect_langs
     )
 
-    preferred = detect_preferred_language(
-        current_answer="guten tag ich suche eine jeans",
-        previous_summary="",
+    conversation_language, recent_user_turns = resolve_conversation_language(
+        current_answer="Kun je in het Engels verdergaan?",
+        conversation_language="nl",
+        recent_user_turns="Hallo",
         supported_language_set={"nl", "en", "fr"},
         supported_language_priority={"nl": 0, "en": 1, "fr": 2},
+        supported_language_names={"nl": "Dutch", "en": "English", "fr": "French"},
         default_language_code="nl",
     )
 
-    assert preferred == "nl"
+    assert conversation_language == "en"
+    assert recent_user_turns == "Hallo\nKun je in het Engels verdergaan?"
+
+
+def test_resolve_conversation_language_uses_recent_user_turn_history(
+    monkeypatch,
+) -> None:
+    def fake_detect_langs(text: str):
+        if "I am looking for dark blue jeans for work." in text:
+            return [FakeLangCandidate("en", 0.99)]
+        if text == "Yes":
+            return [FakeLangCandidate("en", 0.99)]
+        return [FakeLangCandidate("nl", 0.99)]
+
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
+
+    conversation_language, recent_user_turns = resolve_conversation_language(
+        current_answer="Yes",
+        conversation_language="nl",
+        recent_user_turns=(
+            "I am looking for dark blue jeans for work.\n" "I prefer a straight fit."
+        ),
+        supported_language_set={"nl", "en", "fr"},
+        supported_language_priority={"nl": 0, "en": 1, "fr": 2},
+        supported_language_names={"nl": "Dutch", "en": "English", "fr": "French"},
+        default_language_code="nl",
+    )
+
+    assert conversation_language == "en"
+    assert recent_user_turns.endswith("Yes")
 
 
 def test_messages_fallback_to_english_options() -> None:
@@ -131,7 +167,7 @@ def test_state_codec_parse_and_serialize_roundtrip() -> None:
             "handoff_categories_v1": '{"course_type":"hoofdgerecht"}',
         },
         questionnaire_template="0. Initial user question: []",
-        detect_language=lambda _text: "en",
+        default_language="en",
     )
 
     serialized = serialize_state(parsed)
@@ -140,6 +176,29 @@ def test_state_codec_parse_and_serialize_roundtrip() -> None:
     assert serialized["post_summary_language"] == "en"
     assert serialized["boundary_violation_count"] == "2"
     assert serialized["handoff_categories_v1"] == '{"course_type":"hoofdgerecht"}'
+
+
+def test_state_codec_preserves_conversation_language_and_recent_user_turns() -> None:
+    parsed = parse_state(
+        state={
+            "questionnaire": "0. Initial user question: []",
+            "summary": "Summary text",
+            "last_question": "Vraag?",
+            "conversation_language": "en",
+            "recent_user_turns": (
+                "Hello there\n" "I am looking for dark blue straight jeans for work."
+            ),
+        },
+        questionnaire_template="0. Initial user question: []",
+        default_language="nl",
+    )
+
+    serialized = serialize_state(parsed)
+
+    assert serialized.get("conversation_language") == "en"
+    assert serialized.get("recent_user_turns") == (
+        "Hello there\nI am looking for dark blue straight jeans for work."
+    )
 
 
 def test_relevance_classifier_parses_labels_and_negation() -> None:

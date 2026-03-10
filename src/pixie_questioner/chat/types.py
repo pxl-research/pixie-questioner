@@ -38,6 +38,8 @@ class ChatState:
     questionnaire: str = ""
     summary: str = ""
     last_question: str = INITIAL_QUESTION
+    conversation_language: str = ""
+    recent_user_turns: str = ""
     phase: str = PHASE_INTAKE
     feedback_status: str = FEEDBACK_PENDING
     final_summary: str = ""
