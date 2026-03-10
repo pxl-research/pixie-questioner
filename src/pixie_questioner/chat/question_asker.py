@@ -40,11 +40,11 @@ class QuestionAsker:
         )
         return stripped.strip(_COMPLETION_STRIP_CHARS)
 
-    async def ask(self, questionnaire: str, preferred_language: str) -> str:
+    async def ask(self, questionnaire: str, conversation_language: str) -> str:
         """Ask the LLM for the next question and return the cleaned text."""
         system_prompt = self._render_prompt(questionnaire)
         system_prompt = (
-            f"{system_prompt}{self.language.build_instruction(preferred_language)}"
+            f"{system_prompt}{self.language.build_instruction(conversation_language)}"
         )
         response = await resolve_llm_client(self.llm).ainvoke(
             [{"role": "system", "content": system_prompt}]
@@ -55,4 +55,4 @@ class QuestionAsker:
             and self.completion_token.casefold() in content.casefold()
         ):
             content = self._strip_completion_token(content)
-        return self.messages.simplify_terms(content, preferred_language)
+        return self.messages.simplify_terms(content, conversation_language)

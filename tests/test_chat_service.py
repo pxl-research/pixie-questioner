@@ -153,21 +153,11 @@ GOODBYE_NL = _DEFAULT_POLICY.goodbye_lines["nl"]
 GOODBYE_EN = _DEFAULT_POLICY.goodbye_lines["en"]
 GOODBYE_FR = _DEFAULT_POLICY.goodbye_lines["fr"]
 OFF_TOPIC_REDIRECT_NL = _DEFAULT_POLICY.off_topic_redirects["nl"]
+OFF_TOPIC_REDIRECT_EN = _DEFAULT_POLICY.off_topic_redirects["en"]
 
 
 def _replace_policy(**changes) -> ChatDomainPolicy:
     return replace(_DEFAULT_POLICY, **changes)
-
-
-def _make_service_for_language_detection() -> ChatService:
-    return ChatService(
-        llm=FakeLLM([]),
-        question_asker_prompt="PROMPT {summary} {completion_token}",
-        notulist=_make_notulist(FakeLLM([])),
-        summarizer=_make_summarizer(FakeLLM([])),
-        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
-        domain_policy=_DEFAULT_POLICY,
-    )
 
 
 def test_ask_updates_state_and_returns_next_question():
@@ -207,7 +197,9 @@ def test_ask_updates_state_and_returns_next_question():
     assert result.state["phase"] == "intake"
     assert result.state["feedback_status"] == "pending"
     assert result.state["final_summary"] == ""
-    assert result.state["post_summary_language"] == ""
+    assert result.state["conversation_language"] == "nl"
+    assert result.state["recent_user_turns"] == "User answer"
+    assert result.state["post_summary_language"] == "nl"
     assert result.state["boundary_violation_count"] == "0"
     assert result.summary is None
     assert result.quick_replies is None
@@ -329,97 +321,95 @@ def test_ask_keeps_dutch_for_clear_unsupported_sentence():
     assert "Respond in Dutch." in question_llm.calls[-1][0]["content"]
 
 
-def test_detect_preferred_language_prefers_supported_on_small_score_gap(monkeypatch):
-    service = _make_service_for_language_detection()
+def test_ask_switches_question_language_immediately_for_explicit_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question_llm = FakeLLM(["Next question"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Ik zoek een jeans\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["Nederlandse samenvatting"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+    )
 
     def fake_detect_langs(_: str):
-        return [FakeLangCandidate("de", 0.56), FakeLangCandidate("nl", 0.49)]
-
-    monkeypatch.setattr(
-        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
-    )
-
-    preferred_language = service._language.detect_preferred("kurzer text", "")
-
-    assert preferred_language == "nl"
-
-
-def test_detect_preferred_language_keeps_dutch_on_strong_unsupported_signal(
-    monkeypatch,
-):
-    service = _make_service_for_language_detection()
-
-    def fake_detect_langs(_: str):
-        return [FakeLangCandidate("de", 0.96), FakeLangCandidate("nl", 0.02)]
-
-    monkeypatch.setattr(
-        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
-    )
-
-    preferred_language = service._language.detect_preferred(
-        "guten tag ich suche eine jeans", ""
-    )
-
-    assert preferred_language == "nl"
-
-
-def test_detect_preferred_language_falls_back_to_dutch_for_short_unsupported_text(
-    monkeypatch,
-):
-    service = _make_service_for_language_detection()
-
-    def fake_detect_langs(_: str):
-        return [FakeLangCandidate("fi", 0.99)]
-
-    monkeypatch.setattr(
-        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
-    )
-
-    preferred_language = service._language.detect_preferred("Hallo", "")
-
-    assert preferred_language == "nl"
-
-
-def test_detect_preferred_language_keeps_dutch_for_short_supported_non_dutch_signal(
-    monkeypatch,
-):
-    service = _make_service_for_language_detection()
-
-    def fake_detect_langs(text: str):
-        if text == "Graag":
-            return [FakeLangCandidate("en", 0.99)]
         return [FakeLangCandidate("nl", 0.99)]
 
     monkeypatch.setattr(
         "pixie_questioner.chat.language.detect_langs", fake_detect_langs
     )
 
-    preferred_language = service._language.detect_preferred("Graag", "")
+    result = asyncio.run(
+        service.ask(
+            current_answer="Kun je in het Engels verdergaan?",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "Nederlandse samenvatting",
+                "last_question": "Welke pasvorm zoek je?",
+                "conversation_language": "nl",
+                "recent_user_turns": "Hallo",
+            },
+        )
+    )
 
-    assert preferred_language == "nl"
+    assert result.response_type == "answer"
+    assert "Respond in English." in question_llm.calls[-1][0]["content"]
+    assert result.state.get("conversation_language") == "en"
 
 
-def test_detect_preferred_language_uses_summary_when_short_answer_is_uncertain(
-    monkeypatch,
-):
-    service = _make_service_for_language_detection()
+def test_ask_switches_question_language_from_recent_user_turn_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question_llm = FakeLLM(["Next question"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Ik zoek een jeans\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["Nederlandse samenvatting"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+    )
 
     def fake_detect_langs(text: str):
+        if "I am looking for dark blue jeans for work." in text:
+            return [FakeLangCandidate("en", 0.99)]
         if text == "Yes":
             return [FakeLangCandidate("en", 0.99)]
-        if text == "I am looking for dark blue straight jeans for work.":
-            return [FakeLangCandidate("en", 0.97)]
         return [FakeLangCandidate("nl", 0.99)]
 
     monkeypatch.setattr(
         "pixie_questioner.chat.language.detect_langs", fake_detect_langs
     )
 
-    preferred_language = service._language.detect_preferred(
-        "Yes", "I am looking for dark blue straight jeans for work."
+    result = asyncio.run(
+        service.ask(
+            current_answer="Yes",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "Nederlandse samenvatting",
+                "last_question": "Welke pasvorm zoek je?",
+                "conversation_language": "nl",
+                "recent_user_turns": (
+                    "I am looking for dark blue jeans for work.\n"
+                    "I prefer a straight fit."
+                ),
+            },
+        )
     )
 
-    assert preferred_language == "en"
+    assert result.response_type == "answer"
+    assert "Respond in English." in question_llm.calls[-1][0]["content"]
+    assert result.state.get("conversation_language") == "en"
 
 
 def test_ask_returns_summary_when_questionnaire_complete():
@@ -1467,6 +1457,54 @@ def test_ask_uses_dutch_off_topic_redirect_for_short_uncertain_answer(monkeypatc
     assert len(summarizer_llm.calls) == 0
 
 
+def test_ask_uses_conversation_language_for_off_topic_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    relevance_classifier = StubRelevanceClassifier(["off_topic"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+        answer_relevance_classifier=relevance_classifier,
+    )
+    current_question = "Which fit are you looking for?"
+
+    def fake_detect_langs(text: str):
+        if "I am looking for dark blue jeans for work." in text:
+            return [FakeLangCandidate("en", 0.99)]
+        return [FakeLangCandidate("nl", 0.99)]
+
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Prima",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "Nederlandse samenvatting",
+                "last_question": current_question,
+                "conversation_language": "en",
+                "recent_user_turns": "I am looking for dark blue jeans for work.",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert any(
+        result.text == line.format(question=current_question)
+        for line in OFF_TOPIC_REDIRECT_EN
+    )
+    assert result.state.get("conversation_language") == "en"
+
+
 def test_llm_answer_relevance_classifier_parses_off_topic_label():
     classifier = LLMAnswerRelevanceClassifier(
         llm=FakeLLM(["OFF_TOPIC"]),
@@ -1721,6 +1759,106 @@ def test_ask_uses_locked_post_summary_language_for_feedback_retry():
     assert summarizer_llm.calls == []
 
 
+def test_ask_infers_legacy_feedback_language_from_summary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+    )
+
+    def fake_detect_langs(text: str):
+        if text.startswith("English summary should keep the legacy language."):
+            return [FakeLangCandidate("en", 0.99)]
+        return [FakeLangCandidate("nl", 0.99)]
+
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Maybe",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "English summary should keep the legacy language.",
+                "last_question": "AI question",
+                "phase": "awaiting_feedback",
+                "feedback_status": "pending",
+                "final_summary": "English summary should keep the legacy language.",
+                "post_summary_language": "",
+                "conversation_language": "",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text in FEEDBACK_QUESTION_EN
+    assert result.quick_replies == [
+        {"label": "Yes", "value": "yes"},
+        {"label": "No", "value": "no"},
+    ]
+    assert result.state["conversation_language"] == "en"
+    assert result.state["post_summary_language"] == "en"
+
+
+def test_ask_uses_conversation_language_for_feedback_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+    )
+
+    def fake_detect_langs(text: str):
+        if text.startswith("English summary should not decide language"):
+            return [FakeLangCandidate("en", 0.99)]
+        return [FakeLangCandidate("nl", 0.99)]
+
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Maybe",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "English summary should not decide language.",
+                "last_question": "AI question",
+                "phase": "awaiting_feedback",
+                "feedback_status": "pending",
+                "final_summary": "English summary should not decide language.",
+                "post_summary_language": "",
+                "conversation_language": "nl",
+                "recent_user_turns": "Hallo\nIk zoek een jeans",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text in FEEDBACK_QUESTION_NL
+    assert result.quick_replies == [
+        {"label": "Ja", "value": "yes"},
+        {"label": "Nee", "value": "no"},
+    ]
+    assert result.state.get("conversation_language") == "nl"
+
+
 def test_ask_returns_completed_feedback_ack_when_phase_completed():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(["Should not be used"])
@@ -1761,7 +1899,9 @@ def test_ask_returns_completed_feedback_ack_when_phase_completed():
     assert summarizer_llm.calls == []
 
 
-def test_ask_returns_english_handoff_for_english_summary():
+def test_ask_returns_english_handoff_for_english_conversation(
+    monkeypatch: pytest.MonkeyPatch,
+):
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(
         ["0. Initial user question: Filled\n1. Occasion, Vibe, Setting: Filled"]
@@ -1776,13 +1916,26 @@ def test_ask_returns_english_handoff_for_english_summary():
         domain_policy=_DEFAULT_POLICY,
     )
 
+    def fake_detect_langs(text: str):
+        if "I am looking for blue jeans with a straight fit." in text:
+            return [FakeLangCandidate("en", 0.99)]
+        if text == "Yes":
+            return [FakeLangCandidate("en", 0.99)]
+        return [FakeLangCandidate("nl", 0.99)]
+
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
+
     result = asyncio.run(
         service.ask(
-            current_answer="User answer",
+            current_answer="Yes",
             state={
                 "questionnaire": "Prev []",
                 "summary": "Prev summary",
                 "last_question": "AI question",
+                "conversation_language": "en",
+                "recent_user_turns": "I am looking for blue jeans with a straight fit.",
             },
         )
     )
@@ -1790,6 +1943,7 @@ def test_ask_returns_english_handoff_for_english_summary():
     assert result.response_type == "answer"
     assert any(result.text.startswith(line) for line in HANDOFF_EN)
     assert result.follow_up_question in FEEDBACK_QUESTION_EN
+    assert result.state["conversation_language"] == "en"
     assert result.state["post_summary_language"] == "en"
     assert result.quick_replies == [
         {"label": "Yes", "value": "yes"},
@@ -1936,7 +2090,9 @@ def test_ask_falls_back_to_english_for_missing_extra_language_copy():
     ]
 
 
-def test_ask_returns_french_handoff_for_french_summary():
+def test_ask_returns_french_handoff_for_french_conversation(
+    monkeypatch: pytest.MonkeyPatch,
+):
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(
         ["0. Initial user question: Filled\n1. Occasion, Vibe, Setting: Filled"]
@@ -1951,13 +2107,26 @@ def test_ask_returns_french_handoff_for_french_summary():
         domain_policy=_DEFAULT_POLICY,
     )
 
+    def fake_detect_langs(text: str):
+        if "Je cherche un jean bleu avec une coupe droite." in text:
+            return [FakeLangCandidate("fr", 0.99)]
+        if text == "Oui":
+            return [FakeLangCandidate("fr", 0.99)]
+        return [FakeLangCandidate("nl", 0.99)]
+
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
+
     result = asyncio.run(
         service.ask(
-            current_answer="User answer",
+            current_answer="Oui",
             state={
                 "questionnaire": "Prev []",
                 "summary": "Prev summary",
                 "last_question": "AI question",
+                "conversation_language": "fr",
+                "recent_user_turns": "Je cherche un jean bleu avec une coupe droite.",
             },
         )
     )
@@ -1965,6 +2134,7 @@ def test_ask_returns_french_handoff_for_french_summary():
     assert result.response_type == "answer"
     assert any(result.text.startswith(line) for line in HANDOFF_FR)
     assert result.follow_up_question in FEEDBACK_QUESTION_FR
+    assert result.state["conversation_language"] == "fr"
     assert result.state["post_summary_language"] == "fr"
     assert result.quick_replies == [
         {"label": "Oui", "value": "yes"},
@@ -2008,6 +2178,49 @@ def test_ask_falls_back_to_dutch_handoff_when_language_is_undetectable():
         {"label": "Nee", "value": "no"},
     ]
     assert question_llm.calls == []
+
+
+def test_ask_uses_conversation_language_for_terminated_goodbye(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+    )
+
+    def fake_detect_langs(text: str):
+        if "I am looking for dark blue jeans for work." in text:
+            return [FakeLangCandidate("en", 0.99)]
+        return [FakeLangCandidate("nl", 0.99)]
+
+    monkeypatch.setattr(
+        "pixie_questioner.chat.language.detect_langs", fake_detect_langs
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="ok",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "Nederlandse samenvatting",
+                "last_question": "AI question",
+                "phase": "terminated",
+                "conversation_language": "en",
+                "recent_user_turns": "I am looking for dark blue jeans for work.",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text in GOODBYE_EN
+    assert result.state.get("conversation_language") == "en"
 
 
 def test_ask_strips_completion_token_from_next_question():

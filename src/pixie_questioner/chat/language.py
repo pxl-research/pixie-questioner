@@ -8,9 +8,34 @@ from dataclasses import dataclass
 from langdetect import DetectorFactory, detect_langs
 from langdetect.lang_detect_exception import LangDetectException
 
-SUPPORTED_NON_DUTCH_STRONG_PROBABILITY = 0.85
-SUPPORTED_NON_DUTCH_MIN_WORDS = 4
+CONVERSATION_LANGUAGE_CONFIDENCE = 0.90
+CONVERSATION_LANGUAGE_MIN_WORDS = 6
+MAX_RECENT_USER_TURNS = 6
 SUPPORTED_RESPONSE_LANGUAGES = frozenset({"nl", "en", "fr"})
+_WORD_PATTERN = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ']+")
+_EXPLICIT_SWITCH_HINTS = frozenset(
+    {
+        "antwoord",
+        "answer",
+        "continue",
+        "english",
+        "francais",
+        "français",
+        "graag",
+        "please",
+        "reply",
+        "respond",
+        "spreek",
+        "switch",
+        "verder",
+        "verdergaan",
+    }
+)
+_EXPLICIT_LANGUAGE_ALIASES: dict[str, frozenset[str]] = {
+    "nl": frozenset({"nederlands", "dutch", "hollands", "neerlandais"}),
+    "en": frozenset({"engels", "english", "anglais"}),
+    "fr": frozenset({"frans", "french", "francais", "français"}),
+}
 
 DetectorFactory.seed = 0
 
@@ -64,68 +89,119 @@ def _select_best_supported_language(
     )
 
 
-def _select_preferred_language_from_text(
+def _normalize_turn_text(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _extract_words(text: str) -> list[str]:
+    return _WORD_PATTERN.findall(text)
+
+
+def _supported_detection_languages(supported_language_set: set[str]) -> set[str]:
+    detected_languages = supported_language_set & SUPPORTED_RESPONSE_LANGUAGES
+    if detected_languages:
+        return detected_languages
+    return supported_language_set
+
+
+def _supported_language_aliases(
+    supported_language_set: set[str],
+    supported_language_names: dict[str, str],
+) -> dict[str, frozenset[str]]:
+    aliases: dict[str, frozenset[str]] = {}
+    for language_code in supported_language_set:
+        base_aliases = set(_EXPLICIT_LANGUAGE_ALIASES.get(language_code, frozenset()))
+        configured_name = (
+            supported_language_names.get(language_code, "").casefold().strip()
+        )
+        if configured_name:
+            base_aliases.add(configured_name)
+        aliases[language_code] = frozenset(alias for alias in base_aliases if alias)
+    return aliases
+
+
+def detect_explicit_language_switch(
     text: str,
     supported_language_set: set[str],
-    supported_language_priority: dict[str, int],
-    default_language_code: str,
-) -> tuple[str, bool]:
-    effective_supported_languages = (
-        supported_language_set & SUPPORTED_RESPONSE_LANGUAGES
+    supported_language_names: dict[str, str],
+) -> str | None:
+    normalized_text = text.casefold()
+    tokens = set(_extract_words(normalized_text))
+    if not tokens:
+        return None
+    aliases = _supported_language_aliases(
+        supported_language_set=supported_language_set,
+        supported_language_names=supported_language_names,
     )
-    candidates = detect_language_candidates(text)
-    if not candidates:
-        return default_language_code, True
+    for language_code, language_aliases in aliases.items():
+        if not language_aliases:
+            continue
+        alias_present = any(
+            re.search(rf"\b{re.escape(alias)}\b", normalized_text)
+            for alias in language_aliases
+        )
+        if not alias_present:
+            continue
+        if tokens & _EXPLICIT_SWITCH_HINTS:
+            return language_code
+    return None
+
+
+def append_recent_user_turn(
+    recent_user_turns: str,
+    current_answer: str,
+    *,
+    max_turns: int = MAX_RECENT_USER_TURNS,
+) -> str:
+    normalized_answer = _normalize_turn_text(current_answer)
+    turns = [line.strip() for line in recent_user_turns.splitlines() if line.strip()]
+    if normalized_answer:
+        turns.append(normalized_answer)
+    if len(turns) > max_turns:
+        turns = turns[-max_turns:]
+    return "\n".join(turns)
+
+
+def resolve_conversation_language(
+    current_answer: str,
+    conversation_language: str,
+    recent_user_turns: str,
+    supported_language_set: set[str],
+    supported_language_priority: dict[str, int],
+    supported_language_names: dict[str, str],
+    default_language_code: str,
+) -> tuple[str, str]:
+    updated_recent_user_turns = append_recent_user_turn(
+        recent_user_turns,
+        current_answer,
+    )
+    explicit_language = detect_explicit_language_switch(
+        current_answer,
+        supported_language_set=supported_language_set,
+        supported_language_names=supported_language_names,
+    )
+    if explicit_language is not None:
+        return explicit_language, updated_recent_user_turns
+
+    effective_supported_languages = _supported_detection_languages(
+        supported_language_set
+    )
+    combined_text = updated_recent_user_turns.strip()
+    if len(_extract_words(combined_text)) < CONVERSATION_LANGUAGE_MIN_WORDS:
+        return conversation_language or default_language_code, updated_recent_user_turns
 
     best_supported = _select_best_supported_language(
-        candidates,
+        detect_language_candidates(combined_text),
         supported_language_set=effective_supported_languages,
         supported_language_priority=supported_language_priority,
     )
     if best_supported is None:
-        return default_language_code, True
+        return conversation_language or default_language_code, updated_recent_user_turns
 
-    best_supported_language, best_supported_probability = best_supported
-    word_count = len(re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ']+", text))
-
-    if best_supported_language == default_language_code:
-        return default_language_code, False
-    if (
-        best_supported_probability >= SUPPORTED_NON_DUTCH_STRONG_PROBABILITY
-        and word_count >= SUPPORTED_NON_DUTCH_MIN_WORDS
-    ):
-        return best_supported_language, False
-    return default_language_code, True
-
-
-def detect_preferred_language(
-    current_answer: str,
-    previous_summary: str,
-    supported_language_set: set[str],
-    supported_language_priority: dict[str, int],
-    default_language_code: str,
-) -> str:
-    answer_language, answer_is_uncertain = _select_preferred_language_from_text(
-        current_answer,
-        supported_language_set=supported_language_set,
-        supported_language_priority=supported_language_priority,
-        default_language_code=default_language_code,
-    )
-    if not answer_is_uncertain:
-        return answer_language
-
-    summary_language, summary_is_uncertain = _select_preferred_language_from_text(
-        previous_summary,
-        supported_language_set=supported_language_set,
-        supported_language_priority=supported_language_priority,
-        default_language_code=default_language_code,
-    )
-    if not summary_is_uncertain:
-        return summary_language
-
-    if summary_language in supported_language_set:
-        return summary_language
-    return default_language_code
+    best_language, best_probability = best_supported
+    if best_probability < CONVERSATION_LANGUAGE_CONFIDENCE:
+        return conversation_language or default_language_code, updated_recent_user_turns
+    return best_language, updated_recent_user_turns
 
 
 def build_language_instruction(
@@ -177,12 +253,19 @@ class LanguageSupport:
             default_language_code=self.default_language_code,
         )
 
-    def detect_preferred(self, current_answer: str, previous_summary: str) -> str:
-        return detect_preferred_language(
+    def resolve_conversation(
+        self,
+        current_answer: str,
+        conversation_language: str,
+        recent_user_turns: str,
+    ) -> tuple[str, str]:
+        return resolve_conversation_language(
             current_answer=current_answer,
-            previous_summary=previous_summary,
+            conversation_language=conversation_language,
+            recent_user_turns=recent_user_turns,
             supported_language_set=self.supported_language_set,
             supported_language_priority=self.supported_language_priority,
+            supported_language_names=self.supported_language_names,
             default_language_code=self.default_language_code,
         )
 

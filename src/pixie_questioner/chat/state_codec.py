@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import re
-from typing import Callable
 
+from .language import SUPPORTED_RESPONSE_LANGUAGES, detect_language
 from .types import (
     FEEDBACK_PENDING,
     PHASE_AWAITING_FEEDBACK,
@@ -154,26 +154,58 @@ def _normalize_questionnaire(
     return questionnaire_template
 
 
+def _infer_legacy_conversation_language(
+    summary_text: str,
+    default_language: str,
+) -> str:
+    if not summary_text.strip():
+        return default_language
+    return detect_language(
+        summary_text,
+        supported_language_set=set(SUPPORTED_RESPONSE_LANGUAGES),
+        default_language_code=default_language,
+    )
+
+
 def _normalize_phase_context(
     phase: str,
     feedback_status: str,
     summary: str,
     final_summary: str,
+    conversation_language: str,
     post_summary_language: str,
-    detect_language: Callable[[str], str],
-) -> tuple[str, str, str, str]:
+    default_language: str,
+) -> tuple[str, str, str, str, str]:
+    normalized_final_summary = final_summary if final_summary.strip() else summary
+    normalized_conversation_language = (
+        conversation_language.strip() or post_summary_language.strip()
+    )
+    if not normalized_conversation_language:
+        if phase == PHASE_INTAKE:
+            normalized_conversation_language = default_language
+        else:
+            normalized_conversation_language = _infer_legacy_conversation_language(
+                normalized_final_summary,
+                default_language,
+            )
     if phase == PHASE_INTAKE:
-        return phase, FEEDBACK_PENDING, "", ""
+        return (
+            phase,
+            FEEDBACK_PENDING,
+            "",
+            normalized_conversation_language,
+            "",
+        )
 
     if phase == PHASE_TERMINATED:
-        return phase, FEEDBACK_PENDING, "", post_summary_language
+        return (
+            phase,
+            FEEDBACK_PENDING,
+            "",
+            normalized_conversation_language,
+            normalized_conversation_language,
+        )
 
-    normalized_final_summary = final_summary if final_summary.strip() else summary
-    normalized_post_summary_language = (
-        post_summary_language
-        if post_summary_language.strip()
-        else detect_language(normalized_final_summary)
-    )
     normalized_phase = phase
     if phase == PHASE_AWAITING_FEEDBACK and feedback_status != FEEDBACK_PENDING:
         normalized_phase = PHASE_COMPLETED
@@ -182,17 +214,21 @@ def _normalize_phase_context(
         normalized_phase,
         feedback_status,
         normalized_final_summary,
-        normalized_post_summary_language,
+        normalized_conversation_language,
+        normalized_conversation_language,
     )
 
 
 def parse_state(
     state: dict[str, str] | None,
     questionnaire_template: str,
-    detect_language: Callable[[str], str],
+    default_language: str,
 ) -> ChatState:
     if not state:
-        return ChatState(questionnaire=questionnaire_template)
+        return ChatState(
+            questionnaire=questionnaire_template,
+            conversation_language=default_language,
+        )
 
     questionnaire = _normalize_questionnaire(
         _read_state_string(state, "questionnaire", ""),
@@ -200,6 +236,8 @@ def parse_state(
     )
     summary = _read_state_string(state, "summary", "")
     last_question = _read_state_string(state, "last_question", INITIAL_QUESTION)
+    conversation_language = _read_state_string(state, "conversation_language", "")
+    recent_user_turns = _read_state_string(state, "recent_user_turns", "")
     phase = _normalize_phase(_read_state_string(state, "phase", PHASE_INTAKE))
     feedback_status = _normalize_feedback_status(
         _read_state_string(state, "feedback_status", FEEDBACK_PENDING)
@@ -210,20 +248,27 @@ def parse_state(
         _read_state_string(state, "boundary_violation_count", "0")
     )
     handoff_categories_v1 = _read_state_string(state, "handoff_categories_v1", "")
-    phase, feedback_status, final_summary, post_summary_language = (
-        _normalize_phase_context(
-            phase=phase,
-            feedback_status=feedback_status,
-            summary=summary,
-            final_summary=final_summary,
-            post_summary_language=post_summary_language,
-            detect_language=detect_language,
-        )
+    (
+        phase,
+        feedback_status,
+        final_summary,
+        conversation_language,
+        post_summary_language,
+    ) = _normalize_phase_context(
+        phase=phase,
+        feedback_status=feedback_status,
+        summary=summary,
+        final_summary=final_summary,
+        conversation_language=conversation_language,
+        post_summary_language=post_summary_language,
+        default_language=default_language,
     )
     return ChatState(
         questionnaire=questionnaire,
         summary=summary,
         last_question=last_question,
+        conversation_language=conversation_language,
+        recent_user_turns=recent_user_turns,
         phase=phase,
         feedback_status=feedback_status,
         final_summary=final_summary,
@@ -238,10 +283,14 @@ def serialize_state(state: ChatState) -> dict[str, str]:
         "questionnaire": state.questionnaire,
         "summary": state.summary,
         "last_question": state.last_question,
+        "conversation_language": state.conversation_language,
+        "recent_user_turns": state.recent_user_turns,
         "phase": state.phase,
         "feedback_status": state.feedback_status,
         "final_summary": state.final_summary,
-        "post_summary_language": state.post_summary_language,
+        "post_summary_language": (
+            state.post_summary_language or state.conversation_language
+        ),
         "boundary_violation_count": str(state.boundary_violation_count),
         "handoff_categories_v1": state.handoff_categories_v1,
     }
