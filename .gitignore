@@ -215,3 +215,5 @@ __marimo__/
 # Temporary planning documents
 docs/plans/*
 !docs/plans/.gitkeep
+
+.worktrees/
