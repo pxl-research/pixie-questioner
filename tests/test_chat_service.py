@@ -2381,7 +2381,7 @@ def test_ask_rewrites_summary_when_primary_language_is_unsupported(
         return [("nl", 0.99)]
 
     monkeypatch.setattr(
-        "pixie_questioner.chat_service.detect_language_candidates",
+        "pixie_questioner.chat.summary.detect_language_candidates",
         fake_language_candidates,
     )
 
