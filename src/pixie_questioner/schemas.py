@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CHAT_CONTRACT_VERSION = "chat-v2.0.0"
 BROOKLYN_CHAT_CONTRACT_VERSION = "chat-brooklyn-v2.0.0"
-CRETSKENS_CHAT_CONTRACT_VERSION = "chat-cretskens-v1.0.0"
+CRETSKENS_CHAT_CONTRACT_VERSION = "chat-cretskens-v2.0.0"
 AUDIT_EVENT_CONTRACT_VERSION = "audit-event-v1.0.0"
 MAX_CHAT_STATE_KEYS = 64
 
@@ -54,9 +54,10 @@ class ChatRecommendation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(..., min_length=1)
-    price_eur: float
     country: str = Field(..., min_length=1)
     region: str = Field(..., min_length=1)
+    aroma_description: str = Field(..., min_length=1)
+    taste_description: str = Field(..., min_length=1)
 
 
 class QuickReplyOption(BaseModel):

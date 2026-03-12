@@ -27,9 +27,10 @@ class ConversationTurn:
 class WineCatalogRecommendation:
     barcode: str
     name: str
-    price_eur: float
     country: str
     region: str
+    aroma_description: str
+    taste_description: str
 
 
 @dataclass(frozen=True)

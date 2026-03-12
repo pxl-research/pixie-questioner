@@ -36,9 +36,10 @@ On the first turn, send an empty object for `state`.
 Treat `state` as opaque; its contents are service-specific.
 When `type` is `recommendations`, each recommendation item contains:
 - `name`
-- `price_eur`
 - `country`
 - `region`
+- `aroma_description`
+- `taste_description`
 
 Behavior guarantees:
 - One question per turn while intake is active.
@@ -53,7 +54,7 @@ Response headers:
 
 Canonical chat contracts live in `pixie-contracts`:
 - `pixie-contracts/contracts/chat/brooklyn/v2/openapi.yaml`
-- `pixie-contracts/contracts/chat/cretskens/v1/openapi.yaml`
+- `pixie-contracts/contracts/chat/cretskens/v2/openapi.yaml`
 
 ### GET /health
 
