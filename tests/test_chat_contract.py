@@ -32,7 +32,7 @@ def test_chat_contract_version_is_pinned() -> None:
 
 def test_case_chat_contract_versions_are_pinned() -> None:
     assert BROOKLYN_CHAT_CONTRACT_VERSION == "chat-brooklyn-v2.0.0"
-    assert CRETSKENS_CHAT_CONTRACT_VERSION == "chat-cretskens-v1.0.0"
+    assert CRETSKENS_CHAT_CONTRACT_VERSION == "chat-cretskens-v2.0.0"
 
 
 def test_audit_event_contract_version_is_pinned() -> None:
@@ -72,14 +72,16 @@ def test_chat_recommendation_item_matches_contract_shape() -> None:
 
     assert set(schema.get("required", [])) == {
         "name",
-        "price_eur",
         "country",
         "region",
+        "aroma_description",
+        "taste_description",
     }
     assert schema["properties"]["name"]["type"] == "string"
-    assert schema["properties"]["price_eur"]["type"] == "number"
     assert schema["properties"]["country"]["type"] == "string"
     assert schema["properties"]["region"]["type"] == "string"
+    assert schema["properties"]["aroma_description"]["type"] == "string"
+    assert schema["properties"]["taste_description"]["type"] == "string"
 
 
 def test_chat_recommendations_response_matches_contract_shape() -> None:

@@ -371,9 +371,10 @@ def test_chat_returns_recommendations(monkeypatch, tmp_path: Path) -> None:
             WineCatalogRecommendation(
                 barcode="w1",
                 name="Testwijn",
-                price_eur=10.0,
                 country="Frankrijk",
                 region="Bordeaux",
+                aroma_description="Rijp rood fruit",
+                taste_description="Fluweelzacht en rond",
             )
         ],
     )
@@ -399,9 +400,10 @@ def test_chat_returns_recommendations(monkeypatch, tmp_path: Path) -> None:
     assert payload["recommendations"] == [
         {
             "name": "Testwijn",
-            "price_eur": 10.0,
             "country": "Frankrijk",
             "region": "Bordeaux",
+            "aroma_description": "Rijp rood fruit",
+            "taste_description": "Fluweelzacht en rond",
         }
     ]
 

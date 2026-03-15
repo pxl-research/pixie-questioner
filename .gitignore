@@ -195,6 +195,9 @@ cython_debug/
 # macOS
 .DS_Store
 
+# Local git worktrees
+.worktrees/
+
 # PyPI configuration file
 .pypirc
 

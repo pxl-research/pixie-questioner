@@ -164,10 +164,11 @@ class WineAdvisorService:
         lines = [self.recommendation_intro, ""]
         for index, recommendation in enumerate(recommendations, start=1):
             lines.append(
-                f"{index}. {recommendation.name} - "
-                f"EUR {recommendation.price_eur:.2f} "
+                f"{index}. {recommendation.name} "
                 f"({recommendation.country}, {recommendation.region})"
             )
+            lines.append(f"   Geur: {recommendation.aroma_description}")
+            lines.append(f"   Smaak: {recommendation.taste_description}")
         return "\n".join(lines)
 
     def _parse_state(self, state: dict[str, Any] | None) -> WineAdvisorState:
@@ -236,9 +237,10 @@ class WineAdvisorService:
                 WineCatalogRecommendation(
                     barcode=record.barcode,
                     name=record.name,
-                    price_eur=record.price_eur,
                     country=record.country,
                     region=record.region,
+                    aroma_description=record.aroma_description,
+                    taste_description=record.taste_description,
                 )
             )
         return recommendations

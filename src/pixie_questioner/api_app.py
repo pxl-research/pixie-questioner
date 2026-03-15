@@ -119,9 +119,10 @@ def _build_cretskens_chat_response(
             recommendations=[
                 ChatRecommendation(
                     name=item.name,
-                    price_eur=item.price_eur,
                     country=item.country,
                     region=item.region,
+                    aroma_description=item.aroma_description,
+                    taste_description=item.taste_description,
                 )
                 for item in recommendations
             ],

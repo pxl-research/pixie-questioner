@@ -464,6 +464,9 @@ def test_ask_recommendations_text_includes_recommended_wines() -> None:
     assert "Wijn 4" in result.text
     assert "Wijn 1" in result.text
     assert "Wijn 2" in result.text
+    assert "EUR" not in result.text
+    assert "Geur: Donker fruit" in result.text
+    assert "Smaak: Kruidig" in result.text
 
 
 def test_ask_respects_controller_recommend_action_for_drinking_only() -> None:

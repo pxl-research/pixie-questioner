@@ -10,12 +10,18 @@ from pixie_questioner.chat.messages import (
     normalize_feedback_response,
 )
 from pixie_questioner.chat.policy import ChatQuickReply
+from pixie_questioner.chat.questionnaire import (
+    ensure_initial_question_field,
+    mask_later_blank_fields,
+    questionnaire_complete,
+)
 from pixie_questioner.chat.relevance import LLMAnswerRelevanceClassifier
 from pixie_questioner.chat.state_codec import (
     merge_partial_questionnaire_update,
     parse_state,
     serialize_state,
 )
+from pixie_questioner.chat.summary import summary_matches_conversation_language
 from pixie_questioner.chat.types import FEEDBACK_NO, FEEDBACK_YES
 
 
@@ -150,6 +156,75 @@ def test_normalize_feedback_response_yes_no_tokens() -> None:
             feedback_no_value=FEEDBACK_NO,
         )
         == FEEDBACK_NO
+    )
+
+
+def test_questionnaire_complete_checks_for_remaining_placeholders() -> None:
+    assert questionnaire_complete("0. Field: done") is True
+    assert questionnaire_complete("0. Field: []") is False
+
+
+def test_mask_later_blank_fields_keeps_only_first_placeholder() -> None:
+    questionnaire = (
+        "0. Initial user question: filled\n"
+        "1. Occasion: []\n"
+        "2. Color: []\n"
+        "3. Fit: slim"
+    )
+
+    masked = mask_later_blank_fields(questionnaire, [0, 1, 2, 3])
+
+    assert "1. Occasion: []" in masked
+    assert "2. Color: [pending later]" in masked
+    assert "3. Fit: slim" in masked
+
+
+def test_ensure_initial_question_field_backfills_first_answer_once() -> None:
+    questionnaire = "0. Initial user question: []\n" "1. Occasion, Vibe, Setting: []"
+
+    updated = ensure_initial_question_field(
+        questionnaire,
+        "Ik zoek een donkerblauwe jeans",
+    )
+    unchanged = ensure_initial_question_field(updated, "Een ander antwoord")
+
+    assert "0. Initial user question: Ik zoek een donkerblauwe jeans" in updated
+    assert unchanged == updated
+
+
+def test_summary_matches_conversation_language_accepts_short_mismatch(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "pixie_questioner.chat.summary.detect_language_candidates",
+        lambda _text: [("es", 0.99)],
+    )
+
+    assert (
+        summary_matches_conversation_language(
+            summary_text="hola jeans casual",
+            conversation_language="nl",
+            supported_language_set={"nl", "en", "fr"},
+        )
+        is True
+    )
+
+
+def test_summary_matches_conversation_language_rejects_long_supported_mismatch(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "pixie_questioner.chat.summary.detect_language_candidates",
+        lambda _text: [("en", 0.99)],
+    )
+
+    assert (
+        summary_matches_conversation_language(
+            summary_text="This customer is looking for dark blue work jeans.",
+            conversation_language="nl",
+            supported_language_set={"nl", "en", "fr"},
+        )
+        is False
     )
 
 
