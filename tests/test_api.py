@@ -5,12 +5,18 @@ import asyncio
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 from xml.sax.saxutils import escape
 from zipfile import ZipFile
 
 from fastapi.testclient import TestClient
 
 from pixie_questioner import config as config_module
+from pixie_questioner.chat.types import ChatResult
+from pixie_questioner.cretskens_service import (
+    CretskensService,
+    CretskensServiceUnavailableError,
+)
 from pixie_questioner.rate_limiter import SlidingWindowRateLimiter
 from pixie_questioner.schemas import CHAT_CONTRACT_VERSION
 from pixie_questioner.wine_advisor.types import (
@@ -165,6 +171,94 @@ def _write_cretskens_profile(tmp_path: Path) -> Path:
     )
 
 
+def _write_cretskens_domain_profile(tmp_path: Path) -> Path:
+    _write_prompt(tmp_path / "cretskens_question_asker.txt", "system {summary}")
+    _write_prompt(
+        tmp_path / "cretskens_questionnaire_notulist.txt",
+        "notulist {summary} {current_question} {current_answer}",
+    )
+    _write_prompt(
+        tmp_path / "cretskens_questionnaire_template.txt",
+        (
+            "0. Dish description (free text from customer): []\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): []\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ),
+    )
+    _write_prompt(
+        tmp_path / "cretskens_intake_route_classifier.txt",
+        "Return exactly one label: FOOD_PAIRING, GENERAL_WINE, or UNKNOWN.\n{current_answer}",
+    )
+    return _write_prompt(
+        tmp_path / "cretskens_domain_profile.yml",
+        "\n".join(
+            [
+                "version: 1",
+                "languages:",
+                "  base: [nl, en, fr]",
+                "  extra: []",
+                "  names:",
+                "    nl: Dutch",
+                "    en: English",
+                "    fr: French",
+                "prompts:",
+                "  question_asker_path: cretskens_question_asker.txt",
+                "  questionnaire_notulist_path: cretskens_questionnaire_notulist.txt",
+                "  questionnaire_template_path: cretskens_questionnaire_template.txt",
+                "  intake_route_classifier_path: cretskens_intake_route_classifier.txt",
+                "messages:",
+                "  handoff:",
+                '    nl: ["handoff nl"]',
+                '    en: ["handoff en"]',
+                '    fr: ["handoff fr"]',
+                "  feedback_question:",
+                '    nl: ["feedback question nl"]',
+                '    en: ["feedback question en"]',
+                '    fr: ["feedback question fr"]',
+                "  feedback_thanks:",
+                '    nl: ["feedback thanks nl"]',
+                '    en: ["feedback thanks en"]',
+                '    fr: ["feedback thanks fr"]',
+                "  goodbye:",
+                '    nl: ["goodbye nl"]',
+                '    en: ["goodbye en"]',
+                '    fr: ["goodbye fr"]',
+                "  off_topic_redirect:",
+                '    nl: ["redirect nl: {question}"]',
+                '    en: ["redirect en: {question}"]',
+                '    fr: ["redirect fr: {question}"]',
+                "  off_topic_initial_question:",
+                '    nl: ["initial nl"]',
+                '    en: ["initial en"]',
+                '    fr: ["initial fr"]',
+                "quick_replies:",
+                "  nl:",
+                '    - { label: "Ja", value: "yes" }',
+                '    - { label: "Nee", value: "no" }',
+                "  en:",
+                '    - { label: "Yes", value: "yes" }',
+                '    - { label: "No", value: "no" }',
+                "  fr:",
+                '    - { label: "Oui", value: "yes" }',
+                '    - { label: "Non", value: "no" }',
+                "tokens:",
+                '  feedback_yes: ["ja", "yes", "oui"]',
+                '  feedback_no: ["nee", "no", "non"]',
+                "behavior:",
+                '  completion_token: "PIXIE_SUMMARY_READY"',
+                "  completion_mode: categorized_handoff",
+                "  off_topic_termination_threshold: 2",
+            ]
+        ),
+    )
+
+
 def _set_env(monkeypatch, tmp_path: Path) -> None:
     _write_prompt(tmp_path / "question_asker.txt", "system {summary}")
     _write_prompt(
@@ -241,6 +335,7 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
         ),
     )
     cretskens_profile_path = _write_cretskens_profile(tmp_path)
+    cretskens_domain_profile_path = _write_cretskens_domain_profile(tmp_path)
 
     catalog_path = tmp_path / "catalog.xlsx"
     _build_catalog_xlsx(catalog_path)
@@ -250,6 +345,10 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_API_VERSION", "2024-01-01")
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_MODEL", "gpt-test")
     monkeypatch.setenv("BROOKLYN_DOMAIN_PROFILE_PATH", str(brooklyn_profile_path))
+    monkeypatch.setenv(
+        "CRETSKENS_DOMAIN_PROFILE_PATH",
+        str(cretskens_domain_profile_path),
+    )
     monkeypatch.setenv("CRETSKENS_PROFILE_PATH", str(cretskens_profile_path))
     monkeypatch.setenv("CRETSKENS_WINE_CATALOG_PATH", str(catalog_path))
 
@@ -270,16 +369,47 @@ def _load_main(monkeypatch, tmp_path: Path):
 
 
 class StubWineAdvisorService:
-    def __init__(self, result: WineAdvisorResult) -> None:
+    def __init__(
+        self,
+        result: WineAdvisorResult,
+        recommend_result: WineAdvisorResult | None = None,
+    ) -> None:
         self.result = result
-        self.calls: list[tuple[str, dict[str, object]]] = []
+        self.calls: list[tuple[str, dict[str, Any] | None]] = []
+        self.recommend_result = recommend_result or result
+        self.recommend_calls: list[tuple[str, str]] = []
 
     async def ask(
         self,
         *,
         current_answer: str,
-        state: dict[str, object],
+        state: dict[str, Any] | None,
     ) -> WineAdvisorResult:
+        await asyncio.sleep(0)
+        self.calls.append((current_answer, state))
+        return self.result
+
+    async def recommend_from_context(
+        self,
+        *,
+        working_context: str,
+        meal_mode: str,
+    ) -> WineAdvisorResult:
+        await asyncio.sleep(0)
+        self.recommend_calls.append((working_context, meal_mode))
+        return self.recommend_result
+
+
+class StubChatService:
+    def __init__(self, result: ChatResult) -> None:
+        self.result = result
+        self.calls: list[tuple[str, dict[str, object] | None]] = []
+
+    async def ask(
+        self,
+        current_answer: str,
+        state: dict[str, Any] | None,
+    ) -> ChatResult:
         await asyncio.sleep(0)
         self.calls.append((current_answer, state))
         return self.result
@@ -293,6 +423,33 @@ class StubAuditClient:
     async def post_event(self, payload: dict[str, object]) -> None:
         await asyncio.sleep(0)
         self.calls.append(payload)
+
+
+class StubCretskensService:
+    def __init__(self, result: WineAdvisorResult) -> None:
+        self.result = result
+        self.calls: list[tuple[str, dict[str, object]]] = []
+
+    async def ask(
+        self,
+        *,
+        current_answer: str,
+        state: dict[str, Any],
+    ) -> WineAdvisorResult:
+        await asyncio.sleep(0)
+        self.calls.append((current_answer, state))
+        return self.result
+
+
+class FailingCretskensService:
+    async def ask(
+        self,
+        *,
+        current_answer: str,
+        state: dict[str, Any],
+    ) -> WineAdvisorResult:
+        await asyncio.sleep(0)
+        raise CretskensServiceUnavailableError("LLM unavailable")
 
 
 class PassthroughStateSigner:
@@ -320,9 +477,9 @@ def test_chat_returns_question_and_audits(monkeypatch, tmp_path: Path) -> None:
         state={"phase": "intake", "turn_count": 1},
         recommendations=None,
     )
-    advisor_stub = StubWineAdvisorService(result)
     audit_stub = StubAuditClient()
-    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    cretskens_stub = StubCretskensService(result)
+    main.runtime.cretskens_service = cretskens_stub
     main.runtime.audit_client = audit_stub
     request_state = {"location": "Antwerpen"}
 
@@ -347,7 +504,7 @@ def test_chat_returns_question_and_audits(monkeypatch, tmp_path: Path) -> None:
     assert "_sig" in response_state
     assert "_ts" in response_state
     assert response.headers["X-Pixie-Chat-Contract"] == CHAT_CONTRACT_VERSION
-    assert advisor_stub.calls == [("Ik eet rund", request_state)]
+    assert cretskens_stub.calls == [("Ik eet rund", request_state)]
 
     assert audit_stub.calls
     audit_payload = audit_stub.calls[0]
@@ -359,6 +516,129 @@ def test_chat_returns_question_and_audits(monkeypatch, tmp_path: Path) -> None:
             "content": "Welke wijnkleur heeft je voorkeur?",
         },
     ]
+
+
+def test_cretskens_chat_uses_intake_service_before_wine_advisor(
+    monkeypatch, tmp_path: Path
+) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    chat_stub = StubChatService(
+        ChatResult(
+            text="Wat zit er vooral in de pad thai?",
+            response_type="answer",
+            state={
+                "phase": "intake",
+                "last_question": "Wat zit er vooral in de pad thai?",
+            },
+            summary=None,
+        )
+    )
+    advisor_stub = StubWineAdvisorService(
+        WineAdvisorResult(
+            text="Welke wijnkleur heeft je voorkeur?",
+            response_type="question",
+            state={"phase": "intake", "turn_count": 1},
+            recommendations=None,
+        )
+    )
+    main.runtime.cretskens_service = CretskensService(
+        intake_service=chat_stub,
+        recommendation_service=advisor_stub,
+    )
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/cases/cretskens/chat",
+        json={
+            "session_id": "session-pad-thai",
+            "current_answer": "We eten vanavond pad thai",
+            "state": {},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["type"] == "question"
+    assert payload["text"] == "Wat zit er vooral in de pad thai?"
+    assert chat_stub.calls == [("We eten vanavond pad thai", None)]
+    assert advisor_stub.calls == []
+
+
+def test_cretskens_chat_completed_intake_returns_recommendations(
+    monkeypatch, tmp_path: Path
+) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    chat_stub = StubChatService(
+        ChatResult(
+            text="Dank je wel, dit geeft een mooi beeld van je gerecht.",
+            response_type="answer",
+            state={
+                "phase": "completed",
+                "summary": "Klant eet pad thai en zoekt een passende wijn.",
+                "questionnaire": (
+                    "0. Dish description (free text from customer): pad thai\n"
+                    "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+                    "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+                    "3. Cooking method (BBQ or grill, stew, or none): none\n"
+                    "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    "6. Herkomst (land en/of regio): niet gespecificeerd\n"
+                    "7. Maximum budget in euro: 20\n"
+                    "8. Gewenste geur/smaak (vrije tekst): fris en fruitig"
+                ),
+                "handoff_categories_v1": "{}",
+                "intake_route": "food_pairing",
+            },
+            summary=None,
+        )
+    )
+    recommendation = WineCatalogRecommendation(
+        barcode="w1",
+        name="Testwijn",
+        country="Frankrijk",
+        region="Bordeaux",
+        aroma_description="Rijp rood fruit",
+        taste_description="Fluweelzacht en rond",
+    )
+    advisor_stub = StubWineAdvisorService(
+        result=WineAdvisorResult(
+            text="Welke wijnkleur heeft je voorkeur?",
+            response_type="question",
+            state={"phase": "intake", "turn_count": 1},
+            recommendations=None,
+        ),
+        recommend_result=WineAdvisorResult(
+            text="Dit zijn passende opties uit de catalogus.",
+            response_type="recommendations",
+            state={"phase": "completed", "selected_barcodes": ["w1"]},
+            recommendations=[recommendation],
+        ),
+    )
+    main.runtime.cretskens_service = CretskensService(
+        intake_service=chat_stub,
+        recommendation_service=advisor_stub,
+    )
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/cases/cretskens/chat",
+        json={
+            "session_id": "session-pad-thai-recommend",
+            "current_answer": "We eten vanavond pad thai",
+            "state": {},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["type"] == "recommendations"
+    assert payload["text"] == "Dit zijn passende opties uit de catalogus."
+    assert payload["recommendations"][0]["name"] == "Testwijn"
+    assert chat_stub.calls == [("We eten vanavond pad thai", None)]
+    assert advisor_stub.calls == []
+    assert len(advisor_stub.recommend_calls) == 1
+    assert advisor_stub.recommend_calls[0][1] == "pairing"
+    assert "pad thai" in advisor_stub.recommend_calls[0][0]
 
 
 def test_chat_returns_recommendations(monkeypatch, tmp_path: Path) -> None:
@@ -378,8 +658,8 @@ def test_chat_returns_recommendations(monkeypatch, tmp_path: Path) -> None:
             )
         ],
     )
-    advisor_stub = StubWineAdvisorService(result)
-    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    cretskens_stub = StubCretskensService(result)
+    main.runtime.cretskens_service = cretskens_stub
     main.runtime.audit_client = None
 
     client = TestClient(main.app)
@@ -427,8 +707,8 @@ def test_chat_returns_recommendations_with_defaults_for_blank_taste_fields(
             )
         ],
     )
-    advisor_stub = StubWineAdvisorService(result)
-    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    cretskens_stub = StubCretskensService(result)
+    main.runtime.cretskens_service = cretskens_stub
     main.runtime.audit_client = None
 
     client = TestClient(main.app)
@@ -455,6 +735,33 @@ def test_chat_returns_recommendations_with_defaults_for_blank_taste_fields(
     ]
 
 
+def test_cretskens_chat_returns_unavailable_question_when_service_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    main.runtime.cretskens_service = FailingCretskensService()
+    main.runtime.audit_client = None
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/cases/cretskens/chat",
+        json={
+            "session_id": "session-unavailable",
+            "current_answer": "We eten vanavond pad thai",
+            "state": {"location": "Antwerpen"},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["type"] == "question"
+    assert payload["text"] == "Tijdelijk niet beschikbaar."
+    assert payload["conversation_id"] == "session-unavailable"
+    assert payload["state"]["location"] == "Antwerpen"
+    assert "_sig" in payload["state"]
+    assert "_ts" in payload["state"]
+
+
 def test_chat_audit_omits_blank_location_metadata(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     result = WineAdvisorResult(
@@ -463,9 +770,8 @@ def test_chat_audit_omits_blank_location_metadata(monkeypatch, tmp_path: Path) -
         state={"phase": "intake", "turn_count": 1},
         recommendations=None,
     )
-    advisor_stub = StubWineAdvisorService(result)
     audit_stub = StubAuditClient()
-    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    main.runtime.cretskens_service = StubCretskensService(result)
     main.runtime.audit_client = audit_stub
 
     client = TestClient(main.app)
@@ -512,7 +818,7 @@ def test_chat_respects_configured_input_limit(monkeypatch, tmp_path: Path) -> No
             recommendations=None,
         )
     )
-    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    main.runtime.cretskens_service = StubCretskensService(advisor_stub.result)
     client = TestClient(main.app)
 
     response = client.post(
@@ -557,7 +863,7 @@ def test_chat_respects_configured_state_size_limit(monkeypatch, tmp_path: Path) 
         )
     )
     signer = PassthroughStateSigner()
-    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    main.runtime.cretskens_service = StubCretskensService(advisor_stub.result)
     main.runtime.cretskens_state_signer = signer
     main.runtime.brooklyn_state_signer = signer
     client = TestClient(main.app)
@@ -602,7 +908,7 @@ def test_chat_ignores_x_forwarded_for_for_ip_rate_limits(
             recommendations=None,
         )
     )
-    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    main.runtime.cretskens_service = StubCretskensService(advisor_stub.result)
     main.runtime.ip_rate_limiter = SlidingWindowRateLimiter(
         max_requests=1, window_seconds=60
     )
@@ -644,7 +950,7 @@ def test_chat_uses_x_forwarded_for_for_trusted_proxy_ip_rate_limits(
             recommendations=None,
         )
     )
-    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    main.runtime.cretskens_service = StubCretskensService(advisor_stub.result)
     main.runtime.ip_rate_limiter = SlidingWindowRateLimiter(
         max_requests=1, window_seconds=60
     )

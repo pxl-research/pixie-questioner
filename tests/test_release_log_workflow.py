@@ -7,7 +7,6 @@ from typing import Any, cast
 
 import yaml
 
-
 WORKFLOW_PATH = Path(".github/workflows/release-log.yml")
 
 

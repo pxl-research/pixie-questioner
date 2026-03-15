@@ -16,6 +16,7 @@ from .chat.intake_route_classifier import LLMIntakeRouteClassifier
 from .chat.relevance import LLMAnswerRelevanceClassifier
 from .chat_service import ChatService
 from .config import ResolvedDomainProfile, Settings, get_settings
+from .cretskens_service import CretskensService
 from .llm_client import CONVERSATION_SUMMARIZER_PROMPT, LLMPromptInvoker
 from .rate_limiter import SlidingWindowRateLimiter
 from .schemas import BROOKLYN_CHAT_CONTRACT_VERSION, CRETSKENS_CHAT_CONTRACT_VERSION
@@ -36,6 +37,8 @@ CaseId = Literal["brooklyn", "cretskens"]
 class AppRuntime:
     settings: Settings
     brooklyn_chat_service: ChatService
+    cretskens_chat_service: ChatService
+    cretskens_service: CretskensService
     cretskens_wine_advisor_service: WineAdvisorService
     brooklyn_state_signer: StateSigner
     cretskens_state_signer: StateSigner
@@ -77,7 +80,7 @@ def _build_optional_prompt_invoker(
     )
 
 
-def _build_brooklyn_chat_service(
+def _build_chat_service(
     *,
     llm_client: object,
     profile: ResolvedDomainProfile,
@@ -88,9 +91,7 @@ def _build_brooklyn_chat_service(
         error_label="Questionnaire notulist",
     )
     if notulist is None:
-        raise RuntimeError(
-            "Brooklyn profile must define questionnaire_notulist prompt."
-        )
+        raise RuntimeError("Domain profile must define questionnaire_notulist prompt.")
 
     summarizer = LLMPromptInvoker(
         llm=llm_client,
@@ -198,16 +199,27 @@ def build_runtime(settings: Settings | None = None) -> AppRuntime:
         max_tokens=resolved_settings.advanced_azure_openai_max_tokens,
     )
     signing_key = _resolve_signing_key(resolved_settings)
+    brooklyn_chat_service = _build_chat_service(
+        llm_client=llm,
+        profile=resolved_settings.brooklyn_domain_profile,
+    )
+    cretskens_chat_service = _build_chat_service(
+        llm_client=llm,
+        profile=resolved_settings.cretskens_domain_profile,
+    )
+    cretskens_wine_advisor_service = _build_cretskens_wine_advisor_service(
+        llm_client=llm,
+        settings=resolved_settings,
+    )
     return AppRuntime(
         settings=resolved_settings,
-        brooklyn_chat_service=_build_brooklyn_chat_service(
-            llm_client=llm,
-            profile=resolved_settings.brooklyn_domain_profile,
+        brooklyn_chat_service=brooklyn_chat_service,
+        cretskens_chat_service=cretskens_chat_service,
+        cretskens_service=CretskensService(
+            intake_service=cretskens_chat_service,
+            recommendation_service=cretskens_wine_advisor_service,
         ),
-        cretskens_wine_advisor_service=_build_cretskens_wine_advisor_service(
-            llm_client=llm,
-            settings=resolved_settings,
-        ),
+        cretskens_wine_advisor_service=cretskens_wine_advisor_service,
         brooklyn_state_signer=StateSigner(
             secret_key=signing_key,
             ttl_seconds=resolved_settings.state_session_ttl_seconds,
