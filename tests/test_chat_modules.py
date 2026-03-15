@@ -9,6 +9,7 @@ from pixie_questioner.chat.messages import (
     get_localized_options,
     normalize_feedback_response,
 )
+from pixie_questioner.chat.intake_route_classifier import LLMIntakeRouteClassifier
 from pixie_questioner.chat.policy import ChatQuickReply
 from pixie_questioner.chat.questionnaire import (
     ensure_initial_question_field,
@@ -346,6 +347,28 @@ def test_relevance_classifier_parses_labels_and_negation() -> None:
             )
         )
         == "stop"
+    )
+
+
+def test_intake_route_classifier_parses_labels_and_negation() -> None:
+    food_pairing = LLMIntakeRouteClassifier(
+        llm=FakeLLM(["FOOD_PAIRING"]),
+        system_prompt_template="{current_answer}",
+    )
+    negated = LLMIntakeRouteClassifier(
+        llm=FakeLLM(["This is NOT GENERAL_WINE."]),
+        system_prompt_template="{current_answer}",
+    )
+    general_wine = LLMIntakeRouteClassifier(
+        llm=FakeLLM(["GENERAL_WINE"]),
+        system_prompt_template="{current_answer}",
+    )
+
+    assert asyncio.run(food_pairing.classify("We eten gegrilde zalm")) == "food_pairing"
+    assert asyncio.run(negated.classify("Hallo")) == "unknown"
+    assert (
+        asyncio.run(general_wine.classify("Ik zoek iets om zo te drinken"))
+        == "general_wine"
     )
 
 

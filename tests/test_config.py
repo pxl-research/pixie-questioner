@@ -155,6 +155,7 @@ def test_get_settings_loads_brooklyn_domain_profile(
     assert profile.completion_mode == "summary_feedback"
     assert profile.aroma_taste_classifier_prompt == ""
     assert profile.handoff_classifier_prompt == ""
+    assert profile.intake_route_classifier_prompt == ""
     assert profile.language_codes == ("nl", "en", "fr", "de")
     config.get_settings.cache_clear()
 
@@ -545,6 +546,14 @@ def test_cretskens_profile_loads_runtime_prompt_text() -> None:
     assert "Select the best candidate barcodes" in profile.ranker_prompt
     assert "selection_explanation" in profile.ranker_prompt
     assert profile.recommendation_intro
+
+
+def test_cretskens_domain_profile_loads_intake_route_classifier_prompt() -> None:
+    profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
+
+    assert "Return exactly one label" in profile.intake_route_classifier_prompt
+    assert "FOOD_PAIRING" in profile.intake_route_classifier_prompt
+    assert "GENERAL_WINE" in profile.intake_route_classifier_prompt
 
 
 def test_brooklyn_prompt_encourages_warm_non_repetitive_tone() -> None:

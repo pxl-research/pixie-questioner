@@ -7,7 +7,7 @@ import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from .intake_routing import build_routing_question_result, detect_intake_route
+from .intake_routing import build_routing_question_result
 from .intake_routing import intake_complete_for_state
 from .intake_routing import is_routing_question
 from .intake_outcomes import (
@@ -35,7 +35,7 @@ async def handle_intake_phase(
     current_state: ChatState,
     current_answer: str,
 ) -> ChatResult:
-    routed_state, routing_result = _maybe_route_cretskens_intake(
+    routed_state, routing_result = await _maybe_route_cretskens_intake(
         handler,
         current_state,
         current_answer,
@@ -60,7 +60,7 @@ async def handle_intake_phase(
     return await _handle_on_topic_intake(handler, routed_state, current_answer)
 
 
-def _maybe_route_cretskens_intake(
+async def _maybe_route_cretskens_intake(
     handler: ChatTurnHandler,
     current_state: ChatState,
     current_answer: str,
@@ -75,7 +75,7 @@ def _maybe_route_cretskens_intake(
     ):
         return replace(current_state, intake_route="food_pairing"), None
 
-    resolved_route = detect_intake_route(current_answer)
+    resolved_route = await _classify_intake_route(handler, current_answer)
     if resolved_route == INTAKE_ROUTE_UNKNOWN:
         language = (
             current_state.conversation_language
@@ -88,6 +88,22 @@ def _maybe_route_cretskens_intake(
 
     next_state = replace(current_state, intake_route=resolved_route)
     return next_state, None
+
+
+async def _classify_intake_route(
+    handler: ChatTurnHandler,
+    current_answer: str,
+) -> str:
+    if handler.intake_route_classifier is None:
+        return INTAKE_ROUTE_UNKNOWN
+    try:
+        return await handler.intake_route_classifier.classify(current_answer)
+    except Exception:
+        logger.warning(
+            "Intake route classifier failed; defaulting to unknown route.",
+            exc_info=True,
+        )
+        return INTAKE_ROUTE_UNKNOWN
 
 
 async def _classify_intake_answer(

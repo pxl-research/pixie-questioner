@@ -78,6 +78,21 @@ class RaisingRelevanceClassifier:
         raise self.exception
 
 
+class StubIntakeRouteClassifier:
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = list(responses)
+        self.calls: list[str] = []
+
+    async def classify(self, current_answer: str) -> str:
+        await asyncio.sleep(0)
+        self.calls.append(current_answer)
+        if not self.responses:
+            raise AssertionError(
+                "No route responses left for StubIntakeRouteClassifier."
+            )
+        return self.responses.pop(0)
+
+
 class SequencedLLM:
     def __init__(self, outcomes: list[str | Exception]) -> None:
         self.outcomes = list(outcomes)
@@ -648,6 +663,7 @@ def test_ask_cretskens_vague_first_turn_asks_routing_question():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(["Should not be used"])
     summarizer_llm = FakeLLM(["Should not be used"])
+    route_classifier = StubIntakeRouteClassifier(["unknown"])
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -655,6 +671,7 @@ def test_ask_cretskens_vague_first_turn_asks_routing_question():
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
     )
 
     result = asyncio.run(service.ask(current_answer="Hallo", state=None))
@@ -675,6 +692,7 @@ def test_ask_cretskens_vague_first_turn_asks_routing_question():
     assert question_llm.calls == []
     assert notulist_llm.calls == []
     assert summarizer_llm.calls == []
+    assert route_classifier.calls == ["Hallo"]
 
 
 def test_ask_cretskens_first_turn_with_dish_routes_to_food_pairing():
@@ -693,6 +711,7 @@ def test_ask_cretskens_first_turn_with_dish_routes_to_food_pairing():
         ]
     )
     summarizer_llm = FakeLLM(["Klant eet gegrilde zalm."])
+    route_classifier = StubIntakeRouteClassifier(["food_pairing"])
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -700,6 +719,7 @@ def test_ask_cretskens_first_turn_with_dish_routes_to_food_pairing():
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
     )
 
     result = asyncio.run(
@@ -718,6 +738,7 @@ def test_ask_cretskens_first_turn_with_dish_routes_to_food_pairing():
     )
     assert len(question_llm.calls) == 1
     assert len(notulist_llm.calls) == 1
+    assert route_classifier.calls == ["We eten vanavond gegrilde zalm"]
 
 
 def test_ask_cretskens_first_turn_without_dish_routes_to_general_wine():
@@ -736,6 +757,7 @@ def test_ask_cretskens_first_turn_without_dish_routes_to_general_wine():
         ]
     )
     summarizer_llm = FakeLLM(["Klant zoekt een wijn om zo te drinken."])
+    route_classifier = StubIntakeRouteClassifier(["general_wine"])
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -743,6 +765,7 @@ def test_ask_cretskens_first_turn_without_dish_routes_to_general_wine():
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
     )
 
     result = asyncio.run(
@@ -758,6 +781,41 @@ def test_ask_cretskens_first_turn_without_dish_routes_to_general_wine():
     assert result.state["last_question"] == "Welke kleur wijn heb je in gedachten?"
     assert len(question_llm.calls) == 1
     assert len(notulist_llm.calls) == 1
+    assert route_classifier.calls == ["Ik zoek gewoon een wijn om zo te drinken"]
+
+
+def test_ask_cretskens_marker_like_opening_does_not_bypass_unknown_route_classifier():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    route_classifier = StubIntakeRouteClassifier(["unknown"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="We eten vanavond gegrilde zalm",
+            state=None,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert (
+        result.text
+        == "Zoek je een wijn voor bij een gerecht, of om gewoon zo te drinken?"
+    )
+    assert result.state["intake_route"] == "unknown"
+    assert route_classifier.calls == ["We eten vanavond gegrilde zalm"]
+    assert question_llm.calls == []
+    assert notulist_llm.calls == []
+    assert summarizer_llm.calls == []
 
 
 def test_ask_cretskens_food_pairing_stops_dish_followups_after_budget():

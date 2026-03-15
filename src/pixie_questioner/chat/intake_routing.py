@@ -22,23 +22,6 @@ ROUTING_QUESTION_BY_LANGUAGE = {
     "en": "Are you looking for a wine for a dish, or just to drink on its own?",
     "fr": "Cherchez-vous un vin pour accompagner un plat, ou simplement à boire seul ?",
 }
-
-_GENERAL_WINE_MARKERS = (
-    "om zo te drinken",
-    "gewoon zo te drinken",
-    "gewoon zo",
-    "zonder gerecht",
-    "geen gerecht",
-    "niet bij eten",
-)
-_FOOD_PAIRING_MARKERS = (
-    "we eten",
-    "wij eten",
-    "ik eet",
-    "vanavond eten",
-    "gerecht",
-    "maaltijd",
-)
 MAX_DISH_FOLLOW_UPS = 3
 MAX_WINE_FOLLOW_UPS = 5
 DISH_FIELD_INDICES = [0, 1, 2, 3, 4]
@@ -54,18 +37,6 @@ def build_routing_question(conversation_language: str) -> str:
 
 def is_routing_question(question_text: str) -> bool:
     return question_text.strip() in set(ROUTING_QUESTION_BY_LANGUAGE.values())
-
-
-def detect_intake_route(current_answer: str) -> str:
-    normalized_answer = current_answer.strip().lower()
-    if not normalized_answer:
-        return INTAKE_ROUTE_UNKNOWN
-
-    if any(marker in normalized_answer for marker in _GENERAL_WINE_MARKERS):
-        return INTAKE_ROUTE_GENERAL_WINE
-    if any(marker in normalized_answer for marker in _FOOD_PAIRING_MARKERS):
-        return INTAKE_ROUTE_FOOD_PAIRING
-    return INTAKE_ROUTE_UNKNOWN
 
 
 def build_routing_question_result(
