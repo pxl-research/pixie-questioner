@@ -13,7 +13,6 @@ from pixie_questioner.chat_service import ChatService
 from pixie_questioner.config import load_domain_profile
 from pixie_questioner.llm_client import CONVERSATION_SUMMARIZER_PROMPT, LLMPromptInvoker
 
-
 _REQUIRED_ENV_VARS = (
     "AZURE_OPENAI_ENDPOINT",
     "AZURE_OPENAI_KEY",
