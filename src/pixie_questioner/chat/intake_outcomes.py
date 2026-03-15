@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from .flow import (
@@ -11,7 +12,8 @@ from .flow import (
     to_off_topic_redirect_state,
     to_terminated_state,
 )
-from .questionnaire import mask_later_blank_fields
+from .intake_routing import determine_next_question_track
+from .questionnaire import focus_questionnaire_for_route
 from .types import ChatResult, ChatState
 
 if TYPE_CHECKING:
@@ -93,9 +95,19 @@ async def build_next_question_result(
     conversation_language = (
         current_state.conversation_language or handler.language.default_language_code
     )
-    focused_questionnaire = mask_later_blank_fields(
+    next_question_track = determine_next_question_track(
+        current_state,
+        updated_questionnaire,
+    )
+    if next_question_track is None:
+        raise RuntimeError(
+            "No follow-up question remains for the current intake state."
+        )
+    focused_questionnaire = focus_questionnaire_for_route(
         updated_questionnaire,
         handler.questionnaire_indices,
+        current_state.intake_route,
+        allow_dish_questions=next_question_track != "wine",
     )
     next_question = await handler.question_asker.ask(
         focused_questionnaire,
@@ -107,6 +119,16 @@ async def build_next_question_result(
         updated_summary=updated_summary,
         next_question=next_question,
     )
+    if next_question_track == "dish":
+        next_state = replace(
+            next_state,
+            dish_follow_up_count=current_state.dish_follow_up_count + 1,
+        )
+    elif next_question_track == "wine":
+        next_state = replace(
+            next_state,
+            wine_follow_up_count=current_state.wine_follow_up_count + 1,
+        )
     return handler.answer_result(next_question, next_state, None, None, None)
 
 

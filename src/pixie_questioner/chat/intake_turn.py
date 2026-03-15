@@ -4,17 +4,25 @@ from __future__ import annotations
 
 import logging
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from .intake_routing import build_routing_question_result, detect_intake_route
+from .intake_routing import intake_complete_for_state
+from .intake_routing import is_routing_question
 from .intake_outcomes import (
     build_completion_result,
     build_next_question_result,
     handle_off_topic_intake,
 )
 from .intake_updates import apply_intake_updates
-from .questionnaire import questionnaire_complete
 from .relevance import ClassificationLabel
-from .types import INITIAL_QUESTION, ChatResult, ChatState
+from .types import (
+    INITIAL_QUESTION,
+    INTAKE_ROUTE_UNKNOWN,
+    ChatResult,
+    ChatState,
+)
 
 if TYPE_CHECKING:
     from .turn_handler import ChatTurnHandler
@@ -27,21 +35,59 @@ async def handle_intake_phase(
     current_state: ChatState,
     current_answer: str,
 ) -> ChatResult:
-    classification = await _classify_intake_answer(
+    routed_state, routing_result = _maybe_route_cretskens_intake(
         handler,
         current_state,
         current_answer,
     )
+    if routing_result is not None:
+        return routing_result
+
+    classification = await _classify_intake_answer(
+        handler,
+        routed_state,
+        current_answer,
+    )
     if classification == "off_topic":
-        return handle_off_topic_intake(handler, current_state)
+        return handle_off_topic_intake(handler, routed_state)
     if classification == "stop":
         return await _handle_on_topic_intake(
             handler,
-            current_state,
+            routed_state,
             current_answer,
             force_complete=True,
         )
-    return await _handle_on_topic_intake(handler, current_state, current_answer)
+    return await _handle_on_topic_intake(handler, routed_state, current_answer)
+
+
+def _maybe_route_cretskens_intake(
+    handler: ChatTurnHandler,
+    current_state: ChatState,
+    current_answer: str,
+) -> tuple[ChatState, ChatResult | None]:
+    if not handler.is_categorized_handoff_mode():
+        return current_state, None
+    if current_state.intake_route != INTAKE_ROUTE_UNKNOWN:
+        return current_state, None
+    if (
+        current_state.last_question.strip() != INITIAL_QUESTION
+        and not is_routing_question(current_state.last_question)
+    ):
+        return replace(current_state, intake_route="food_pairing"), None
+
+    resolved_route = detect_intake_route(current_answer)
+    if resolved_route == INTAKE_ROUTE_UNKNOWN:
+        language = (
+            current_state.conversation_language
+            or handler.language.default_language_code
+        )
+        return (
+            current_state,
+            build_routing_question_result(handler, current_state, language),
+        )
+
+    next_state = replace(current_state, intake_route=resolved_route)
+    return next_state, None
 
 
 async def _classify_intake_answer(
@@ -80,7 +126,10 @@ async def _handle_on_topic_intake(
         current_state,
         current_answer,
     )
-    if questionnaire_complete(updated_questionnaire) or force_complete:
+    if (
+        intake_complete_for_state(current_state, updated_questionnaire)
+        or force_complete
+    ):
         return await build_completion_result(
             handler,
             current_state,

@@ -22,6 +22,15 @@ FEEDBACK_YES = "yes"
 FEEDBACK_NO = "no"
 VALID_FEEDBACK_STATUSES = {FEEDBACK_PENDING, FEEDBACK_YES, FEEDBACK_NO}
 
+INTAKE_ROUTE_UNKNOWN = "unknown"
+INTAKE_ROUTE_FOOD_PAIRING = "food_pairing"
+INTAKE_ROUTE_GENERAL_WINE = "general_wine"
+VALID_INTAKE_ROUTES = {
+    INTAKE_ROUTE_UNKNOWN,
+    INTAKE_ROUTE_FOOD_PAIRING,
+    INTAKE_ROUTE_GENERAL_WINE,
+}
+
 
 @dataclass(frozen=True)
 class ChatResult:
@@ -46,3 +55,7 @@ class ChatState:
     post_summary_language: str = ""
     boundary_violation_count: int = 0
     handoff_categories_v1: str = ""
+    intake_route: str = INTAKE_ROUTE_UNKNOWN
+    dish_follow_up_count: int = 0
+    wine_follow_up_count: int = 0
+    routing_question_asked: bool = False

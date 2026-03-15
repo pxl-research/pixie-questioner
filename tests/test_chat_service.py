@@ -644,6 +644,283 @@ def test_ask_categorized_handoff_does_not_force_cheese_type_when_blank():
     assert len(question_llm.calls) == 1
 
 
+def test_ask_cretskens_vague_first_turn_asks_routing_question():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(service.ask(current_answer="Hallo", state=None))
+
+    assert result.response_type == "answer"
+    assert (
+        result.text
+        == "Zoek je een wijn voor bij een gerecht, of om gewoon zo te drinken?"
+    )
+    assert result.state["phase"] == "intake"
+    assert result.state["intake_route"] == "unknown"
+    assert result.state["routing_question_asked"] == "true"
+    assert result.state["dish_follow_up_count"] == "0"
+    assert result.state["wine_follow_up_count"] == "0"
+    assert result.state["last_question"] == result.text
+    assert result.state["questionnaire"] == CRETSKENS_QUESTIONNAIRE_TEMPLATE
+    assert result.state["summary"] == ""
+    assert question_llm.calls == []
+    assert notulist_llm.calls == []
+    assert summarizer_llm.calls == []
+
+
+def test_ask_cretskens_first_turn_with_dish_routes_to_food_pairing():
+    question_llm = FakeLLM(["Wat zit er vooral in het gerecht?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): gegrilde zalm\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant eet gegrilde zalm."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="We eten vanavond gegrilde zalm",
+            state=None,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Wat zit er vooral in het gerecht?"
+    assert result.state["intake_route"] == "food_pairing"
+    assert result.state["last_question"] == "Wat zit er vooral in het gerecht?"
+    assert result.state["questionnaire"].startswith(
+        "0. Dish description (free text from customer): gegrilde zalm"
+    )
+    assert len(question_llm.calls) == 1
+    assert len(notulist_llm.calls) == 1
+
+
+def test_ask_cretskens_first_turn_without_dish_routes_to_general_wine():
+    question_llm = FakeLLM(["Welke kleur wijn heb je in gedachten?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): []\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): []\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt een wijn om zo te drinken."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek gewoon een wijn om zo te drinken",
+            state=None,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Welke kleur wijn heb je in gedachten?"
+    assert result.state["intake_route"] == "general_wine"
+    assert result.state["last_question"] == "Welke kleur wijn heb je in gedachten?"
+    assert len(question_llm.calls) == 1
+    assert len(notulist_llm.calls) == 1
+
+
+def test_ask_cretskens_food_pairing_stops_dish_followups_after_budget():
+    question_llm = FakeLLM(["Welke kleur wijn heb je in gedachten?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): gegrilde zalm\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant eet gegrilde zalm."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Nog niet duidelijk",
+            state={
+                "questionnaire": (
+                    "0. Dish description (free text from customer): gegrilde zalm\n"
+                    "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+                    "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+                    "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
+                    "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): []\n"
+                    "6. Herkomst (land en/of regio): []\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "summary": "",
+                "last_question": "Wat zit er vooral in het gerecht?",
+                "intake_route": "food_pairing",
+                "dish_follow_up_count": "3",
+                "wine_follow_up_count": "0",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Welke kleur wijn heb je in gedachten?"
+    assert result.state["dish_follow_up_count"] == "3"
+    assert result.state["wine_follow_up_count"] == "1"
+    assert (
+        "2. Main protein (fish or seafood, poultry, red meat, wild, or none): [pending later]"
+        in question_llm.calls[0][0]["content"]
+    )
+    assert (
+        "5. Kleur van de wijn (wit, rood, rosé): []"
+        in question_llm.calls[0][0]["content"]
+    )
+
+
+def test_ask_cretskens_general_wine_skips_dish_questions_in_prompt_focus():
+    question_llm = FakeLLM(["Welke kleur wijn heb je in gedachten?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): []\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): []\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt een wijn om zo te drinken."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek gewoon een wijn om zo te drinken",
+            state={
+                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Zoek je een wijn voor bij een gerecht, of om gewoon zo te drinken?",
+                "intake_route": "general_wine",
+                "routing_question_asked": "true",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Welke kleur wijn heb je in gedachten?"
+    assert result.state["dish_follow_up_count"] == "0"
+    assert result.state["wine_follow_up_count"] == "1"
+    assert (
+        "0. Dish description (free text from customer): [pending later]"
+        in question_llm.calls[0][0]["content"]
+    )
+    assert (
+        "5. Kleur van de wijn (wit, rood, rosé): []"
+        in question_llm.calls[0][0]["content"]
+    )
+
+
+def test_ask_cretskens_stops_wine_followups_after_budget():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): []\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): []\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt een wijn om zo te drinken."])
+    handoff_llm = FakeLLM(["{}"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        handoff_classifier=_make_handoff_classifier(handoff_llm),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Nog geen voorkeur",
+            state={
+                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Welke herkomst heb je in gedachten?",
+                "intake_route": "general_wine",
+                "wine_follow_up_count": "5",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.state["phase"] == "completed"
+    assert question_llm.calls == []
+    assert json.loads(result.state["handoff_categories_v1"]) == {}
+
+
 def test_ask_categorized_handoff_asks_cheese_followup_for_cheese_course():
     question_llm = FakeLLM(["Welke soort kaas is het vooral?"])
     notulist_llm = FakeLLM(

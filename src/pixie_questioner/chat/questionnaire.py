@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from .types import INTAKE_ROUTE_GENERAL_WINE
+
 
 def questionnaire_complete(questionnaire: str) -> bool:
     return "[]" not in questionnaire
@@ -13,23 +15,41 @@ def _is_blank_field_value(value: str) -> bool:
     return not value.strip().strip("[]").strip()
 
 
+def _field_value(questionnaire: str, index: int) -> str | None:
+    match = re.search(
+        rf"(?m)^\s*{index}\.\s*[^:\n]*:[^\S\n]*(.*?)$",
+        questionnaire,
+    )
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def has_blank_fields(questionnaire: str, field_indices: list[int]) -> bool:
+    for index in field_indices:
+        value = _field_value(questionnaire, index)
+        if value is not None and _is_blank_field_value(value):
+            return True
+    return False
+
+
+def first_blank_field_index(
+    questionnaire: str,
+    questionnaire_indices: list[int],
+) -> int | None:
+    for index in questionnaire_indices:
+        value = _field_value(questionnaire, index)
+        if value is not None and _is_blank_field_value(value):
+            return index
+    return None
+
+
 def mask_later_blank_fields(
     questionnaire: str,
     questionnaire_indices: list[int],
 ) -> str:
     """Keep only the earliest blank field as ``[]`` for deterministic question flow."""
-    first_blank_index: int | None = None
-    for index in questionnaire_indices:
-        match = re.search(
-            rf"(?m)^\s*{index}\.\s*[^:\n]*:[^\S\n]*(.*?)$",
-            questionnaire,
-        )
-        if match is None:
-            continue
-        if _is_blank_field_value(match.group(1)):
-            first_blank_index = index
-            break
-
+    first_blank_index = first_blank_field_index(questionnaire, questionnaire_indices)
     if first_blank_index is None:
         return questionnaire
 
@@ -46,6 +66,34 @@ def mask_later_blank_fields(
         masked = pattern.sub(r"\1[pending later]", masked, count=1)
 
     return masked
+
+
+def _mask_specific_blank_fields(
+    questionnaire: str,
+    field_indices: list[int],
+) -> str:
+    masked = questionnaire
+    for index in field_indices:
+        pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:[^\S\n]*)(.*?)$")
+        match = pattern.search(masked)
+        if match is None or not _is_blank_field_value(match.group(2)):
+            continue
+        masked = pattern.sub(r"\1[pending later]", masked, count=1)
+    return masked
+
+
+def focus_questionnaire_for_route(
+    questionnaire: str,
+    questionnaire_indices: list[int],
+    intake_route: str,
+    *,
+    allow_dish_questions: bool = True,
+) -> str:
+    if intake_route != INTAKE_ROUTE_GENERAL_WINE and allow_dish_questions:
+        return mask_later_blank_fields(questionnaire, questionnaire_indices)
+
+    masked = _mask_specific_blank_fields(questionnaire, [0, 1, 2, 3, 4])
+    return mask_later_blank_fields(masked, questionnaire_indices)
 
 
 def ensure_initial_question_field(

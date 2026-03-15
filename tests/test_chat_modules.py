@@ -240,6 +240,10 @@ def test_state_codec_parse_and_serialize_roundtrip() -> None:
             "post_summary_language": "",
             "boundary_violation_count": "2",
             "handoff_categories_v1": '{"course_type":"hoofdgerecht"}',
+            "intake_route": "food_pairing",
+            "dish_follow_up_count": "1",
+            "wine_follow_up_count": "2",
+            "routing_question_asked": "true",
         },
         questionnaire_template="0. Initial user question: []",
         default_language="en",
@@ -251,6 +255,29 @@ def test_state_codec_parse_and_serialize_roundtrip() -> None:
     assert serialized["post_summary_language"] == "en"
     assert serialized["boundary_violation_count"] == "2"
     assert serialized["handoff_categories_v1"] == '{"course_type":"hoofdgerecht"}'
+    assert serialized["intake_route"] == "food_pairing"
+    assert serialized["dish_follow_up_count"] == "1"
+    assert serialized["wine_follow_up_count"] == "2"
+    assert serialized["routing_question_asked"] == "true"
+
+
+def test_state_codec_defaults_new_cretskens_route_fields_for_legacy_state() -> None:
+    parsed = parse_state(
+        state={
+            "questionnaire": "0. Initial user question: []",
+            "summary": "Summary text",
+            "last_question": "Vraag?",
+        },
+        questionnaire_template="0. Initial user question: []",
+        default_language="nl",
+    )
+
+    serialized = serialize_state(parsed)
+
+    assert serialized["intake_route"] == "unknown"
+    assert serialized["dish_follow_up_count"] == "0"
+    assert serialized["wine_follow_up_count"] == "0"
+    assert serialized["routing_question_asked"] == "false"
 
 
 def test_state_codec_preserves_conversation_language_and_recent_user_turns() -> None:
