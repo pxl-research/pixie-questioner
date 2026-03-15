@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from .app_runtime import AppRuntime, CASE_BROOKLYN, build_runtime
 from .chat.types import ChatResult
+from .cretskens_service import CretskensServiceUnavailableError
 from .schemas import (
     AUDIT_EVENT_CONTRACT_VERSION,
     CHAT_CONTRACT_VERSION,
@@ -35,6 +36,7 @@ runtime = build_runtime()
 settings = runtime.settings
 
 DEFAULT_RECOMMENDATION_TEXT = "Not specified"
+CRETSKENS_TEMPORARILY_UNAVAILABLE = "Tijdelijk niet beschikbaar."
 
 
 def _build_audit_messages(
@@ -151,6 +153,19 @@ def _build_cretskens_chat_response(
     )
 
 
+def _build_cretskens_unavailable_response(
+    request: ChatRequest,
+    *,
+    signed_state: dict[str, Any],
+) -> ChatQuestionResponse:
+    return ChatQuestionResponse(
+        type="question",
+        text=CRETSKENS_TEMPORARILY_UNAVAILABLE,
+        conversation_id=request.session_id,
+        state=signed_state,
+    )
+
+
 def _build_brooklyn_chat_response(
     request: ChatRequest,
     result: ChatResult,
@@ -253,10 +268,21 @@ async def _handle_chat_request(
             signed_state=signed_state,
         )
 
-    result = await app_runtime.cretskens_wine_advisor_service.ask(
-        current_answer=request.current_answer,
-        state=verified_state,
-    )
+    try:
+        result = await app_runtime.cretskens_service.ask(
+            current_answer=request.current_answer,
+            state=verified_state,
+        )
+    except CretskensServiceUnavailableError as exc:
+        logger.warning(
+            "Cretskens service unavailable for session %s: %s",
+            request.session_id,
+            exc,
+        )
+        return _build_cretskens_unavailable_response(
+            request,
+            signed_state=signer.sign(verified_state),
+        )
     signed_state = signer.sign(result.state)
     await _post_audit_event(
         app_runtime,

@@ -25,6 +25,7 @@ from .wine_advisor.profile_loader import (
 
 DEFAULT_WINE_CATALOG_PATH = Path("profiles/cretskens/cretskens_wijnen_reduced.xlsx")
 DEFAULT_BROOKLYN_PROFILE_PATH = Path("profiles/brooklyn/domain_profile.yml")
+DEFAULT_CRETSKENS_DOMAIN_PROFILE_PATH = Path("profiles/cretskens/domain_profile.yml")
 DEFAULT_CRETSKENS_PROFILE_PATH = Path("profiles/cretskens/advisor_profile.yml")
 
 
@@ -484,6 +485,10 @@ class Settings(BaseSettings):
         default=DEFAULT_BROOKLYN_PROFILE_PATH,
         alias="BROOKLYN_DOMAIN_PROFILE_PATH",
     )
+    cretskens_domain_profile_path: Path = Field(
+        default=DEFAULT_CRETSKENS_DOMAIN_PROFILE_PATH,
+        alias="CRETSKENS_DOMAIN_PROFILE_PATH",
+    )
     cretskens_profile_path: Path = Field(
         default=DEFAULT_CRETSKENS_PROFILE_PATH,
         alias="CRETSKENS_PROFILE_PATH",
@@ -527,6 +532,13 @@ class Settings(BaseSettings):
             return DEFAULT_BROOKLYN_PROFILE_PATH
         return value
 
+    @field_validator("cretskens_domain_profile_path", mode="before")
+    @classmethod
+    def _normalize_blank_cretskens_domain_profile_path(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            return DEFAULT_CRETSKENS_DOMAIN_PROFILE_PATH
+        return value
+
     @field_validator("cretskens_profile_path", mode="before")
     @classmethod
     def _normalize_blank_cretskens_profile_path(cls, value: object) -> object:
@@ -544,6 +556,10 @@ class Settings(BaseSettings):
     @property
     def brooklyn_domain_profile(self) -> ResolvedDomainProfile:
         return load_domain_profile(self.brooklyn_domain_profile_path)
+
+    @property
+    def cretskens_domain_profile(self) -> ResolvedDomainProfile:
+        return load_domain_profile(self.cretskens_domain_profile_path)
 
     @property
     def cretskens_profile(self) -> ResolvedCretskensProfile:

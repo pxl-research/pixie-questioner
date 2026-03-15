@@ -154,6 +154,94 @@ def _write_cretskens_profile(tmp_path: Path) -> Path:
     )
 
 
+def _write_cretskens_domain_profile(tmp_path: Path) -> Path:
+    _write_prompt(tmp_path / "cretskens_question_asker.txt", "system {summary}")
+    _write_prompt(
+        tmp_path / "cretskens_questionnaire_notulist.txt",
+        "notulist {summary} {current_question} {current_answer}",
+    )
+    _write_prompt(
+        tmp_path / "cretskens_questionnaire_template.txt",
+        (
+            "0. Dish description (free text from customer): []\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): []\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ),
+    )
+    _write_prompt(
+        tmp_path / "cretskens_intake_route_classifier.txt",
+        "Return exactly one label: FOOD_PAIRING, GENERAL_WINE, or UNKNOWN.\n{current_answer}",
+    )
+    return _write_prompt(
+        tmp_path / "cretskens_domain_profile.yml",
+        "\n".join(
+            [
+                "version: 1",
+                "languages:",
+                "  base: [nl, en, fr]",
+                "  extra: []",
+                "  names:",
+                "    nl: Dutch",
+                "    en: English",
+                "    fr: French",
+                "prompts:",
+                "  question_asker_path: cretskens_question_asker.txt",
+                "  questionnaire_notulist_path: cretskens_questionnaire_notulist.txt",
+                "  questionnaire_template_path: cretskens_questionnaire_template.txt",
+                "  intake_route_classifier_path: cretskens_intake_route_classifier.txt",
+                "messages:",
+                "  handoff:",
+                '    nl: ["handoff nl"]',
+                '    en: ["handoff en"]',
+                '    fr: ["handoff fr"]',
+                "  feedback_question:",
+                '    nl: ["feedback question nl"]',
+                '    en: ["feedback question en"]',
+                '    fr: ["feedback question fr"]',
+                "  feedback_thanks:",
+                '    nl: ["feedback thanks nl"]',
+                '    en: ["feedback thanks en"]',
+                '    fr: ["feedback thanks fr"]',
+                "  goodbye:",
+                '    nl: ["goodbye nl"]',
+                '    en: ["goodbye en"]',
+                '    fr: ["goodbye fr"]',
+                "  off_topic_redirect:",
+                '    nl: ["redirect nl: {question}"]',
+                '    en: ["redirect en: {question}"]',
+                '    fr: ["redirect fr: {question}"]',
+                "  off_topic_initial_question:",
+                '    nl: ["initial nl"]',
+                '    en: ["initial en"]',
+                '    fr: ["initial fr"]',
+                "quick_replies:",
+                "  nl:",
+                '    - { label: "Ja", value: "yes" }',
+                '    - { label: "Nee", value: "no" }',
+                "  en:",
+                '    - { label: "Yes", value: "yes" }',
+                '    - { label: "No", value: "no" }',
+                "  fr:",
+                '    - { label: "Oui", value: "yes" }',
+                '    - { label: "Non", value: "no" }',
+                "tokens:",
+                '  feedback_yes: ["ja", "yes", "oui"]',
+                '  feedback_no: ["nee", "no", "non"]',
+                "behavior:",
+                '  completion_token: "PIXIE_SUMMARY_READY"',
+                "  completion_mode: categorized_handoff",
+                "  off_topic_termination_threshold: 2",
+            ]
+        ),
+    )
+
+
 def _set_env(monkeypatch, tmp_path: Path) -> None:
     _write_prompt(tmp_path / "question_asker.txt", "system {summary}")
     _write_prompt(
@@ -230,6 +318,7 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
         ),
     )
     cretskens_profile_path = _write_cretskens_profile(tmp_path)
+    cretskens_domain_profile_path = _write_cretskens_domain_profile(tmp_path)
 
     catalog_path = tmp_path / "catalog.xlsx"
     _build_catalog_xlsx(catalog_path)
@@ -239,6 +328,10 @@ def _set_env(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_API_VERSION", "2024-01-01")
     monkeypatch.setenv("ADVANCED_AZURE_OPENAI_MODEL", "gpt-test")
     monkeypatch.setenv("BROOKLYN_DOMAIN_PROFILE_PATH", str(brooklyn_profile_path))
+    monkeypatch.setenv(
+        "CRETSKENS_DOMAIN_PROFILE_PATH",
+        str(cretskens_domain_profile_path),
+    )
     monkeypatch.setenv("CRETSKENS_PROFILE_PATH", str(cretskens_profile_path))
     monkeypatch.setenv("CRETSKENS_WINE_CATALOG_PATH", str(catalog_path))
 
@@ -300,7 +393,7 @@ def test_case_route_brooklyn_calls_brooklyn_handler(
     brooklyn_stub = StubBrooklynService()
     cretskens_stub = StubCretskensService()
     main.runtime.brooklyn_chat_service = brooklyn_stub
-    main.runtime.cretskens_wine_advisor_service = cretskens_stub
+    main.runtime.cretskens_service = cretskens_stub
 
     client = TestClient(main.app)
     response = client.post(
@@ -332,7 +425,7 @@ def test_case_route_cretskens_calls_wine_handler(monkeypatch, tmp_path: Path) ->
     brooklyn_stub = StubBrooklynService()
     cretskens_stub = StubCretskensService()
     main.runtime.brooklyn_chat_service = brooklyn_stub
-    main.runtime.cretskens_wine_advisor_service = cretskens_stub
+    main.runtime.cretskens_service = cretskens_stub
 
     client = TestClient(main.app)
     response = client.post(
@@ -356,7 +449,7 @@ def test_case_route_case2_alias_returns_404(monkeypatch, tmp_path: Path) -> None
     brooklyn_stub = StubBrooklynService()
     cretskens_stub = StubCretskensService()
     main.runtime.brooklyn_chat_service = brooklyn_stub
-    main.runtime.cretskens_wine_advisor_service = cretskens_stub
+    main.runtime.cretskens_service = cretskens_stub
 
     client = TestClient(main.app)
     response = client.post(
@@ -394,7 +487,7 @@ def test_legacy_chat_route_returns_404(monkeypatch, tmp_path: Path) -> None:
     brooklyn_stub = StubBrooklynService()
     cretskens_stub = StubCretskensService()
     main.runtime.brooklyn_chat_service = brooklyn_stub
-    main.runtime.cretskens_wine_advisor_service = cretskens_stub
+    main.runtime.cretskens_service = cretskens_stub
 
     client = TestClient(main.app)
     response = client.post(
@@ -416,7 +509,7 @@ def test_case_route_rejects_state_from_other_case(monkeypatch, tmp_path: Path) -
     brooklyn_stub = StubBrooklynService()
     cretskens_stub = StubCretskensService()
     main.runtime.brooklyn_chat_service = brooklyn_stub
-    main.runtime.cretskens_wine_advisor_service = cretskens_stub
+    main.runtime.cretskens_service = cretskens_stub
 
     client = TestClient(main.app)
 

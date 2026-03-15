@@ -11,6 +11,8 @@ from .llm_controller import TurnDecision
 from .retrieval import rank_catalog_records
 from .types import (
     ConversationTurn,
+    MEAL_MODE_DRINKING_ONLY,
+    MEAL_MODE_PAIRING,
     MEAL_MODE_UNKNOWN,
     PHASE_COMPLETED,
     PHASE_INTAKE,
@@ -480,4 +482,65 @@ class WineAdvisorService:
             text=question_text,
             response_type="question",
             state=self._serialize_state(updated),
+        )
+
+    async def recommend_from_context(
+        self,
+        *,
+        working_context: str,
+        meal_mode: str,
+    ) -> WineAdvisorResult:
+        normalized_context = _truncate_text(
+            working_context,
+            self.max_working_context_chars,
+        )
+        if not normalized_context:
+            raise RuntimeError("Working context cannot be empty.")
+        normalized_meal_mode: Literal["pairing", "drinking_only", "unknown"] = (
+            MEAL_MODE_UNKNOWN
+        )
+        if meal_mode == MEAL_MODE_PAIRING:
+            normalized_meal_mode = MEAL_MODE_PAIRING
+        elif meal_mode == MEAL_MODE_DRINKING_ONLY:
+            normalized_meal_mode = MEAL_MODE_DRINKING_ONLY
+
+        parsed_state = WineAdvisorState(
+            phase=PHASE_INTAKE,
+            turn_count=max(self.max_turns - 1, 0),
+            last_question="",
+            meal_mode=normalized_meal_mode,
+            working_context=normalized_context,
+            chat_history=[],
+            candidate_barcodes=[],
+            selected_barcodes=[],
+        )
+        decision = await self.turn_controller.decide(
+            current_answer=normalized_context,
+            working_context=normalized_context,
+            turn_count=self.max_turns,
+            max_turns=self.max_turns,
+            current_meal_mode=parsed_state.meal_mode,
+            last_question="",
+            conversation_history="",
+        )
+        candidate_records, persist_candidates = self._candidate_records_for_decision(
+            parsed_state,
+            decision,
+        )
+        candidate_barcodes = [record.barcode for record in candidate_records]
+        state_candidate_barcodes = candidate_barcodes if persist_candidates else []
+        if not candidate_barcodes:
+            raise RuntimeError(
+                "Turn controller must provide query hints or persisted candidates "
+                "before recommendations."
+            )
+        return await self._finalize_recommendation(
+            parsed_state,
+            normalized_context,
+            self.max_turns,
+            normalized_context,
+            decision,
+            candidate_records,
+            candidate_barcodes,
+            state_candidate_barcodes,
         )
