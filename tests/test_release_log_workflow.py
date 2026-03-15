@@ -34,6 +34,13 @@ def test_release_log_workflow_uses_pat_for_project_updates() -> None:
     assert step["with"]["github-token"] == "${{ secrets.PROJECT_AUTOMATION_TOKEN }}"
 
 
+def test_release_log_workflow_does_not_use_unsupported_projects_permission() -> None:
+    workflow = _load_workflow()
+    permissions = cast(dict[str, str], workflow.get("permissions", {}))
+
+    assert "projects" not in permissions
+
+
 def test_release_log_workflow_stops_after_release_creation_failure() -> None:
     script = _workflow_script()
     catch_block = re.search(r"\} catch \(e\) \{(?P<body>.*?)\n\s+\}", script, re.DOTALL)
