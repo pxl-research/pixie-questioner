@@ -190,6 +190,7 @@ Bad:
 - Do not infer missing answers
 - Prompts: **no stylistic rewrites**
 - For wine advisor mode: action selection and recommendation selection must be LLM-driven; do not introduce keyword/token heuristics or deterministic fallback selectors.
+- For Cretskens intake routing or other intent estimation inside the chat intake flow: use LLM-based classification; do not introduce keyword, token, substring, or marker heuristics as selectors.
 - Conversation behavior:
   - exactly one question per turn
   - only ask for missing fields
