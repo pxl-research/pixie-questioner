@@ -19,6 +19,7 @@ from .intake_updates import apply_intake_updates
 from .relevance import ClassificationLabel
 from .types import (
     INITIAL_QUESTION,
+    INTAKE_ROUTE_FOOD_PAIRING,
     INTAKE_ROUTE_UNKNOWN,
     ChatResult,
     ChatState,
@@ -73,7 +74,7 @@ async def _maybe_route_cretskens_intake(
         current_state.last_question.strip() != INITIAL_QUESTION
         and not is_routing_question(current_state.last_question)
     ):
-        return replace(current_state, intake_route="food_pairing"), None
+        return replace(current_state, intake_route=INTAKE_ROUTE_FOOD_PAIRING), None
 
     resolved_route = await _classify_intake_route(handler, current_answer)
     if resolved_route == INTAKE_ROUTE_UNKNOWN:

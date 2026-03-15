@@ -34,6 +34,8 @@ logger = logging.getLogger(__name__)
 runtime = build_runtime()
 settings = runtime.settings
 
+DEFAULT_RECOMMENDATION_TEXT = "Not specified"
+
 
 def _build_audit_messages(
     user_text: str,
@@ -53,6 +55,13 @@ def _build_audit_messages(
     if normalized_summary:
         messages.append(AuditEventMessage(role="summary", content=normalized_summary))
     return messages
+
+
+def _sanitize_recommendation_text(value: str) -> str:
+    normalized = value.strip()
+    if normalized:
+        return normalized
+    return DEFAULT_RECOMMENDATION_TEXT
 
 
 def _extract_audit_location(state: dict[str, object]) -> str | None:
@@ -121,8 +130,12 @@ def _build_cretskens_chat_response(
                     name=item.name,
                     country=item.country,
                     region=item.region,
-                    aroma_description=item.aroma_description,
-                    taste_description=item.taste_description,
+                    aroma_description=_sanitize_recommendation_text(
+                        item.aroma_description
+                    ),
+                    taste_description=_sanitize_recommendation_text(
+                        item.taste_description
+                    ),
                 )
                 for item in recommendations
             ],

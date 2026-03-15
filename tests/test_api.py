@@ -408,6 +408,53 @@ def test_chat_returns_recommendations(monkeypatch, tmp_path: Path) -> None:
     ]
 
 
+def test_chat_returns_recommendations_with_defaults_for_blank_taste_fields(
+    monkeypatch, tmp_path: Path
+) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    result = WineAdvisorResult(
+        text="Dit zijn passende opties uit de catalogus.",
+        response_type="recommendations",
+        state={"phase": "completed", "turn_count": 2},
+        recommendations=[
+            WineCatalogRecommendation(
+                barcode="w1",
+                name="Testwijn",
+                country="Frankrijk",
+                region="Bordeaux",
+                aroma_description="",
+                taste_description="   ",
+            )
+        ],
+    )
+    advisor_stub = StubWineAdvisorService(result)
+    main.runtime.cretskens_wine_advisor_service = advisor_stub
+    main.runtime.audit_client = None
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/cases/cretskens/chat",
+        json={
+            "session_id": "session-2b",
+            "current_answer": "Toon opties",
+            "state": {},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["type"] == "recommendations"
+    assert payload["recommendations"] == [
+        {
+            "name": "Testwijn",
+            "country": "Frankrijk",
+            "region": "Bordeaux",
+            "aroma_description": "Not specified",
+            "taste_description": "Not specified",
+        }
+    ]
+
+
 def test_chat_audit_omits_blank_location_metadata(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     result = WineAdvisorResult(
