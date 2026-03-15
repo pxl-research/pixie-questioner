@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .chat.categorized_handoff import CategorizedHandoffBuilder
+from .chat.intake_route_classifier import IntakeRouteClassifierProtocol
 from .chat.language import create_language_support
 from .chat.messages import PolicyMessages
 from .chat.policy import ChatDomainPolicy
@@ -29,6 +30,7 @@ class ChatService:
     questionnaire_template: str
     domain_policy: ChatDomainPolicy
     answer_relevance_classifier: AnswerRelevanceClassifierProtocol | None = None
+    intake_route_classifier: IntakeRouteClassifierProtocol | None = None
     aroma_taste_classifier: LLMPromptInvoker | None = None
     handoff_classifier: LLMPromptInvoker | None = None
 
@@ -66,6 +68,7 @@ class ChatService:
             answer_result=self._answer_result,
             summary_result=self._summary_result,
             answer_relevance_classifier=self.answer_relevance_classifier,
+            intake_route_classifier=self.intake_route_classifier,
         )
 
     def _parse_state(self, state: dict[str, str] | None) -> ChatState:

@@ -61,6 +61,7 @@ class ResolvedDomainProfile:
     questionnaire_notulist_prompt: str
     questionnaire_template: str
     relevance_classifier_prompt: str
+    intake_route_classifier_prompt: str
     aroma_taste_classifier_prompt: str
     handoff_classifier_prompt: str
     language_codes: tuple[str, ...]
@@ -122,6 +123,7 @@ class DomainProfilePrompts(BaseModel):
     questionnaire_notulist_path: str = Field(default="")
     questionnaire_template_path: str
     relevance_classifier_path: str = Field(default="")
+    intake_route_classifier_path: str = Field(default="")
     aroma_taste_classifier_path: str = Field(default="")
     handoff_classifier_path: str = Field(default="")
 
@@ -360,6 +362,7 @@ def _to_resolved_domain_profile(
     questionnaire_notulist_prompt: str,
     questionnaire_template: str,
     relevance_classifier_prompt: str,
+    intake_route_classifier_prompt: str,
     aroma_taste_classifier_prompt: str,
     handoff_classifier_prompt: str,
     language_codes: tuple[str, ...],
@@ -372,6 +375,7 @@ def _to_resolved_domain_profile(
         questionnaire_notulist_prompt=questionnaire_notulist_prompt,
         questionnaire_template=questionnaire_template,
         relevance_classifier_prompt=relevance_classifier_prompt,
+        intake_route_classifier_prompt=intake_route_classifier_prompt,
         aroma_taste_classifier_prompt=aroma_taste_classifier_prompt,
         handoff_classifier_prompt=handoff_classifier_prompt,
         language_codes=language_codes,
@@ -413,6 +417,7 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         questionnaire_notulist_prompt,
         questionnaire_template,
         relevance_classifier_prompt,
+        intake_route_classifier_prompt,
         aroma_taste_classifier_prompt,
         handoff_classifier_prompt,
     ) = load_profile_prompts(
@@ -427,12 +432,14 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
     )
     (
         relevance_classifier_prompt,
+        intake_route_classifier_prompt,
         questionnaire_notulist_prompt,
         aroma_taste_classifier_prompt,
         handoff_classifier_prompt,
     ) = substitute_prompt_variables(
         variables=variables,
         relevance_classifier_prompt=relevance_classifier_prompt,
+        intake_route_classifier_prompt=intake_route_classifier_prompt,
         questionnaire_notulist_prompt=questionnaire_notulist_prompt,
         aroma_taste_classifier_prompt=aroma_taste_classifier_prompt,
         handoff_classifier_prompt=handoff_classifier_prompt,
@@ -447,6 +454,7 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         questionnaire_notulist_prompt=questionnaire_notulist_prompt,
         questionnaire_template=questionnaire_template,
         relevance_classifier_prompt=relevance_classifier_prompt,
+        intake_route_classifier_prompt=intake_route_classifier_prompt,
         aroma_taste_classifier_prompt=aroma_taste_classifier_prompt,
         handoff_classifier_prompt=handoff_classifier_prompt,
         language_codes=language_codes,

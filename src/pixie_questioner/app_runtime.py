@@ -12,6 +12,7 @@ from fastapi import HTTPException
 
 from .audit_client import AuditClient
 from .azure_openai_llm import AzureOpenAILLM
+from .chat.intake_route_classifier import LLMIntakeRouteClassifier
 from .chat.relevance import LLMAnswerRelevanceClassifier
 from .chat_service import ChatService
 from .config import ResolvedDomainProfile, Settings, get_settings
@@ -103,6 +104,12 @@ def _build_brooklyn_chat_service(
             llm=llm_client,
             system_prompt_template=profile.relevance_classifier_prompt,
         )
+    intake_route_classifier: LLMIntakeRouteClassifier | None = None
+    if profile.intake_route_classifier_prompt.strip():
+        intake_route_classifier = LLMIntakeRouteClassifier(
+            llm=llm_client,
+            system_prompt_template=profile.intake_route_classifier_prompt,
+        )
 
     return ChatService(
         llm=llm_client,
@@ -112,6 +119,7 @@ def _build_brooklyn_chat_service(
         questionnaire_template=profile.questionnaire_template,
         domain_policy=profile.chat_domain_policy,
         answer_relevance_classifier=relevance_classifier,
+        intake_route_classifier=intake_route_classifier,
         aroma_taste_classifier=_build_optional_prompt_invoker(
             llm_client=llm_client,
             prompt_template=profile.aroma_taste_classifier_prompt,

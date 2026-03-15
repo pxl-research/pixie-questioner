@@ -26,6 +26,10 @@ def to_terminated_state(state: ChatState, language: str) -> ChatState:
         post_summary_language=language,
         boundary_violation_count=state.boundary_violation_count,
         handoff_categories_v1="",
+        intake_route=state.intake_route,
+        dish_follow_up_count=state.dish_follow_up_count,
+        wine_follow_up_count=state.wine_follow_up_count,
+        routing_question_asked=state.routing_question_asked,
     )
 
 
@@ -42,6 +46,10 @@ def to_off_topic_redirect_state(state: ChatState) -> ChatState:
         post_summary_language=state.conversation_language,
         boundary_violation_count=state.boundary_violation_count,
         handoff_categories_v1="",
+        intake_route=state.intake_route,
+        dish_follow_up_count=state.dish_follow_up_count,
+        wine_follow_up_count=state.wine_follow_up_count,
+        routing_question_asked=state.routing_question_asked,
     )
 
 
@@ -63,6 +71,10 @@ def to_feedback_state(
         post_summary_language=language,
         boundary_violation_count=state.boundary_violation_count,
         handoff_categories_v1="",
+        intake_route=state.intake_route,
+        dish_follow_up_count=state.dish_follow_up_count,
+        wine_follow_up_count=state.wine_follow_up_count,
+        routing_question_asked=state.routing_question_asked,
     )
 
 
@@ -83,6 +95,10 @@ def to_intake_state_with_next_question(
         post_summary_language=state.conversation_language,
         boundary_violation_count=state.boundary_violation_count,
         handoff_categories_v1="",
+        intake_route=state.intake_route,
+        dish_follow_up_count=state.dish_follow_up_count,
+        wine_follow_up_count=state.wine_follow_up_count,
+        routing_question_asked=state.routing_question_asked,
     )
 
 
@@ -104,6 +120,10 @@ def to_categorized_handoff_completed_state(
         post_summary_language=state.conversation_language,
         boundary_violation_count=0,
         handoff_categories_v1=handoff_categories_v1,
+        intake_route=state.intake_route,
+        dish_follow_up_count=state.dish_follow_up_count,
+        wine_follow_up_count=state.wine_follow_up_count,
+        routing_question_asked=state.routing_question_asked,
     )
 
 

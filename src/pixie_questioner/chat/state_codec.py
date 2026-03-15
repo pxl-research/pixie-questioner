@@ -7,6 +7,8 @@ import re
 from .language import SUPPORTED_RESPONSE_LANGUAGES, detect_language
 from .types import (
     FEEDBACK_PENDING,
+    INTAKE_ROUTE_UNKNOWN,
+    VALID_INTAKE_ROUTES,
     PHASE_AWAITING_FEEDBACK,
     PHASE_COMPLETED,
     PHASE_INTAKE,
@@ -137,12 +139,22 @@ def _normalize_feedback_status(feedback_status: str) -> str:
     return FEEDBACK_PENDING
 
 
+def _normalize_intake_route(intake_route: str) -> str:
+    if intake_route in VALID_INTAKE_ROUTES:
+        return intake_route
+    return INTAKE_ROUTE_UNKNOWN
+
+
 def _parse_boundary_violation_count(boundary_violation_count_raw: str) -> int:
     try:
         boundary_violation_count = int(boundary_violation_count_raw)
     except ValueError:
         return 0
     return max(boundary_violation_count, 0)
+
+
+def _parse_state_bool(raw_value: str) -> bool:
+    return raw_value.strip().lower() in {"1", "true", "yes"}
 
 
 def _normalize_questionnaire(
@@ -248,6 +260,18 @@ def parse_state(
         _read_state_string(state, "boundary_violation_count", "0")
     )
     handoff_categories_v1 = _read_state_string(state, "handoff_categories_v1", "")
+    intake_route = _normalize_intake_route(
+        _read_state_string(state, "intake_route", INTAKE_ROUTE_UNKNOWN)
+    )
+    dish_follow_up_count = _parse_boundary_violation_count(
+        _read_state_string(state, "dish_follow_up_count", "0")
+    )
+    wine_follow_up_count = _parse_boundary_violation_count(
+        _read_state_string(state, "wine_follow_up_count", "0")
+    )
+    routing_question_asked = _parse_state_bool(
+        _read_state_string(state, "routing_question_asked", "false")
+    )
     (
         phase,
         feedback_status,
@@ -275,6 +299,10 @@ def parse_state(
         post_summary_language=post_summary_language,
         boundary_violation_count=boundary_violation_count,
         handoff_categories_v1=handoff_categories_v1,
+        intake_route=intake_route,
+        dish_follow_up_count=dish_follow_up_count,
+        wine_follow_up_count=wine_follow_up_count,
+        routing_question_asked=routing_question_asked,
     )
 
 
@@ -293,4 +321,8 @@ def serialize_state(state: ChatState) -> dict[str, str]:
         ),
         "boundary_violation_count": str(state.boundary_violation_count),
         "handoff_categories_v1": state.handoff_categories_v1,
+        "intake_route": state.intake_route,
+        "dish_follow_up_count": str(state.dish_follow_up_count),
+        "wine_follow_up_count": str(state.wine_follow_up_count),
+        "routing_question_asked": ("true" if state.routing_question_asked else "false"),
     }

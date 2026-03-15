@@ -32,6 +32,7 @@ prompts:
   question_asker_path: question_asker.txt
   questionnaire_notulist_path: questionnaire_notulist.txt
   questionnaire_template_path: questionnaire_template.txt
+  intake_route_classifier_path: intake_route_classifier.txt
   aroma_taste_classifier_path: aroma_taste_classifier.txt
   handoff_classifier_path: handoff_classifier.txt
 

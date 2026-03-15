@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .questionnaire import ensure_initial_question_field, questionnaire_complete
+from .intake_routing import intake_complete_for_state
+from .questionnaire import ensure_initial_question_field
 from .state_codec import merge_partial_questionnaire_update
 from .summary import (
     rewrite_summary_in_conversation_language,
     summary_matches_conversation_language,
 )
-from .types import INITIAL_QUESTION, ChatState
+from .types import INITIAL_QUESTION, INTAKE_ROUTE_GENERAL_WINE, ChatState
 
 if TYPE_CHECKING:
     from .turn_handler import ChatTurnHandler
@@ -32,7 +33,10 @@ async def apply_intake_updates(
                 updated_questionnaire
             )
         )
-    if current_state.last_question.strip() == INITIAL_QUESTION:
+    if (
+        current_state.last_question.strip() == INITIAL_QUESTION
+        and current_state.intake_route != INTAKE_ROUTE_GENERAL_WINE
+    ):
         updated_questionnaire = ensure_initial_question_field(
             updated_questionnaire,
             current_answer,
@@ -42,7 +46,10 @@ async def apply_intake_updates(
         handler,
         current_state,
         current_answer,
-        enforce_supported_language=questionnaire_complete(updated_questionnaire),
+        enforce_supported_language=intake_complete_for_state(
+            current_state,
+            updated_questionnaire,
+        ),
     )
     return updated_questionnaire, updated_summary
 

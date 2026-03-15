@@ -12,6 +12,7 @@ from .feedback_turn import (
     handle_completed_phase,
     handle_terminated_phase,
 )
+from .intake_route_classifier import IntakeRouteClassifierProtocol
 from .intake_turn import handle_intake_phase
 from .language import LanguageSupport
 from .messages import PolicyMessages
@@ -47,6 +48,7 @@ class ChatTurnHandler:
     answer_result: AnswerResultBuilder
     summary_result: SummaryResultBuilder
     answer_relevance_classifier: AnswerRelevanceClassifierProtocol | None = None
+    intake_route_classifier: IntakeRouteClassifierProtocol | None = None
 
     def is_categorized_handoff_mode(self) -> bool:
         return self.domain_policy.completion_mode == "categorized_handoff"
