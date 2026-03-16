@@ -590,6 +590,43 @@ def test_ask_recommend_without_query_hints_or_candidates_raises() -> None:
     assert len(ranker.calls) == 0
 
 
+def test_recommend_from_context_falls_back_when_query_hints_missing() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="question",
+                question_text="Welke stijl zoek je?",
+                meal_mode="pairing",
+                query_hints="",
+            )
+        ]
+    )
+    ranker = EchoRanker()
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+    )
+
+    result = asyncio.run(
+        service.recommend_from_context(
+            working_context=(
+                "Summary:\nPad thai met kip.\n\n"
+                "Questionnaire:\n"
+                "5. Kleur van de wijn (wit, rood, rosé): rosé\n"
+                "6. Herkomst (land en/of regio): australie\n"
+                "7. Maximum budget in euro: 20\n"
+                "8. Gewenste geur/smaak (vrije tekst): fris"
+            ),
+            meal_mode="pairing",
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert ranker.calls
+    assert ranker.calls[0]["candidate_barcodes"]
+
+
 def test_ask_truncates_working_context_before_controller_call() -> None:
     controller = StubController(
         [
