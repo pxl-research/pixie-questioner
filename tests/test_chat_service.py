@@ -1099,6 +1099,54 @@ def test_ask_cretskens_general_wine_opening_does_not_complete_on_unspecified_val
     assert len(notulist_llm.calls) == 1
 
 
+def test_ask_cretskens_general_wine_does_not_complete_when_notulist_fills_all_wine_fields():
+    """Regression test: intake must ask at least one wine question for general_wine route.
+
+    When the notulist fills all wine fields (e.g. with non-standard no-preference values
+    that are not in _UNSPECIFIED_FIELD_MARKERS), the intake must still ask a wine question
+    instead of completing immediately and jumping to recommendation.
+    """
+    question_llm = FakeLLM(["Welke kleur wijn heb je in gedachten?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): []\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): []\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): geen voorkeur\n"
+            "6. Herkomst (land en/of regio): geen voorkeur\n"
+            "7. Maximum budget in euro: geen voorkeur\n"
+            "8. Gewenste geur/smaak (vrije tekst): geen voorkeur"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt iets om zo te drinken."])
+    route_classifier = StubIntakeRouteClassifier(["general_wine"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek gewoon iets om te drinken",
+            state=None,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.state["phase"] == "intake"
+    assert result.state["intake_route"] == "general_wine"
+    assert result.state["wine_follow_up_count"] == "1"
+    assert len(question_llm.calls) == 1
+    assert len(notulist_llm.calls) == 1
+
+
 def test_ask_cretskens_general_wine_unsupported_origin_followup_with_non_blank_field():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(
