@@ -832,6 +832,52 @@ def test_ask_cretskens_first_turn_without_dish_routes_to_general_wine():
     assert route_classifier.calls == ["Ik zoek gewoon een wijn om zo te drinken"]
 
 
+def test_ask_cretskens_general_wine_does_not_complete_without_followup_question():
+    question_llm = FakeLLM(["Welke kleur wijn heb je in gedachten?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): []\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): []\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): niet gespecificeerd\n"
+            "6. Herkomst (land en/of regio): niet gespecificeerd\n"
+            "7. Maximum budget in euro: niet gespecificeerd\n"
+            "8. Gewenste geur/smaak (vrije tekst): niet gespecificeerd"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt een wijn om zo te drinken."])
+    route_classifier = StubIntakeRouteClassifier(["general_wine"])
+    handoff_llm = FakeLLM(["{}"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
+        handoff_classifier=_make_handoff_classifier(handoff_llm),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek gewoon iets om te drinken",
+            state=None,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.state["phase"] == "intake"
+    assert result.text == "Welke kleur wijn heb je in gedachten?"
+    assert result.state["wine_follow_up_count"] == "1"
+    assert (
+        "5. Kleur van de wijn (wit, rood, rosé): []"
+        in question_llm.calls[0][0]["content"]
+    )
+
+
 def test_ask_cretskens_marker_like_opening_does_not_bypass_unknown_route_classifier():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(["Should not be used"])
@@ -977,6 +1023,56 @@ def test_ask_cretskens_general_wine_skips_dish_questions_in_prompt_focus():
     )
     assert (
         "5. Kleur van de wijn (wit, rood, rosé): []"
+        in question_llm.calls[0][0]["content"]
+    )
+
+
+def test_ask_cretskens_general_wine_marks_asked_color_field_as_answered():
+    question_llm = FakeLLM(["Welke herkomst heb je in gedachten?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): []\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): []\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant heeft geen kleurvoorkeur."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="ik weet het niet",
+            state={
+                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Welke kleur wijn heb je in gedachten?",
+                "intake_route": "general_wine",
+                "wine_follow_up_count": "1",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.state["wine_follow_up_count"] == "2"
+    assert (
+        "5. Kleur van de wijn (wit, rood, rosé): ik weet het niet"
+        in result.state["questionnaire"]
+    )
+    assert (
+        "5. Kleur van de wijn (wit, rood, rosé): ik weet het niet"
         in question_llm.calls[0][0]["content"]
     )
 

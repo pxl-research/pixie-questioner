@@ -108,6 +108,9 @@ async def build_next_question_result(
         handler.questionnaire_indices,
         current_state.intake_route,
         allow_dish_questions=next_question_track != "wine",
+        force_first_wine_field_blank=(
+            next_question_track == "wine" and current_state.wine_follow_up_count == 0
+        ),
     )
     next_question = await handler.question_asker.ask(
         focused_questionnaire,

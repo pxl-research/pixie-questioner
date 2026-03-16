@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import re
+
 from typing import TYPE_CHECKING
 
+from .intake_routing import WINE_FIELD_INDICES
+from .intake_routing import determine_next_question_track
 from .intake_routing import intake_complete_for_state
+from .intake_routing import is_routing_question
 from .questionnaire import ensure_initial_question_field
 from .state_codec import merge_partial_questionnaire_update
 from .summary import (
@@ -41,6 +46,11 @@ async def apply_intake_updates(
             updated_questionnaire,
             current_answer,
         )
+    updated_questionnaire = _apply_asked_field_answer_progress(
+        current_state=current_state,
+        updated_questionnaire=updated_questionnaire,
+        current_answer=current_answer,
+    )
 
     updated_summary = await _update_summary(
         handler,
@@ -76,6 +86,79 @@ async def _update_questionnaire(
     if merged is None:
         return current_state.questionnaire
     return merged
+
+
+def _field_value(questionnaire: str, index: int) -> str | None:
+    match = re.search(rf"(?m)^\s*{index}\.\s*[^:\n]*:[^\S\n]*(.*?)$", questionnaire)
+    if match is None:
+        return None
+    return match.group(1)
+
+
+def _is_blank_questionnaire_value(value: str | None) -> bool:
+    if value is None:
+        return True
+    return not value.strip().strip("[]").strip()
+
+
+def _replace_field_value(questionnaire: str, index: int, new_value: str) -> str:
+    pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:[^\S\n]*).*$")
+    updated, count = pattern.subn(rf"\g<1>{new_value}", questionnaire, count=1)
+    if count == 0:
+        return questionnaire
+    return updated
+
+
+def _first_blank_field_index(
+    questionnaire: str,
+    candidate_indices: list[int],
+) -> int | None:
+    for index in candidate_indices:
+        if _is_blank_questionnaire_value(_field_value(questionnaire, index)):
+            return index
+    return None
+
+
+def _resolve_asked_field_index(current_state: ChatState) -> int | None:
+    if current_state.last_question.strip() == INITIAL_QUESTION:
+        return None
+    if is_routing_question(current_state.last_question):
+        return None
+    if current_state.intake_route != INTAKE_ROUTE_GENERAL_WINE:
+        return None
+
+    question_track = determine_next_question_track(
+        current_state,
+        current_state.questionnaire,
+    )
+    if question_track != "wine":
+        return None
+    candidate_indices = WINE_FIELD_INDICES
+    return _first_blank_field_index(current_state.questionnaire, candidate_indices)
+
+
+def _apply_asked_field_answer_progress(
+    *,
+    current_state: ChatState,
+    updated_questionnaire: str,
+    current_answer: str,
+) -> str:
+    normalized_answer = current_answer.strip()
+    if not normalized_answer:
+        return updated_questionnaire
+
+    target_index = _resolve_asked_field_index(current_state)
+    if target_index is None:
+        return updated_questionnaire
+    if not _is_blank_questionnaire_value(
+        _field_value(current_state.questionnaire, target_index)
+    ):
+        return updated_questionnaire
+    if not _is_blank_questionnaire_value(
+        _field_value(updated_questionnaire, target_index)
+    ):
+        return updated_questionnaire
+    return _replace_field_value(updated_questionnaire, target_index, normalized_answer)
 
 
 async def _update_summary(

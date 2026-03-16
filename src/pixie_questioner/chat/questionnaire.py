@@ -6,6 +6,8 @@ import re
 
 from .types import INTAKE_ROUTE_GENERAL_WINE
 
+WINE_FIELD_INDICES = [5, 6, 7, 8]
+
 
 def questionnaire_complete(questionnaire: str) -> bool:
     return "[]" not in questionnaire
@@ -82,17 +84,33 @@ def _mask_specific_blank_fields(
     return masked
 
 
+def _force_field_blank(
+    questionnaire: str,
+    index: int,
+) -> str:
+    pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:[^\S\n]*).*$")
+    updated, count = pattern.subn(r"\1[]", questionnaire, count=1)
+    if count == 0:
+        return questionnaire
+    return updated
+
+
 def focus_questionnaire_for_route(
     questionnaire: str,
     questionnaire_indices: list[int],
     intake_route: str,
     *,
     allow_dish_questions: bool = True,
+    force_first_wine_field_blank: bool = False,
 ) -> str:
     if intake_route != INTAKE_ROUTE_GENERAL_WINE and allow_dish_questions:
         return mask_later_blank_fields(questionnaire, questionnaire_indices)
 
     masked = _mask_specific_blank_fields(questionnaire, [0, 1, 2, 3, 4])
+    if force_first_wine_field_blank and not has_blank_fields(
+        masked, WINE_FIELD_INDICES
+    ):
+        masked = _force_field_blank(masked, WINE_FIELD_INDICES[0])
     return mask_later_blank_fields(masked, questionnaire_indices)
 
 

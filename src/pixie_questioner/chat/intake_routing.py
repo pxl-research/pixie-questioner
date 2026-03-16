@@ -63,6 +63,8 @@ def determine_next_question_track(
         return "generic"
 
     if current_state.intake_route == INTAKE_ROUTE_GENERAL_WINE:
+        if current_state.wine_follow_up_count == 0:
+            return "wine"
         if (
             current_state.wine_follow_up_count < MAX_WINE_FOLLOW_UPS
             and has_blank_fields(questionnaire, WINE_FIELD_INDICES)
