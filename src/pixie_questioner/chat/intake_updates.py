@@ -142,7 +142,7 @@ def _should_skip_general_wine_routing_update(current_state: ChatState) -> bool:
     if current_state.intake_route != INTAKE_ROUTE_GENERAL_WINE:
         return False
     last_question = current_state.last_question.strip()
-    return last_question == INITIAL_QUESTION or is_routing_question(last_question)
+    return is_routing_question(last_question)
 
 
 async def _update_questionnaire(

@@ -131,6 +131,11 @@ def _build_chat_service(
             prompt_template=profile.handoff_classifier_prompt,
             error_label="Handoff classifier",
         ),
+        unsupported_origin_follow_up=_build_optional_prompt_invoker(
+            llm_client=llm_client,
+            prompt_template=profile.unsupported_origin_follow_up_prompt,
+            error_label="Unsupported origin follow-up",
+        ),
     )
 
 

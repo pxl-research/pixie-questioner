@@ -40,6 +40,7 @@ class ChatTurnHandler:
     notulist: LLMPromptInvoker
     summarizer: LLMPromptInvoker
     question_asker: QuestionAsker
+    unsupported_origin_follow_up: LLMPromptInvoker | None
     messages: PolicyMessages
     language: LanguageSupport
     categorized_handoff: CategorizedHandoffBuilder
