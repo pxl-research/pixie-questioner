@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 async def handle_off_topic_intake(
     handler: ChatTurnHandler,
     current_state: ChatState,
+    current_answer: str = "",
 ) -> ChatResult:
     current_state.boundary_violation_count += 1
     language = (
@@ -45,7 +46,7 @@ async def handle_off_topic_intake(
             handler=handler,
             task="goodbye",
             current_question=current_state.last_question,
-            current_answer="",
+            current_answer=current_answer,
             language=language,
             fallback=handler.messages.goodbye(language),
         )
@@ -62,7 +63,7 @@ async def handle_off_topic_intake(
         handler=handler,
         task="redirect",
         current_question=current_state.last_question,
-        current_answer="",
+        current_answer=current_answer,
         language=language,
         fallback=handler.messages.off_topic_redirect(
             language=language,

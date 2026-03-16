@@ -133,11 +133,4 @@ def intake_complete_for_state(
     next_track = determine_next_question_track(current_state, questionnaire)
     if next_track is not None:
         return False
-    # For food pairing, ensure at least one follow-up was asked before completing
-    if (
-        current_state.intake_route == INTAKE_ROUTE_FOOD_PAIRING
-        and current_state.dish_follow_up_count == 0
-        and current_state.wine_follow_up_count == 0
-    ):
-        return False
     return True
