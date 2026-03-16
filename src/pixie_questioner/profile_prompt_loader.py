@@ -49,7 +49,7 @@ def load_profile_prompts(
     profile_dir: Path,
     base_dir: Path | None,
     load_prompt: Callable[[Path], str],
-) -> tuple[str, str, str, str, str, str, str, str]:
+) -> tuple[str, str, str, str, str, str, str, str, str]:
     prompt_paths = profile.prompts
     question_asker_prompt = load_prompt(
         _resolve_prompt_path(profile_dir, prompt_paths.question_asker_path)
@@ -97,6 +97,12 @@ def load_profile_prompts(
         prompt_paths.handoff_classifier_path,
         load_prompt,
     )
+    off_topic_redirect_prompt = _load_optional_prompt(
+        profile_dir,
+        base_dir,
+        getattr(prompt_paths, "off_topic_redirect_path", ""),
+        load_prompt,
+    )
     return (
         question_asker_prompt,
         questionnaire_notulist_prompt,
@@ -106,6 +112,7 @@ def load_profile_prompts(
         intake_route_prompt,
         aroma_prompt,
         handoff_prompt,
+        off_topic_redirect_prompt,
     )
 
 

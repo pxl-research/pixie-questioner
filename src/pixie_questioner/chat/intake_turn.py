@@ -66,7 +66,7 @@ async def handle_intake_phase(
         current_answer,
     )
     if classification == "off_topic":
-        return handle_off_topic_intake(handler, routed_state)
+        return await handle_off_topic_intake(handler, routed_state)
     if classification == "stop":
         return await _handle_on_topic_intake(
             handler,

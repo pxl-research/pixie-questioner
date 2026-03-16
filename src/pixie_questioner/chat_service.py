@@ -35,6 +35,7 @@ class ChatService:
     aroma_taste_classifier: LLMPromptInvoker | None = None
     handoff_classifier: LLMPromptInvoker | None = None
     unsupported_origin_follow_up: LLMPromptInvoker | None = None
+    off_topic_redirect_invoker: LLMPromptInvoker | None = None
 
     def __post_init__(self) -> None:
         _validate_service_configuration(self)
@@ -78,6 +79,7 @@ class ChatService:
             summary_result=self._summary_result,
             answer_relevance_classifier=self.answer_relevance_classifier,
             intake_route_classifier=self.intake_route_classifier,
+            off_topic_redirect_invoker=self.off_topic_redirect_invoker,
         )
 
     def _parse_state(self, state: dict[str, str] | None) -> ChatState:

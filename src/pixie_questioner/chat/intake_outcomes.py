@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -23,8 +25,10 @@ from .types import ChatResult, ChatState
 if TYPE_CHECKING:
     from .turn_handler import ChatTurnHandler
 
+logger = logging.getLogger(__name__)
 
-def handle_off_topic_intake(
+
+async def handle_off_topic_intake(
     handler: ChatTurnHandler,
     current_state: ChatState,
 ) -> ChatResult:
@@ -37,8 +41,16 @@ def handle_off_topic_intake(
         >= handler.domain_policy.off_topic_termination_threshold
     ):
         terminated_state = to_terminated_state(current_state, language)
+        goodbye_text = await _generate_off_topic_message(
+            handler=handler,
+            task="goodbye",
+            current_question=current_state.last_question,
+            current_answer="",
+            language=language,
+            fallback=handler.messages.goodbye(language),
+        )
         return handler.answer_result(
-            handler.messages.goodbye(language),
+            goodbye_text,
             terminated_state,
             None,
             None,
@@ -46,16 +58,49 @@ def handle_off_topic_intake(
         )
 
     redirected_state = to_off_topic_redirect_state(current_state)
-    return handler.answer_result(
-        handler.messages.off_topic_redirect(
+    redirect_text = await _generate_off_topic_message(
+        handler=handler,
+        task="redirect",
+        current_question=current_state.last_question,
+        current_answer="",
+        language=language,
+        fallback=handler.messages.off_topic_redirect(
             language=language,
             current_question=current_state.last_question,
         ),
+    )
+    return handler.answer_result(
+        redirect_text,
         redirected_state,
         None,
         None,
         None,
     )
+
+
+async def _generate_off_topic_message(
+    handler: ChatTurnHandler,
+    task: str,
+    current_question: str,
+    current_answer: str,
+    language: str,
+    fallback: str,
+) -> str:
+    if handler.off_topic_redirect_invoker is None:
+        return fallback
+    summary = (
+        f"Language: {language}\nTask: {task}\nCurrent question: {current_question}"
+    )
+    try:
+        generated = await handler.off_topic_redirect_invoker.generate(
+            current_question=task,
+            current_answer=current_answer,
+            summary=summary,
+        )
+        return generated.strip() or fallback
+    except Exception:
+        logger.warning("Off-topic LLM invoker failed; using fallback.", exc_info=True)
+        return fallback
 
 
 async def build_completion_result(

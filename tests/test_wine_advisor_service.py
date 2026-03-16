@@ -48,6 +48,7 @@ class StubController:
 class _StubRankerSelection:
     barcodes: list[str]
     explanation: str
+    intro_text: str = ""
 
 
 class StubRanker:
@@ -687,7 +688,7 @@ def test_recommend_from_context_asks_question_when_controller_says_question() ->
             TurnDecision(
                 action="question",
                 question_text="Welke stijl zoek je?",
-                meal_mode="pairing",
+                meal_mode="drinking_only",
                 query_hints="",
             )
         ]
@@ -702,24 +703,54 @@ def test_recommend_from_context_asks_question_when_controller_says_question() ->
     result = asyncio.run(
         service.recommend_from_context(
             working_context=(
-                "Summary:\nPad thai met kip.\n\n"
+                "Summary:\nOp zoek naar een lekkere wijn zonder gerecht.\n\n"
                 "Questionnaire:\n"
                 "5. Kleur van de wijn (wit, rood, rosé): rosé\n"
                 "6. Herkomst (land en/of regio): australie\n"
                 "7. Maximum budget in euro: 20\n"
                 "8. Gewenste geur/smaak (vrije tekst): fris"
             ),
-            meal_mode="pairing",
+            meal_mode="drinking_only",
         )
     )
 
     assert result.response_type == "question"
     assert result.text == "Welke stijl zoek je?"
     assert result.state["turn_count"] == 1
-    assert result.state["meal_mode"] == "pairing"
+    assert result.state["meal_mode"] == "drinking_only"
 
 
-def test_recommend_from_context_falls_back_when_query_hints_missing() -> None:
+def test_recommend_from_context_early_exit_when_few_pairing_candidates() -> None:
+    """When ≤5 wines match the dish context, recommend directly without asking questions."""
+    controller = StubController(
+        [
+            TurnDecision(
+                action="question",
+                question_text="Welke kleur wijn wil je?",
+                meal_mode="pairing",
+                query_hints="rund",
+            )
+        ]
+    )
+    ranker = EchoRanker()
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+    )
+
+    result = asyncio.run(
+        service.recommend_from_context(
+            working_context="Summary:\nSteak van rund op de BBQ.",
+            meal_mode="pairing",
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert (
+        len(controller.calls) == 0
+    ), "Turn controller should not be called on early exit"
+
     controller = StubController(
         [
             TurnDecision(

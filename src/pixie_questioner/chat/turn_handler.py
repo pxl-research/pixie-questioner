@@ -50,6 +50,7 @@ class ChatTurnHandler:
     summary_result: SummaryResultBuilder
     answer_relevance_classifier: AnswerRelevanceClassifierProtocol | None = None
     intake_route_classifier: IntakeRouteClassifierProtocol | None = None
+    off_topic_redirect_invoker: LLMPromptInvoker | None = None
 
     def is_categorized_handoff_mode(self) -> bool:
         return self.domain_policy.completion_mode == "categorized_handoff"

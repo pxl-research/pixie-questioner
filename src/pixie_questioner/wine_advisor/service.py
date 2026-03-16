@@ -27,6 +27,10 @@ from .types import (
 class RankerSelectionProtocol(Protocol):
     barcodes: list[str]
     explanation: str
+    intro_text: str
+
+
+_EARLY_RECOMMENDATION_THRESHOLD = 5
 
 
 class TurnControllerProtocol(Protocol):
@@ -178,10 +182,12 @@ class WineAdvisorService:
     def _format_recommendation_text(
         self,
         recommendations: list[WineCatalogRecommendation],
+        intro_text: str = "",
     ) -> str:
+        effective_intro = intro_text.strip() or self.recommendation_intro
         if not recommendations:
-            return self.recommendation_intro
-        lines = [self.recommendation_intro, ""]
+            return effective_intro
+        lines = [effective_intro, ""]
         for index, recommendation in enumerate(recommendations, start=1):
             lines.append(
                 f"{index}. {recommendation.name} "
@@ -442,6 +448,7 @@ class WineAdvisorService:
             return [1]
 
         normalized: list[str] | None = None
+        intro_text: str = ""
         last_error: RuntimeError | None = None
         for min_count in _min_count_attempts_for(candidate_barcodes):
             try:
@@ -458,6 +465,7 @@ class WineAdvisorService:
                     min_count,
                     min(5, len(candidate_barcodes)),
                 )
+                intro_text = getattr(selection, "intro_text", "")
                 break
             except RuntimeError as exc:
                 last_error = exc
@@ -486,6 +494,7 @@ class WineAdvisorService:
                             min_count,
                             min(5, len(expanded_barcodes)),
                         )
+                        intro_text = getattr(selection, "intro_text", "")
                         candidate_records = expanded_records
                         candidate_barcodes = expanded_barcodes
                         state_candidate_barcodes = expanded_barcodes
@@ -516,6 +525,7 @@ class WineAdvisorService:
                             1,
                             min(5, len(relaxed_barcodes)),
                         )
+                        intro_text = getattr(selection, "intro_text", "")
                         candidate_records = relaxed_records
                         candidate_barcodes = relaxed_barcodes
                         state_candidate_barcodes = relaxed_barcodes
@@ -548,7 +558,9 @@ class WineAdvisorService:
             selected_barcodes=[item.barcode for item in recommendations],
         )
         return WineAdvisorResult(
-            text=self._format_recommendation_text(recommendations),
+            text=self._format_recommendation_text(
+                recommendations, intro_text=intro_text
+            ),
             response_type="recommendations",
             state=self._serialize_state(completed),
             recommendations=recommendations,
@@ -627,6 +639,33 @@ class WineAdvisorService:
             candidate_barcodes=[],
             selected_barcodes=[],
         )
+
+        if normalized_meal_mode == MEAL_MODE_PAIRING:
+            early_candidates = rank_catalog_records(
+                self.catalog_records,
+                query=normalized_context,
+                limit=len(self._catalog_by_barcode),
+                min_score=1.0,
+            )
+            if 0 < len(early_candidates) <= _EARLY_RECOMMENDATION_THRESHOLD:
+                early_barcodes = [r.barcode for r in early_candidates]
+                early_decision = TurnDecision(
+                    action="recommend",
+                    question_text="",
+                    meal_mode=normalized_meal_mode,
+                    query_hints=normalized_context,
+                )
+                return await self._finalize_recommendation(
+                    parsed_state,
+                    normalized_context,
+                    1,
+                    normalized_context,
+                    early_decision,
+                    early_candidates,
+                    early_barcodes,
+                    early_barcodes,
+                )
+
         decision = await self.turn_controller.decide(
             current_answer=normalized_context,
             working_context=normalized_context,

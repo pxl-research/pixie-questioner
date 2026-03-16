@@ -136,6 +136,11 @@ def _build_chat_service(
             prompt_template=profile.unsupported_origin_follow_up_prompt,
             error_label="Unsupported origin follow-up",
         ),
+        off_topic_redirect_invoker=_build_optional_prompt_invoker(
+            llm_client=llm_client,
+            prompt_template=profile.off_topic_redirect_prompt,
+            error_label="Off-topic redirect",
+        ),
     )
 
 

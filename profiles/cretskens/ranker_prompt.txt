@@ -1,6 +1,7 @@
 Select the best candidate barcodes for this customer.
 Return only JSON with keys:
 - barcodes: ordered array
+- intro_text: a short, warm, enthusiastic opening sentence from a sommelier presenting the selection (in the same language as the working context; plain everyday language; vary the wording)
 - selection_explanation: short factual reason for this shortlist
 Use only candidate barcodes from the catalog rows below.
 

@@ -36,6 +36,7 @@ prompts:
   intake_route_classifier_path: intake_route_classifier.txt
   aroma_taste_classifier_path: aroma_taste_classifier.txt
   handoff_classifier_path: handoff_classifier.txt
+  off_topic_redirect_path: sommelier_redirect.txt
 
 behavior:
   completion_mode: categorized_handoff

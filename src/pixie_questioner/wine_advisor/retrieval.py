@@ -90,6 +90,7 @@ def rank_catalog_records(
     query: str,
     constraints: RetrievalConstraints | None = None,
     limit: int = 20,
+    min_score: float | None = None,
 ) -> list[WineCatalogRecord]:
     effective_constraints = constraints or RetrievalConstraints()
     query_tokens = _tokenize(query)
@@ -107,4 +108,6 @@ def rank_catalog_records(
         best_per_barcode.values(),
         key=lambda item: (-item[0], item[1].barcode),
     )
+    if min_score is not None:
+        ranked = [(score, record) for score, record in ranked if score >= min_score]
     return [record for _, record in ranked[: max(limit, 0)]]
