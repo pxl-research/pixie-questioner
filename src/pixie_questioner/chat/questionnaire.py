@@ -11,20 +11,11 @@ _UNSPECIFIED_FIELD_MARKERS = frozenset(
         "niet gespecificeerd",
         "niet opgegeven",
         "onbekend",
-        "geen voorkeur",
-        "maakt niet uit",
-        "ik weet het niet",
         "not specified",
         "unspecified",
         "unknown",
-        "no preference",
-        "doesn't matter",
-        "i don't know",
         "non spécifié",
         "non specifie",
-        "pas de préférence",
-        "pas de preference",
-        "je ne sais pas",
     }
 )
 

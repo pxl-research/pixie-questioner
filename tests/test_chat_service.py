@@ -1104,9 +1104,10 @@ def test_ask_cretskens_general_wine_opening_does_not_complete_on_unspecified_val
 def test_ask_cretskens_general_wine_does_not_complete_when_notulist_fills_all_wine_fields():
     """Regression test: intake must ask at least one wine question for general_wine route.
 
-    When the notulist fills all wine fields (e.g. with non-standard no-preference values
-    that are not in _UNSPECIFIED_FIELD_MARKERS), the intake must still ask a wine question
-    instead of completing immediately and jumping to recommendation.
+    When the notulist fills all wine fields with "geen voorkeur" (no preference values
+    that are not treated as blank), the intake must still ask a wine question instead of
+    completing immediately. The decision is structural (wine_follow_up_count == 0),
+    not based on keyword matching.
     """
     question_llm = FakeLLM(["Welke kleur wijn heb je in gedachten?"])
     notulist_llm = FakeLLM(
