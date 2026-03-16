@@ -287,16 +287,11 @@ class WineAdvisorService:
         decision: TurnDecision,
     ) -> tuple[list[WineCatalogRecord], bool]:
         if decision.query_hints.strip():
-            shortlist_limit = (
-                self.candidate_limit
-                if self.candidate_limit > 0
-                else len(self.catalog_records)
-            )
             return (
                 rank_catalog_records(
                     self.catalog_records,
                     query=decision.query_hints,
-                    limit=shortlist_limit,
+                    limit=self._resolve_shortlist_limit(),
                 ),
                 True,
             )
@@ -311,6 +306,26 @@ class WineAdvisorService:
                 return candidate_records, True
 
         return [], False
+
+    def _resolve_shortlist_limit(self) -> int:
+        if self.candidate_limit > 0:
+            return self.candidate_limit
+        return len(self.catalog_records)
+
+    def _fallback_candidates_from_context(
+        self,
+        context_query: str,
+        *,
+        limit: int | None = None,
+    ) -> list[WineCatalogRecord]:
+        resolved_limit = (
+            self._resolve_shortlist_limit() if limit is None else max(limit, 0)
+        )
+        return rank_catalog_records(
+            self.catalog_records,
+            query=context_query,
+            limit=resolved_limit,
+        )
 
     async def ask(
         self,
@@ -364,6 +379,10 @@ class WineAdvisorService:
             decision.action == "recommend" or next_turn_count >= self.max_turns
         )
         if should_recommend and not candidate_barcodes:
+            candidate_records = self._fallback_candidates_from_context(working_context)
+            candidate_barcodes = [record.barcode for record in candidate_records]
+            state_candidate_barcodes = candidate_barcodes
+        if should_recommend and not candidate_barcodes:
             raise RuntimeError(
                 "Turn controller must provide query hints or persisted candidates "
                 "before recommendations."
@@ -399,21 +418,68 @@ class WineAdvisorService:
         candidate_barcodes: list[str],
         state_candidate_barcodes: list[str],
     ) -> WineAdvisorResult:
-        min_count = 3 if len(candidate_barcodes) >= 3 else 1
-        max_count = min(5, len(candidate_barcodes))
-        selection = await self.ranker.select_with_explanation(
-            working_context=working_context,
-            candidate_records=candidate_records,
-            candidate_barcodes=candidate_barcodes,
-            min_count=min_count,
-            max_count=max_count,
-        )
-        normalized = self._normalize_selected(
-            selection.barcodes,
-            candidate_barcodes,
-            min_count,
-            max_count,
-        )
+        def _min_count_attempts_for(candidates: list[str]) -> list[int]:
+            if len(candidates) >= 3:
+                return [3, 1]
+            return [1]
+
+        normalized: list[str] | None = None
+        last_error: RuntimeError | None = None
+        for min_count in _min_count_attempts_for(candidate_barcodes):
+            try:
+                selection = await self.ranker.select_with_explanation(
+                    working_context=working_context,
+                    candidate_records=candidate_records,
+                    candidate_barcodes=candidate_barcodes,
+                    min_count=min_count,
+                    max_count=min(5, len(candidate_barcodes)),
+                )
+                normalized = self._normalize_selected(
+                    selection.barcodes,
+                    candidate_barcodes,
+                    min_count,
+                    min(5, len(candidate_barcodes)),
+                )
+                break
+            except RuntimeError as exc:
+                last_error = exc
+
+        if normalized is None and len(candidate_barcodes) < len(
+            self._catalog_by_barcode
+        ):
+            expanded_records = self._fallback_candidates_from_context(
+                working_context,
+                limit=len(self._catalog_by_barcode),
+            )
+            expanded_barcodes = [record.barcode for record in expanded_records]
+            if expanded_barcodes and expanded_barcodes != candidate_barcodes:
+                for min_count in _min_count_attempts_for(expanded_barcodes):
+                    try:
+                        selection = await self.ranker.select_with_explanation(
+                            working_context=working_context,
+                            candidate_records=expanded_records,
+                            candidate_barcodes=expanded_barcodes,
+                            min_count=min_count,
+                            max_count=min(5, len(expanded_barcodes)),
+                        )
+                        normalized = self._normalize_selected(
+                            selection.barcodes,
+                            expanded_barcodes,
+                            min_count,
+                            min(5, len(expanded_barcodes)),
+                        )
+                        candidate_records = expanded_records
+                        candidate_barcodes = expanded_barcodes
+                        state_candidate_barcodes = expanded_barcodes
+                        break
+                    except RuntimeError as exc:
+                        last_error = exc
+
+        if normalized is None:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("Ranker failed to return a valid barcode selection.")
+
         recommendations = self._recommendations_for_barcodes(normalized)
         if not recommendations:
             raise RuntimeError("Ranker selected barcodes without matching records.")
@@ -530,15 +596,8 @@ class WineAdvisorService:
         candidate_barcodes = [record.barcode for record in candidate_records]
         state_candidate_barcodes = candidate_barcodes if persist_candidates else []
         if not candidate_barcodes:
-            shortlist_limit = (
-                self.candidate_limit
-                if self.candidate_limit > 0
-                else len(self.catalog_records)
-            )
-            candidate_records = rank_catalog_records(
-                self.catalog_records,
-                query=normalized_context,
-                limit=shortlist_limit,
+            candidate_records = self._fallback_candidates_from_context(
+                normalized_context
             )
             candidate_barcodes = [record.barcode for record in candidate_records]
             state_candidate_barcodes = candidate_barcodes
