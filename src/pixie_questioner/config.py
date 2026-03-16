@@ -66,6 +66,7 @@ class ResolvedDomainProfile:
     intake_route_classifier_prompt: str
     aroma_taste_classifier_prompt: str
     handoff_classifier_prompt: str
+    off_topic_redirect_prompt: str
     language_codes: tuple[str, ...]
     language_names: dict[str, str]
     handoff_lines: dict[str, tuple[str, ...]]
@@ -129,6 +130,7 @@ class DomainProfilePrompts(BaseModel):
     intake_route_classifier_path: str = Field(default="")
     aroma_taste_classifier_path: str = Field(default="")
     handoff_classifier_path: str = Field(default="")
+    off_topic_redirect_path: str = Field(default="")
 
 
 class DomainProfileMessages(BaseModel):
@@ -369,6 +371,7 @@ def _to_resolved_domain_profile(
     intake_route_classifier_prompt: str,
     aroma_taste_classifier_prompt: str,
     handoff_classifier_prompt: str,
+    off_topic_redirect_prompt: str,
     language_codes: tuple[str, ...],
     language_names: dict[str, str],
     quick_replies: dict[str, tuple[ChatQuickReply, ...]],
@@ -383,6 +386,7 @@ def _to_resolved_domain_profile(
         intake_route_classifier_prompt=intake_route_classifier_prompt,
         aroma_taste_classifier_prompt=aroma_taste_classifier_prompt,
         handoff_classifier_prompt=handoff_classifier_prompt,
+        off_topic_redirect_prompt=off_topic_redirect_prompt,
         language_codes=language_codes,
         language_names=language_names,
         handoff_lines=_normalize_localized_lines(profile.messages.handoff),
@@ -426,6 +430,7 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         intake_route_classifier_prompt,
         aroma_taste_classifier_prompt,
         handoff_classifier_prompt,
+        off_topic_redirect_prompt,
     ) = load_profile_prompts(
         profile=profile,
         profile_dir=profile_dir,
@@ -466,6 +471,7 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         intake_route_classifier_prompt=intake_route_classifier_prompt,
         aroma_taste_classifier_prompt=aroma_taste_classifier_prompt,
         handoff_classifier_prompt=handoff_classifier_prompt,
+        off_topic_redirect_prompt=off_topic_redirect_prompt,
         language_codes=language_codes,
         language_names=language_names,
         quick_replies=quick_replies,

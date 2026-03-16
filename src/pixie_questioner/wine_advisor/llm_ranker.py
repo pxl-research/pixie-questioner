@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 class _RankerPayload(BaseModel):
     barcodes: list[str]
+    intro_text: str = ""
     selection_explanation: str = ""
 
 
@@ -25,6 +26,7 @@ class _RankerPayload(BaseModel):
 class RankerSelection:
     barcodes: list[str]
     explanation: str = ""
+    intro_text: str = ""
 
 
 @dataclass
@@ -94,6 +96,7 @@ class LLMWineRanker:
         return RankerSelection(
             barcodes=payload.barcodes,
             explanation=payload.selection_explanation.strip(),
+            intro_text=payload.intro_text.strip(),
         )
 
     def _dedupe_preserving_order(self, barcodes: list[str]) -> list[str]:

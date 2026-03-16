@@ -583,6 +583,8 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
                 "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
                 "summary": "",
                 "last_question": "Welk gerecht eten jullie?",
+                "intake_route": "food_pairing",
+                "dish_follow_up_count": "1",
             },
         )
     )
@@ -1102,9 +1104,10 @@ def test_ask_cretskens_general_wine_opening_does_not_complete_on_unspecified_val
 def test_ask_cretskens_general_wine_does_not_complete_when_notulist_fills_all_wine_fields():
     """Regression test: intake must ask at least one wine question for general_wine route.
 
-    When the notulist fills all wine fields (e.g. with non-standard no-preference values
-    that are not in _UNSPECIFIED_FIELD_MARKERS), the intake must still ask a wine question
-    instead of completing immediately and jumping to recommendation.
+    When the notulist fills all wine fields with "geen voorkeur" (no preference values
+    that are not treated as blank), the intake must still ask a wine question instead of
+    completing immediately. The decision is structural (wine_follow_up_count == 0),
+    not based on keyword matching.
     """
     question_llm = FakeLLM(["Welke kleur wijn heb je in gedachten?"])
     notulist_llm = FakeLLM(
@@ -1400,6 +1403,57 @@ def test_ask_cretskens_food_pairing_completed_dish_stage_transitions_to_wine_sta
     )
 
 
+def test_ask_cretskens_food_pairing_does_not_complete_when_notulist_fills_all_fields():
+    """Regression test: food_pairing route must ask at least one question.
+
+    When the notulist fills all dish+wine fields on the opening turn,
+    the intake must still ask a follow-up question instead of completing
+    immediately and jumping to recommendation.
+    """
+    question_llm = FakeLLM(["Hoe is de vis bereid?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): pasta met zalm\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): fish or seafood\n"
+            "3. Cooking method (BBQ or grill, stew, or none): none\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): geen voorkeur\n"
+            "6. Herkomst (land en/of regio): geen voorkeur\n"
+            "7. Maximum budget in euro: geen voorkeur\n"
+            "8. Gewenste geur/smaak (vrije tekst): geen voorkeur"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant wil wijn bij pasta met zalm."])
+    route_classifier = StubIntakeRouteClassifier(["food_pairing"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik eet pasta met zalm",
+            state=None,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.state["phase"] == "intake"
+    assert result.state["intake_route"] == "food_pairing"
+    assert (
+        int(result.state.get("dish_follow_up_count", "0"))
+        + int(result.state.get("wine_follow_up_count", "0"))
+        >= 1
+    )
+    assert len(question_llm.calls) == 1
+
+
 def test_ask_cretskens_general_wine_skips_dish_questions_in_prompt_focus():
     question_llm = FakeLLM(["Welke kleur wijn heb je in gedachten?"])
     notulist_llm = FakeLLM(
@@ -1659,6 +1713,8 @@ def test_ask_categorized_handoff_derives_country_from_region_only():
                 "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
                 "summary": "",
                 "last_question": "Welk gerecht eten jullie?",
+                "intake_route": "food_pairing",
+                "dish_follow_up_count": "1",
             },
         )
     )
@@ -1714,6 +1770,8 @@ def test_ask_categorized_handoff_region_wins_on_country_conflict():
                 "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
                 "summary": "",
                 "last_question": "Welk gerecht eten jullie?",
+                "intake_route": "food_pairing",
+                "dish_follow_up_count": "1",
             },
         )
     )
@@ -1764,6 +1822,8 @@ def test_ask_categorized_handoff_aroma_taste_last_statement_wins():
                 "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
                 "summary": "",
                 "last_question": "Welke geur of smaak zoek je?",
+                "intake_route": "food_pairing",
+                "wine_follow_up_count": "1",
             },
         )
     )
@@ -1811,6 +1871,8 @@ def test_ask_categorized_handoff_ignores_invalid_aroma_classifier_output():
                 "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
                 "summary": "",
                 "last_question": "Welke geur of smaak zoek je?",
+                "intake_route": "food_pairing",
+                "wine_follow_up_count": "1",
             },
         )
     )
@@ -1858,6 +1920,8 @@ def test_ask_categorized_handoff_parses_wrapped_aroma_classifier_output():
                 "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
                 "summary": "",
                 "last_question": "Welke geur of smaak zoek je?",
+                "intake_route": "food_pairing",
+                "wine_follow_up_count": "1",
             },
         )
     )
@@ -1905,6 +1969,8 @@ def test_ask_categorized_handoff_parses_non_json_aroma_key_values():
                 "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
                 "summary": "",
                 "last_question": "Welke geur of smaak zoek je?",
+                "intake_route": "food_pairing",
+                "wine_follow_up_count": "1",
             },
         )
     )
@@ -1951,6 +2017,8 @@ def test_ask_categorized_handoff_retries_unstructured_aroma_classifier_output():
                 "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
                 "summary": "",
                 "last_question": "Welke geur of smaak zoek je?",
+                "intake_route": "food_pairing",
+                "wine_follow_up_count": "1",
             },
         )
     )
@@ -1998,6 +2066,8 @@ def test_ask_categorized_handoff_maps_generic_kruidig_key():
                 "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
                 "summary": "",
                 "last_question": "Welke geur of smaak zoek je?",
+                "intake_route": "food_pairing",
+                "wine_follow_up_count": "1",
             },
         )
     )
@@ -2091,6 +2161,8 @@ def test_ask_categorized_handoff_omits_unparseable_price():
                 "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
                 "summary": "",
                 "last_question": "Wat is je maximum budget?",
+                "intake_route": "food_pairing",
+                "wine_follow_up_count": "1",
             },
         )
     )
@@ -3435,6 +3507,8 @@ def test_ask_logs_warning_when_handoff_classifier_fails(caplog) -> None:
                     "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
                     "summary": "",
                     "last_question": "Welk gerecht eten jullie?",
+                    "intake_route": "food_pairing",
+                    "dish_follow_up_count": "1",
                 },
             )
         )
@@ -3483,6 +3557,8 @@ def test_ask_logs_warning_when_aroma_retry_fails(caplog) -> None:
                     "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
                     "summary": "",
                     "last_question": "Welke geur of smaak zoek je?",
+                    "intake_route": "food_pairing",
+                    "wine_follow_up_count": "1",
                 },
             )
         )
