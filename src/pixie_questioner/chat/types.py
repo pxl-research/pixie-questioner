@@ -31,6 +31,15 @@ VALID_INTAKE_ROUTES = {
     INTAKE_ROUTE_GENERAL_WINE,
 }
 
+INTAKE_STAGE_ROUTING = "routing"
+INTAKE_STAGE_DISH = "dish"
+INTAKE_STAGE_WINE = "wine"
+VALID_INTAKE_STAGES = {
+    INTAKE_STAGE_ROUTING,
+    INTAKE_STAGE_DISH,
+    INTAKE_STAGE_WINE,
+}
+
 
 @dataclass(frozen=True)
 class ChatResult:
@@ -45,6 +54,8 @@ class ChatResult:
 @dataclass
 class ChatState:
     questionnaire: str = ""
+    dish_questionnaire: str = ""
+    wine_questionnaire: str = ""
     summary: str = ""
     last_question: str = INITIAL_QUESTION
     conversation_language: str = ""
@@ -56,6 +67,7 @@ class ChatState:
     boundary_violation_count: int = 0
     handoff_categories_v1: str = ""
     intake_route: str = INTAKE_ROUTE_UNKNOWN
+    intake_stage: str = ""
     dish_follow_up_count: int = 0
     wine_follow_up_count: int = 0
     routing_question_asked: bool = False

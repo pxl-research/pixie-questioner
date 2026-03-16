@@ -12,6 +12,7 @@ from pixie_questioner.chat.messages import (
 from pixie_questioner.chat.intake_route_classifier import LLMIntakeRouteClassifier
 from pixie_questioner.chat.policy import ChatQuickReply
 from pixie_questioner.chat.questionnaire import (
+    combine_questionnaire_sections,
     ensure_initial_question_field,
     mask_later_blank_fields,
     questionnaire_complete,
@@ -39,6 +40,22 @@ class FakeLLM:
     async def ainvoke(self, messages: list[dict[str, str]]):
         _ = messages
         return self.responses.pop(0)
+
+
+_CRETSKENS_DISH_QUESTIONNAIRE = (
+    "0. Dish description (free text from customer): gegrilde zalm\n"
+    "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+    "2. Main protein (fish or seafood, poultry, red meat, wild, or none): fish or seafood\n"
+    "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
+    "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none"
+)
+_CRETSKENS_WINE_QUESTIONNAIRE = (
+    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+    "6. Herkomst (land en/of regio): Loire (AOC Cheverny)\n"
+    "7. Maximum budget in euro: 25\n"
+    "8. Gewenste geur/smaak (vrije tekst): fris en citrus"
+)
+_CRETSKENS_SPLIT_GROUPS = ([0, 1, 2, 3, 4], [5, 6, 7, 8])
 
 
 def test_resolve_conversation_language_keeps_dutch_for_short_history(
@@ -260,6 +277,81 @@ def test_state_codec_parse_and_serialize_roundtrip() -> None:
     assert serialized["dish_follow_up_count"] == "1"
     assert serialized["wine_follow_up_count"] == "2"
     assert serialized["routing_question_asked"] == "true"
+
+
+def test_state_codec_roundtrip_preserves_stage_and_split_questionnaires() -> None:
+    questionnaire = combine_questionnaire_sections(
+        _CRETSKENS_WINE_QUESTIONNAIRE,
+        _CRETSKENS_DISH_QUESTIONNAIRE,
+    )
+    parsed = parse_state(
+        state={
+            "questionnaire": questionnaire,
+            "dish_questionnaire": _CRETSKENS_DISH_QUESTIONNAIRE,
+            "wine_questionnaire": _CRETSKENS_WINE_QUESTIONNAIRE,
+            "intake_stage": "wine",
+            "summary": "Summary text",
+            "last_question": "Welke kleur zoek je?",
+            "intake_route": "food_pairing",
+            "dish_follow_up_count": "2",
+            "wine_follow_up_count": "1",
+        },
+        questionnaire_template=questionnaire,
+        default_language="nl",
+        split_questionnaire_field_groups=_CRETSKENS_SPLIT_GROUPS,
+    )
+
+    serialized = serialize_state(parsed)
+
+    assert parsed.intake_stage == "wine"
+    assert parsed.dish_questionnaire == _CRETSKENS_DISH_QUESTIONNAIRE
+    assert parsed.wine_questionnaire == _CRETSKENS_WINE_QUESTIONNAIRE
+    assert serialized["intake_stage"] == "wine"
+    assert serialized["dish_questionnaire"] == _CRETSKENS_DISH_QUESTIONNAIRE
+    assert serialized["wine_questionnaire"] == _CRETSKENS_WINE_QUESTIONNAIRE
+    assert serialized["questionnaire"] == questionnaire
+
+
+def test_state_codec_splits_legacy_questionnaire_when_split_fields_missing() -> None:
+    questionnaire = combine_questionnaire_sections(
+        _CRETSKENS_DISH_QUESTIONNAIRE,
+        _CRETSKENS_WINE_QUESTIONNAIRE,
+    )
+    parsed = parse_state(
+        state={
+            "questionnaire": questionnaire,
+            "summary": "Summary text",
+            "last_question": "Welke kleur zoek je?",
+            "intake_route": "food_pairing",
+            "wine_follow_up_count": "1",
+        },
+        questionnaire_template=questionnaire,
+        default_language="nl",
+        split_questionnaire_field_groups=_CRETSKENS_SPLIT_GROUPS,
+    )
+
+    assert parsed.dish_questionnaire == _CRETSKENS_DISH_QUESTIONNAIRE
+    assert parsed.wine_questionnaire == _CRETSKENS_WINE_QUESTIONNAIRE
+    assert parsed.intake_stage == "wine"
+
+
+def test_combine_questionnaire_sections_reconstructs_original_order() -> None:
+    combined = combine_questionnaire_sections(
+        _CRETSKENS_WINE_QUESTIONNAIRE,
+        _CRETSKENS_DISH_QUESTIONNAIRE,
+    )
+
+    assert combined == (
+        "0. Dish description (free text from customer): gegrilde zalm\n"
+        "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+        "2. Main protein (fish or seafood, poultry, red meat, wild, or none): fish or seafood\n"
+        "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
+        "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+        "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+        "6. Herkomst (land en/of regio): Loire (AOC Cheverny)\n"
+        "7. Maximum budget in euro: 25\n"
+        "8. Gewenste geur/smaak (vrije tekst): fris en citrus"
+    )
 
 
 def test_state_codec_defaults_new_cretskens_route_fields_for_legacy_state() -> None:

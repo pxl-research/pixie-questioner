@@ -16,6 +16,8 @@ from .types import (
 def to_terminated_state(state: ChatState, language: str) -> ChatState:
     return ChatState(
         questionnaire=state.questionnaire,
+        dish_questionnaire=state.dish_questionnaire,
+        wine_questionnaire=state.wine_questionnaire,
         summary=state.summary,
         last_question=state.last_question,
         conversation_language=language,
@@ -27,6 +29,7 @@ def to_terminated_state(state: ChatState, language: str) -> ChatState:
         boundary_violation_count=state.boundary_violation_count,
         handoff_categories_v1="",
         intake_route=state.intake_route,
+        intake_stage=state.intake_stage,
         dish_follow_up_count=state.dish_follow_up_count,
         wine_follow_up_count=state.wine_follow_up_count,
         routing_question_asked=state.routing_question_asked,
@@ -36,6 +39,8 @@ def to_terminated_state(state: ChatState, language: str) -> ChatState:
 def to_off_topic_redirect_state(state: ChatState) -> ChatState:
     return ChatState(
         questionnaire=state.questionnaire,
+        dish_questionnaire=state.dish_questionnaire,
+        wine_questionnaire=state.wine_questionnaire,
         summary=state.summary,
         last_question=state.last_question,
         conversation_language=state.conversation_language,
@@ -47,6 +52,7 @@ def to_off_topic_redirect_state(state: ChatState) -> ChatState:
         boundary_violation_count=state.boundary_violation_count,
         handoff_categories_v1="",
         intake_route=state.intake_route,
+        intake_stage=state.intake_stage,
         dish_follow_up_count=state.dish_follow_up_count,
         wine_follow_up_count=state.wine_follow_up_count,
         routing_question_asked=state.routing_question_asked,
@@ -61,6 +67,8 @@ def to_feedback_state(
 ) -> ChatState:
     return ChatState(
         questionnaire=updated_questionnaire,
+        dish_questionnaire=state.dish_questionnaire,
+        wine_questionnaire=state.wine_questionnaire,
         summary=updated_summary,
         last_question=state.last_question,
         conversation_language=language,
@@ -72,6 +80,7 @@ def to_feedback_state(
         boundary_violation_count=state.boundary_violation_count,
         handoff_categories_v1="",
         intake_route=state.intake_route,
+        intake_stage=state.intake_stage,
         dish_follow_up_count=state.dish_follow_up_count,
         wine_follow_up_count=state.wine_follow_up_count,
         routing_question_asked=state.routing_question_asked,
@@ -86,6 +95,8 @@ def to_intake_state_with_next_question(
 ) -> ChatState:
     return ChatState(
         questionnaire=updated_questionnaire,
+        dish_questionnaire=state.dish_questionnaire,
+        wine_questionnaire=state.wine_questionnaire,
         summary=updated_summary,
         last_question=next_question,
         conversation_language=state.conversation_language,
@@ -96,6 +107,7 @@ def to_intake_state_with_next_question(
         boundary_violation_count=state.boundary_violation_count,
         handoff_categories_v1="",
         intake_route=state.intake_route,
+        intake_stage=state.intake_stage,
         dish_follow_up_count=state.dish_follow_up_count,
         wine_follow_up_count=state.wine_follow_up_count,
         routing_question_asked=state.routing_question_asked,
@@ -110,6 +122,8 @@ def to_categorized_handoff_completed_state(
 ) -> ChatState:
     return ChatState(
         questionnaire=updated_questionnaire,
+        dish_questionnaire=state.dish_questionnaire,
+        wine_questionnaire=state.wine_questionnaire,
         summary=updated_summary,
         last_question=state.last_question,
         conversation_language=state.conversation_language,
@@ -121,6 +135,7 @@ def to_categorized_handoff_completed_state(
         boundary_violation_count=0,
         handoff_categories_v1=handoff_categories_v1,
         intake_route=state.intake_route,
+        intake_stage=state.intake_stage,
         dish_follow_up_count=state.dish_follow_up_count,
         wine_follow_up_count=state.wine_follow_up_count,
         routing_question_asked=state.routing_question_asked,

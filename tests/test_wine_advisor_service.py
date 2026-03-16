@@ -404,6 +404,33 @@ def test_ask_uses_min_count_one_when_candidates_below_three() -> None:
     assert ranker.calls[0]["min_count"] == 1
 
 
+def test_ask_retries_with_min_count_one_when_ranker_returns_too_few() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="rund",
+            )
+        ]
+    )
+    ranker = StubRanker([[], ["w1"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+    )
+
+    result = asyncio.run(service.ask(current_answer="Geef advies", state={}))
+
+    assert result.response_type == "recommendations"
+    assert [item.barcode for item in (result.recommendations or [])] == ["w1"]
+    assert len(ranker.calls) == 2
+    assert ranker.calls[0]["min_count"] == 3
+    assert ranker.calls[1]["min_count"] == 1
+
+
 def test_ask_completed_phase_is_idempotent() -> None:
     controller = StubController(
         [
@@ -561,7 +588,7 @@ def test_ask_question_without_query_hints_keeps_candidate_list_empty() -> None:
     assert result.state["candidate_barcodes"] == []
 
 
-def test_ask_recommend_without_query_hints_or_candidates_raises() -> None:
+def test_ask_recommend_without_query_hints_uses_context_fallback() -> None:
     controller = StubController(
         [
             TurnDecision(
@@ -572,7 +599,7 @@ def test_ask_recommend_without_query_hints_or_candidates_raises() -> None:
             )
         ]
     )
-    ranker = StubRanker([["w1", "w2", "w3"]])
+    ranker = StubRanker([["w1"]])
     service = WineAdvisorService(
         catalog_records=_catalog(),
         turn_controller=controller,
@@ -580,14 +607,45 @@ def test_ask_recommend_without_query_hints_or_candidates_raises() -> None:
         candidate_limit=1,
     )
 
-    try:
-        asyncio.run(service.ask(current_answer="Geef suggesties", state={}))
-    except RuntimeError as exc:
-        assert "query hints or persisted candidates" in str(exc)
-    else:
-        raise AssertionError("Expected RuntimeError for missing query hints.")
+    result = asyncio.run(service.ask(current_answer="Geef suggesties", state={}))
 
-    assert len(ranker.calls) == 0
+    assert result.response_type == "recommendations"
+    assert len(ranker.calls) == 1
+    assert ranker.calls[0]["candidate_barcodes"] == ["w1"]
+
+
+def test_ask_expands_candidates_after_strict_shortlist_ranker_failures() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="rose australie",
+            )
+        ]
+    )
+    ranker = StubRanker([["w2"], ["w2"], ["w2", "w1", "w3"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        candidate_limit=1,
+    )
+
+    result = asyncio.run(service.ask(current_answer="Geef suggesties", state={}))
+
+    assert result.response_type == "recommendations"
+    assert [item.barcode for item in (result.recommendations or [])] == [
+        "w2",
+        "w1",
+        "w3",
+    ]
+    assert len(ranker.calls) == 3
+    assert ranker.calls[0]["candidate_barcodes"] == ["w1"]
+    expanded_candidate_barcodes = ranker.calls[2]["candidate_barcodes"]
+    assert isinstance(expanded_candidate_barcodes, list)
+    assert len(expanded_candidate_barcodes) > 1
 
 
 def test_recommend_from_context_falls_back_when_query_hints_missing() -> None:

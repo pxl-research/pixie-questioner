@@ -5,9 +5,16 @@ from __future__ import annotations
 import re
 
 from .language import SUPPORTED_RESPONSE_LANGUAGES, detect_language
+from .questionnaire import combine_questionnaire_sections, select_questionnaire_fields
 from .types import (
     FEEDBACK_PENDING,
+    INTAKE_ROUTE_FOOD_PAIRING,
+    INTAKE_ROUTE_GENERAL_WINE,
+    INTAKE_STAGE_DISH,
+    INTAKE_STAGE_ROUTING,
+    INTAKE_STAGE_WINE,
     INTAKE_ROUTE_UNKNOWN,
+    VALID_INTAKE_STAGES,
     VALID_INTAKE_ROUTES,
     PHASE_AWAITING_FEEDBACK,
     PHASE_COMPLETED,
@@ -145,6 +152,12 @@ def _normalize_intake_route(intake_route: str) -> str:
     return INTAKE_ROUTE_UNKNOWN
 
 
+def _normalize_intake_stage(intake_stage: str) -> str:
+    if intake_stage in VALID_INTAKE_STAGES:
+        return intake_stage
+    return ""
+
+
 def _parse_boundary_violation_count(boundary_violation_count_raw: str) -> int:
     try:
         boundary_violation_count = int(boundary_violation_count_raw)
@@ -155,6 +168,27 @@ def _parse_boundary_violation_count(boundary_violation_count_raw: str) -> int:
 
 def _parse_state_bool(raw_value: str) -> bool:
     return raw_value.strip().lower() in {"1", "true", "yes"}
+
+
+def _infer_intake_stage(
+    intake_route: str,
+    intake_stage: str,
+    dish_follow_up_count: int,
+    wine_follow_up_count: int,
+) -> str:
+    if intake_stage == INTAKE_STAGE_WINE:
+        return INTAKE_STAGE_WINE
+    if intake_route == INTAKE_ROUTE_GENERAL_WINE:
+        return INTAKE_STAGE_WINE
+    if intake_route == INTAKE_ROUTE_FOOD_PAIRING:
+        if wine_follow_up_count > 0:
+            return INTAKE_STAGE_WINE
+        if intake_stage == INTAKE_STAGE_DISH:
+            return INTAKE_STAGE_DISH
+        if dish_follow_up_count > 0:
+            return INTAKE_STAGE_DISH
+        return INTAKE_STAGE_DISH
+    return INTAKE_STAGE_ROUTING
 
 
 def _normalize_questionnaire(
@@ -235,11 +269,33 @@ def parse_state(
     state: dict[str, str] | None,
     questionnaire_template: str,
     default_language: str,
+    split_questionnaire_field_groups: tuple[list[int], list[int]] | None = None,
 ) -> ChatState:
+    dish_questionnaire = ""
+    wine_questionnaire = ""
+    intake_stage = ""
+    if split_questionnaire_field_groups is not None:
+        dish_indices, wine_indices = split_questionnaire_field_groups
+        dish_questionnaire = select_questionnaire_fields(
+            questionnaire_template,
+            dish_indices,
+        )
+        wine_questionnaire = select_questionnaire_fields(
+            questionnaire_template,
+            wine_indices,
+        )
+        intake_stage = INTAKE_STAGE_ROUTING
     if not state:
         return ChatState(
-            questionnaire=questionnaire_template,
+            questionnaire=combine_questionnaire_sections(
+                dish_questionnaire,
+                wine_questionnaire,
+            )
+            or questionnaire_template,
+            dish_questionnaire=dish_questionnaire,
+            wine_questionnaire=wine_questionnaire,
             conversation_language=default_language,
+            intake_stage=intake_stage,
         )
 
     questionnaire = _normalize_questionnaire(
@@ -272,6 +328,30 @@ def parse_state(
     routing_question_asked = _parse_state_bool(
         _read_state_string(state, "routing_question_asked", "false")
     )
+    if split_questionnaire_field_groups is not None:
+        dish_indices, wine_indices = split_questionnaire_field_groups
+        raw_dish_questionnaire = _read_state_string(state, "dish_questionnaire", "")
+        raw_wine_questionnaire = _read_state_string(state, "wine_questionnaire", "")
+        dish_questionnaire = (
+            raw_dish_questionnaire
+            if raw_dish_questionnaire.strip()
+            else select_questionnaire_fields(questionnaire, dish_indices)
+        )
+        wine_questionnaire = (
+            raw_wine_questionnaire
+            if raw_wine_questionnaire.strip()
+            else select_questionnaire_fields(questionnaire, wine_indices)
+        )
+        questionnaire = (
+            combine_questionnaire_sections(dish_questionnaire, wine_questionnaire)
+            or questionnaire
+        )
+        intake_stage = _infer_intake_stage(
+            intake_route,
+            _normalize_intake_stage(_read_state_string(state, "intake_stage", "")),
+            dish_follow_up_count,
+            wine_follow_up_count,
+        )
     (
         phase,
         feedback_status,
@@ -289,6 +369,8 @@ def parse_state(
     )
     return ChatState(
         questionnaire=questionnaire,
+        dish_questionnaire=dish_questionnaire,
+        wine_questionnaire=wine_questionnaire,
         summary=summary,
         last_question=last_question,
         conversation_language=conversation_language,
@@ -300,6 +382,7 @@ def parse_state(
         boundary_violation_count=boundary_violation_count,
         handoff_categories_v1=handoff_categories_v1,
         intake_route=intake_route,
+        intake_stage=intake_stage,
         dish_follow_up_count=dish_follow_up_count,
         wine_follow_up_count=wine_follow_up_count,
         routing_question_asked=routing_question_asked,
@@ -307,8 +390,15 @@ def parse_state(
 
 
 def serialize_state(state: ChatState) -> dict[str, str]:
-    return {
-        "questionnaire": state.questionnaire,
+    questionnaire = (
+        combine_questionnaire_sections(
+            state.dish_questionnaire,
+            state.wine_questionnaire,
+        )
+        or state.questionnaire
+    )
+    serialized = {
+        "questionnaire": questionnaire,
         "summary": state.summary,
         "last_question": state.last_question,
         "conversation_language": state.conversation_language,
@@ -326,3 +416,10 @@ def serialize_state(state: ChatState) -> dict[str, str]:
         "wine_follow_up_count": str(state.wine_follow_up_count),
         "routing_question_asked": ("true" if state.routing_question_asked else "false"),
     }
+    if state.dish_questionnaire.strip():
+        serialized["dish_questionnaire"] = state.dish_questionnaire
+    if state.wine_questionnaire.strip():
+        serialized["wine_questionnaire"] = state.wine_questionnaire
+    if state.intake_stage.strip():
+        serialized["intake_stage"] = state.intake_stage
+    return serialized

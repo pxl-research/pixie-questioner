@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .chat.categorized_handoff import CategorizedHandoffBuilder
+from .chat.intake_routing import DISH_FIELD_INDICES, WINE_FIELD_INDICES
 from .chat.intake_route_classifier import IntakeRouteClassifierProtocol
 from .chat.language import create_language_support
 from .chat.messages import PolicyMessages
@@ -39,6 +40,12 @@ class ChatService:
         self._questionnaire_indices = extract_questionnaire_indices(
             self.questionnaire_template
         )
+        self._split_questionnaire_field_groups = None
+        if self.domain_policy.completion_mode == "categorized_handoff":
+            self._split_questionnaire_field_groups = (
+                DISH_FIELD_INDICES,
+                WINE_FIELD_INDICES,
+            )
         self._language = create_language_support(
             language_codes=self.domain_policy.language_codes,
             language_names=self.domain_policy.language_names,
@@ -76,6 +83,7 @@ class ChatService:
             state,
             questionnaire_template=self.questionnaire_template,
             default_language=self._language.default_language_code,
+            split_questionnaire_field_groups=self._split_questionnaire_field_groups,
         )
 
     def _answer_result(
