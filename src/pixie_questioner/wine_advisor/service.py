@@ -530,6 +530,19 @@ class WineAdvisorService:
         candidate_barcodes = [record.barcode for record in candidate_records]
         state_candidate_barcodes = candidate_barcodes if persist_candidates else []
         if not candidate_barcodes:
+            shortlist_limit = (
+                self.candidate_limit
+                if self.candidate_limit > 0
+                else len(self.catalog_records)
+            )
+            candidate_records = rank_catalog_records(
+                self.catalog_records,
+                query=normalized_context,
+                limit=shortlist_limit,
+            )
+            candidate_barcodes = [record.barcode for record in candidate_records]
+            state_candidate_barcodes = candidate_barcodes
+        if not candidate_barcodes:
             raise RuntimeError(
                 "Turn controller must provide query hints or persisted candidates "
                 "before recommendations."

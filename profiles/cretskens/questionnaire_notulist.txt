@@ -23,10 +23,13 @@ User Answer: {current_answer}
      only fill it when the protein is explicitly stated or the dish
      unambiguously points to one protein.
    - If a dish has multiple common protein variants, keep main protein as [].
+   - For clearly savory standalone meal dishes, set course type = main course
+     unless the customer explicitly indicates otherwise.
    - "steak" → main protein = red meat (clearly implied) ✓
    - "pad thai" → main protein stays [] when no protein is specified ✓
    - "grilled salmon" → cooking method = BBQ or grill (clearly implied) ✓
    - "ragout" → cooking method = stew (clearly implied) ✓
+   - "pad thai" → course type = main course (clearly implied) ✓
    - "kaasplank" → course type = cheese course (clearly implied) ✓
    - "dame blanche" → course type = dessert (clearly implied) ✓
    - "dame blanche" → main protein = none and cooking method = none (reasonable) ✓
