@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from .categorized_handoff import (
+    WINE_COUNTRY_VALUES,
+    WINE_REGION_VALUES,
     extract_questionnaire_field_value,
     is_blank_questionnaire_value,
     parse_json_object,
+    replace_questionnaire_field_value,
 )
 from .intake_routing import build_routing_question_result
 from .intake_routing import initial_intake_stage_for_route
@@ -223,6 +228,34 @@ def _parse_follow_up_flag(value: object) -> bool:
     return False
 
 
+def _normalize_origin_lookup_value(value: str) -> str:
+    lowered = " ".join(value.strip().split()).casefold()
+    decomposed = unicodedata.normalize("NFKD", lowered)
+    without_accents = "".join(
+        character for character in decomposed if not unicodedata.combining(character)
+    )
+    return re.sub(r"\s+", " ", without_accents).strip()
+
+
+_SUPPORTED_ORIGIN_LOOKUP = frozenset(
+    _normalized
+    for _raw in (*WINE_COUNTRY_VALUES, *WINE_REGION_VALUES)
+    if (_normalized := _normalize_origin_lookup_value(_raw))
+)
+
+
+def _is_supported_origin_value(value: str) -> bool:
+    normalized = _normalize_origin_lookup_value(value)
+    if not normalized:
+        return False
+    if normalized in _SUPPORTED_ORIGIN_LOOKUP:
+        return True
+    for candidate in re.split(r"[,/;]", normalized):
+        if candidate.strip() in _SUPPORTED_ORIGIN_LOOKUP:
+            return True
+    return False
+
+
 async def _maybe_generate_unsupported_origin_follow_up(
     handler: ChatTurnHandler,
     current_state: ChatState,
@@ -239,12 +272,6 @@ async def _maybe_generate_unsupported_origin_follow_up(
     ):
         return None
 
-    origin_value = extract_questionnaire_field_value(
-        updated_state.wine_questionnaire, 6
-    )
-    if not is_blank_questionnaire_value(origin_value):
-        return None
-
     previous_blank_field = first_blank_field_index(
         current_state.wine_questionnaire,
         WINE_FIELD_INDICES,
@@ -258,6 +285,25 @@ async def _maybe_generate_unsupported_origin_follow_up(
     )
     if previous_blank_field != 6 and not opening_general_wine_turn:
         return None
+
+    origin_value = extract_questionnaire_field_value(
+        updated_state.wine_questionnaire, 6
+    )
+    origin_is_blank = is_blank_questionnaire_value(origin_value)
+    if not origin_is_blank and _is_supported_origin_value(origin_value):
+        return None
+
+    if not origin_is_blank:
+        updated_state.wine_questionnaire = replace_questionnaire_field_value(
+            updated_state.wine_questionnaire,
+            6,
+            "[]",
+        )
+        updated_state.questionnaire = replace_questionnaire_field_value(
+            updated_state.questionnaire,
+            6,
+            "[]",
+        )
 
     follow_up_context = (
         f"Conversation language: {updated_state.conversation_language}\n"
