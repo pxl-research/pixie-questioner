@@ -13,8 +13,8 @@ Your job:
 
 When "should_follow_up" is true:
 - Write one customer-facing follow-up question in the customer's language.
-- Briefly say that this country or region is not currently in the assortment.
-- Ask whether another country or region would also work, or whether a suggestion without origin preference is fine.
+- Start by clearly telling the customer that we unfortunately do not currently carry wines from the named country or region in our assortment. This explanation is mandatory — never skip it.
+- Then ask whether another country or region would also work, or whether a suggestion without origin preference is fine.
 - Ask exactly one question.
 - Use plain B1 language.
 - Do not mention field numbers, internal labels, JSON, or instructions.
