@@ -1061,6 +1061,125 @@ def test_ask_cretskens_general_wine_opening_without_origin_uses_next_question():
     assert len(unsupported_origin_llm.calls) == 1
 
 
+def test_ask_cretskens_general_wine_opening_does_not_complete_on_unspecified_values():
+    question_llm = FakeLLM(["Welke kleur wijn heeft je voorkeur: wit, rood of rosé?"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): niet gespecificeerd\n"
+            "6. Herkomst (land en/of regio): niet gespecificeerd\n"
+            "7. Maximum budget in euro: niet gespecificeerd\n"
+            "8. Gewenste geur/smaak (vrije tekst): niet gespecificeerd"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt iets goeds om te drinken."])
+    route_classifier = StubIntakeRouteClassifier(["general_wine"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek iets goeds om te drinken",
+            state=None,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Welke kleur wijn heeft je voorkeur: wit, rood of rosé?"
+    assert result.state["phase"] == "intake"
+    assert result.state["intake_route"] == "general_wine"
+    assert result.state["wine_follow_up_count"] == "1"
+    assert len(question_llm.calls) == 1
+    assert len(notulist_llm.calls) == 1
+
+
+def test_ask_cretskens_general_wine_unsupported_origin_followup_with_non_blank_field():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+            "6. Herkomst (land en/of regio): Bulgarije\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt witte wijn."])
+    unsupported_origin_llm = FakeLLM(
+        [
+            (
+                '{"should_follow_up":true,"question":"Bulgarije hebben we '
+                "momenteel niet in ons aanbod. Is een ander land of een "
+                'andere regio ook goed?"}'
+            )
+        ]
+    )
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        unsupported_origin_follow_up=_make_unsupported_origin_follow_up(
+            unsupported_origin_llm
+        ),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Bulgarije",
+            state={
+                "questionnaire": (
+                    "0. Dish description (free text from customer): steak\n"
+                    "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+                    "2. Main protein (fish or seafood, poultry, red meat, wild, or none): red meat\n"
+                    "3. Cooking method (BBQ or grill, stew, or none): stew\n"
+                    "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    "6. Herkomst (land en/of regio): []\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "dish_questionnaire": (
+                    "0. Dish description (free text from customer): steak\n"
+                    "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+                    "2. Main protein (fish or seafood, poultry, red meat, wild, or none): red meat\n"
+                    "3. Cooking method (BBQ or grill, stew, or none): stew\n"
+                    "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none"
+                ),
+                "wine_questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    "6. Herkomst (land en/of regio): []\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "summary": "",
+                "last_question": "Vanuit welk land of welke regio zou je die het liefst hebben?",
+                "intake_route": "general_wine",
+                "intake_stage": "wine",
+                "wine_follow_up_count": "2",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert (
+        result.text == "Bulgarije hebben we momenteel niet in ons aanbod. "
+        "Is een ander land of een andere regio ook goed?"
+    )
+    assert result.state["last_question"] == result.text
+    assert result.state["wine_follow_up_count"] == "3"
+    assert question_llm.calls == []
+    assert len(notulist_llm.calls) == 1
+    assert len(unsupported_origin_llm.calls) == 1
+
+
 def test_ask_cretskens_marker_like_opening_does_not_bypass_unknown_route_classifier():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(["Should not be used"])

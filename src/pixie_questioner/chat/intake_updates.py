@@ -11,6 +11,7 @@ from .intake_routing import resolve_intake_stage
 from .intake_routing import DISH_FIELD_INDICES, WINE_FIELD_INDICES
 from .questionnaire import combine_questionnaire_sections
 from .questionnaire import ensure_initial_question_field
+from .questionnaire import normalize_blank_like_questionnaire_values
 from .questionnaire import select_questionnaire_fields
 from .state_codec import merge_partial_questionnaire_update
 from .summary import (
@@ -145,6 +146,13 @@ def _should_skip_general_wine_routing_update(current_state: ChatState) -> bool:
     return is_routing_question(last_question)
 
 
+def _is_opening_general_wine_turn(current_state: ChatState) -> bool:
+    if current_state.intake_route != INTAKE_ROUTE_GENERAL_WINE:
+        return False
+    last_question = current_state.last_question.strip()
+    return last_question == INITIAL_QUESTION or is_routing_question(last_question)
+
+
 async def _update_questionnaire(
     handler: ChatTurnHandler,
     current_state: ChatState,
@@ -182,6 +190,12 @@ async def _update_questionnaire(
             dish_questionnaire,
             wine_questionnaire,
         )
+        if _is_opening_general_wine_turn(current_state):
+            combined = normalize_blank_like_questionnaire_values(
+                combined,
+                WINE_FIELD_INDICES,
+            )
+        dish_questionnaire, wine_questionnaire = _split_stage_questionnaires(combined)
         return combined, dish_questionnaire, wine_questionnaire
 
     try:
@@ -200,6 +214,11 @@ async def _update_questionnaire(
     )
     if merged is None:
         merged = current_state.questionnaire
+    if _is_opening_general_wine_turn(current_state):
+        merged = normalize_blank_like_questionnaire_values(
+            merged,
+            WINE_FIELD_INDICES,
+        )
     dish_questionnaire, wine_questionnaire = _split_stage_questionnaires(merged)
     combined = combine_questionnaire_sections(dish_questionnaire, wine_questionnaire)
     return combined, dish_questionnaire, wine_questionnaire

@@ -6,6 +6,19 @@ import re
 
 from .types import INTAKE_ROUTE_GENERAL_WINE
 
+_UNSPECIFIED_FIELD_MARKERS = frozenset(
+    {
+        "niet gespecificeerd",
+        "niet opgegeven",
+        "onbekend",
+        "not specified",
+        "unspecified",
+        "unknown",
+        "non spécifié",
+        "non specifie",
+    }
+)
+
 
 def _questionnaire_lines_by_index(questionnaire: str) -> dict[int, str]:
     lines_by_index: dict[int, str] = {}
@@ -39,6 +52,11 @@ def questionnaire_complete(questionnaire: str) -> bool:
 
 def _is_blank_field_value(value: str) -> bool:
     return not value.strip().strip("[]").strip()
+
+
+def _is_unspecified_field_value(value: str) -> bool:
+    normalized = value.strip().strip("[]").strip().casefold()
+    return normalized in _UNSPECIFIED_FIELD_MARKERS
 
 
 def _field_value(questionnaire: str, index: int) -> str | None:
@@ -106,6 +124,29 @@ def _mask_specific_blank_fields(
             continue
         masked = pattern.sub(r"\1[pending later]", masked, count=1)
     return masked
+
+
+def normalize_blank_like_questionnaire_values(
+    questionnaire: str,
+    field_indices: list[int],
+) -> str:
+    normalized_questionnaire = questionnaire
+    for index in field_indices:
+        pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:[^\S\n]*)(.*?)$")
+        match = pattern.search(normalized_questionnaire)
+        if match is None:
+            continue
+        if not (
+            _is_blank_field_value(match.group(2))
+            or _is_unspecified_field_value(match.group(2))
+        ):
+            continue
+        normalized_questionnaire = pattern.sub(
+            r"\1[]",
+            normalized_questionnaire,
+            count=1,
+        )
+    return normalized_questionnaire
 
 
 def focus_questionnaire_for_route(
