@@ -20,7 +20,7 @@ from .intake_routing import (
     determine_next_question_track,
 )
 from .questionnaire import focus_questionnaire_for_route, mask_later_blank_fields
-from .types import ChatResult, ChatState
+from .types import INTAKE_ROUTE_FOOD_PAIRING, ChatResult, ChatState
 
 if TYPE_CHECKING:
     from .turn_handler import ChatTurnHandler
@@ -159,10 +159,16 @@ async def build_next_question_result(
             DISH_FIELD_INDICES,
         )
     elif handler.is_categorized_handoff_mode() and next_question_track == "wine":
-        focused_questionnaire = mask_later_blank_fields(
+        wine_focused = mask_later_blank_fields(
             current_state.wine_questionnaire,
             WINE_FIELD_INDICES,
         )
+        if current_state.intake_route == INTAKE_ROUTE_FOOD_PAIRING:
+            focused_questionnaire = (
+                current_state.dish_questionnaire + "\n" + wine_focused
+            )
+        else:
+            focused_questionnaire = wine_focused
     else:
         focused_questionnaire = focus_questionnaire_for_route(
             updated_questionnaire,

@@ -1325,11 +1325,8 @@ def test_ask_cretskens_food_pairing_stops_dish_followups_after_budget():
     )
     assert (
         "0. Dish description (free text from customer):"
-        not in question_llm.calls[0][0]["content"]
-    )
-
-
-def test_ask_cretskens_food_pairing_completed_dish_stage_transitions_to_wine_stage():
+        in question_llm.calls[0][0]["content"]
+    ), "Dish context must be visible to question_asker when in food_pairing mode"
     question_llm = FakeLLM(["Welke kleur wijn heb je in gedachten?"])
     notulist_llm = FakeLLM(
         [
@@ -1399,11 +1396,8 @@ def test_ask_cretskens_food_pairing_completed_dish_stage_transitions_to_wine_sta
     )
     assert (
         "0. Dish description (free text from customer):"
-        not in question_llm.calls[0][0]["content"]
-    )
-
-
-def test_ask_cretskens_food_pairing_does_not_complete_when_notulist_fills_all_fields():
+        in question_llm.calls[0][0]["content"]
+    ), "Dish context must be visible to question_asker when in food_pairing mode"
     """Regression test: food_pairing route must ask at least one question.
 
     When the notulist fills all dish+wine fields on the opening turn,
@@ -1507,7 +1501,7 @@ def test_ask_cretskens_general_wine_skips_dish_questions_in_prompt_focus():
     )
 
 
-def test_ask_cretskens_wine_stage_prompt_excludes_dish_questionnaire_fields() -> None:
+def test_ask_cretskens_wine_stage_prompt_includes_dish_context_for_pairing() -> None:
     question_llm = FakeLLM(["Welke herkomst heb je in gedachten?"])
     notulist_llm = FakeLLM(
         [
@@ -1576,8 +1570,8 @@ def test_ask_cretskens_wine_stage_prompt_excludes_dish_questionnaire_fields() ->
     assert "6. Herkomst (land en/of regio): []" in question_llm.calls[0][0]["content"]
     assert (
         "0. Dish description (free text from customer):"
-        not in question_llm.calls[0][0]["content"]
-    )
+        in question_llm.calls[0][0]["content"]
+    ), "Dish context must be visible to question_asker when in food_pairing wine stage"
 
 
 def test_ask_cretskens_stops_wine_followups_after_budget():
