@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -11,6 +10,7 @@ from typing import TYPE_CHECKING
 from .categorized_handoff import (
     extract_questionnaire_field_value,
     is_blank_questionnaire_value,
+    parse_json_object,
 )
 from .intake_routing import build_routing_question_result
 from .intake_routing import initial_intake_stage_for_route
@@ -40,40 +40,6 @@ if TYPE_CHECKING:
     from .turn_handler import ChatTurnHandler
 
 logger = logging.getLogger(__name__)
-
-_ORIGIN_FOLLOW_UP_BY_LANGUAGE = {
-    "nl": (
-        "Dat land of die regio hebben we momenteel niet in ons aanbod. "
-        "Is een ander land of een andere regio ook goed, of wil je liever "
-        "dat ik los van herkomst iets voorstel?"
-    ),
-    "en": (
-        "We currently do not have that country or region in our selection. "
-        "Would another country or region work, or would you prefer a "
-        "suggestion without an origin preference?"
-    ),
-    "fr": (
-        "Nous n'avons actuellement pas ce pays ou cette region dans notre "
-        "assortiment. Un autre pays ou une autre region conviendrait-il, ou "
-        "preferez-vous une suggestion sans preference d'origine ?"
-    ),
-}
-_NO_PREFERENCE_ORIGIN_PATTERNS = (
-    "geen voorkeur",
-    "maakt niet uit",
-    "maakt me niet uit",
-    "niet gespecificeerd",
-    "ik weet het niet",
-    "no preference",
-    "doesn't matter",
-    "not specified",
-    "pas de preference",
-    "peu importe",
-)
-_ORIGIN_CUE_PATTERNS = (
-    re.compile(r"\buit\s+[^\d,.!?;\n]+", flags=re.IGNORECASE),
-    re.compile(r"\bfrom\s+[^\d,.!?;\n]+", flags=re.IGNORECASE),
-)
 
 
 async def handle_intake_phase(
@@ -201,7 +167,7 @@ async def _handle_on_topic_intake(
     )
     if handler.is_categorized_handoff_mode():
         updated_state.intake_stage = resolve_intake_stage(updated_state)
-    unsupported_origin_follow_up = _build_unsupported_origin_follow_up(
+    unsupported_origin_follow_up = await _maybe_generate_unsupported_origin_follow_up(
         handler,
         current_state,
         updated_state,
@@ -245,12 +211,26 @@ async def _handle_on_topic_intake(
     )
 
 
-def _build_unsupported_origin_follow_up(
+def _parse_follow_up_flag(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().casefold()
+        if normalized == "true":
+            return True
+        if normalized == "false":
+            return False
+    return False
+
+
+async def _maybe_generate_unsupported_origin_follow_up(
     handler: ChatTurnHandler,
     current_state: ChatState,
     updated_state: ChatState,
     current_answer: str,
 ) -> str | None:
+    if handler.unsupported_origin_follow_up is None:
+        return None
     if not handler.is_categorized_handoff_mode():
         return None
     if (
@@ -265,12 +245,6 @@ def _build_unsupported_origin_follow_up(
     if not is_blank_questionnaire_value(origin_value):
         return None
 
-    normalized_answer = " ".join(current_answer.casefold().split())
-    if not normalized_answer:
-        return None
-    if any(pattern in normalized_answer for pattern in _NO_PREFERENCE_ORIGIN_PATTERNS):
-        return None
-
     previous_blank_field = first_blank_field_index(
         current_state.wine_questionnaire,
         WINE_FIELD_INDICES,
@@ -282,21 +256,39 @@ def _build_unsupported_origin_follow_up(
             or is_routing_question(current_state.last_question)
         )
     )
-    if previous_blank_field != 6 and not (
-        opening_general_wine_turn and _contains_origin_cue(current_answer)
-    ):
+    if previous_blank_field != 6 and not opening_general_wine_turn:
         return None
 
-    language = (
-        updated_state.conversation_language or handler.language.default_language_code
+    follow_up_context = (
+        f"Conversation language: {updated_state.conversation_language}\n"
+        f"Intake route: {updated_state.intake_route}\n"
+        f"Intake stage: {updated_state.intake_stage}\n\n"
+        "Updated wine questionnaire:\n"
+        f"{updated_state.wine_questionnaire}\n\n"
+        "Full questionnaire:\n"
+        f"{updated_state.questionnaire}"
     )
-    return _ORIGIN_FOLLOW_UP_BY_LANGUAGE.get(
-        language, _ORIGIN_FOLLOW_UP_BY_LANGUAGE["en"]
-    )
+    try:
+        generated = await handler.unsupported_origin_follow_up.generate(
+            current_question=current_state.last_question,
+            current_answer=current_answer,
+            summary=follow_up_context,
+        )
+    except Exception:
+        logger.warning(
+            "Unsupported origin follow-up generation failed; continuing intake.",
+            exc_info=True,
+        )
+        return None
 
+    parsed = parse_json_object(generated)
+    if not _parse_follow_up_flag(parsed.get("should_follow_up")):
+        return None
 
-def _contains_origin_cue(current_answer: str) -> bool:
-    normalized_answer = current_answer.strip()
-    if not normalized_answer:
-        return False
-    return any(pattern.search(normalized_answer) for pattern in _ORIGIN_CUE_PATTERNS)
+    question = parsed.get("question")
+    if not isinstance(question, str):
+        return None
+    normalized_question = question.strip()
+    if not normalized_question:
+        return None
+    return normalized_question

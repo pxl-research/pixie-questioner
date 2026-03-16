@@ -34,6 +34,7 @@ class ChatService:
     intake_route_classifier: IntakeRouteClassifierProtocol | None = None
     aroma_taste_classifier: LLMPromptInvoker | None = None
     handoff_classifier: LLMPromptInvoker | None = None
+    unsupported_origin_follow_up: LLMPromptInvoker | None = None
 
     def __post_init__(self) -> None:
         _validate_service_configuration(self)
@@ -67,6 +68,7 @@ class ChatService:
             notulist=self.notulist,
             summarizer=self.summarizer,
             question_asker=self._question_asker,
+            unsupported_origin_follow_up=self.unsupported_origin_follow_up,
             messages=self._messages,
             language=self._language,
             categorized_handoff=self._categorized_handoff,

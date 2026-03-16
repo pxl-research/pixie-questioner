@@ -49,7 +49,7 @@ def load_profile_prompts(
     profile_dir: Path,
     base_dir: Path | None,
     load_prompt: Callable[[Path], str],
-) -> tuple[str, str, str, str, str, str, str]:
+) -> tuple[str, str, str, str, str, str, str, str]:
     prompt_paths = profile.prompts
     question_asker_prompt = load_prompt(
         _resolve_prompt_path(profile_dir, prompt_paths.question_asker_path)
@@ -61,6 +61,12 @@ def load_profile_prompts(
             prompt_paths.questionnaire_notulist_path,
             default_name="questionnaire_notulist.txt",
         )
+    )
+    unsupported_origin_follow_up_prompt = _load_optional_prompt(
+        profile_dir,
+        base_dir,
+        prompt_paths.unsupported_origin_follow_up_path,
+        load_prompt,
     )
     questionnaire_template = load_prompt(
         _resolve_prompt_path(profile_dir, prompt_paths.questionnaire_template_path)
@@ -94,6 +100,7 @@ def load_profile_prompts(
     return (
         question_asker_prompt,
         questionnaire_notulist_prompt,
+        unsupported_origin_follow_up_prompt,
         questionnaire_template,
         relevance_classifier_prompt,
         intake_route_prompt,
@@ -119,15 +126,17 @@ def substitute_prompt_variables(
     relevance_classifier_prompt: str,
     intake_route_classifier_prompt: str,
     questionnaire_notulist_prompt: str,
+    unsupported_origin_follow_up_prompt: str,
     aroma_taste_classifier_prompt: str,
     handoff_classifier_prompt: str,
     substitute_variables: Callable[[str, dict[str, str]], str],
-) -> tuple[str, str, str, str, str]:
+) -> tuple[str, str, str, str, str, str]:
     if not variables:
         return (
             relevance_classifier_prompt,
             intake_route_classifier_prompt,
             questionnaire_notulist_prompt,
+            unsupported_origin_follow_up_prompt,
             aroma_taste_classifier_prompt,
             handoff_classifier_prompt,
         )
@@ -139,6 +148,7 @@ def substitute_prompt_variables(
         substitute_variables(relevance_classifier_prompt, en_vars),
         substitute_variables(intake_route_classifier_prompt, en_vars),
         substitute_variables(questionnaire_notulist_prompt, en_vars),
+        substitute_variables(unsupported_origin_follow_up_prompt, en_vars),
         substitute_variables(aroma_taste_classifier_prompt, en_vars),
         substitute_variables(handoff_classifier_prompt, en_vars),
     )

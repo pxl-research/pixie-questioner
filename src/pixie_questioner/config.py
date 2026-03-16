@@ -60,6 +60,7 @@ def _normalize_localized_lines(
 class ResolvedDomainProfile:
     question_asker_prompt: str
     questionnaire_notulist_prompt: str
+    unsupported_origin_follow_up_prompt: str
     questionnaire_template: str
     relevance_classifier_prompt: str
     intake_route_classifier_prompt: str
@@ -122,6 +123,7 @@ class DomainProfileLanguages(BaseModel):
 class DomainProfilePrompts(BaseModel):
     question_asker_path: str
     questionnaire_notulist_path: str = Field(default="")
+    unsupported_origin_follow_up_path: str = Field(default="")
     questionnaire_template_path: str
     relevance_classifier_path: str = Field(default="")
     intake_route_classifier_path: str = Field(default="")
@@ -361,6 +363,7 @@ def _to_resolved_domain_profile(
     profile: DomainProfileFile,
     question_asker_prompt: str,
     questionnaire_notulist_prompt: str,
+    unsupported_origin_follow_up_prompt: str,
     questionnaire_template: str,
     relevance_classifier_prompt: str,
     intake_route_classifier_prompt: str,
@@ -374,6 +377,7 @@ def _to_resolved_domain_profile(
     return ResolvedDomainProfile(
         question_asker_prompt=question_asker_prompt,
         questionnaire_notulist_prompt=questionnaire_notulist_prompt,
+        unsupported_origin_follow_up_prompt=unsupported_origin_follow_up_prompt,
         questionnaire_template=questionnaire_template,
         relevance_classifier_prompt=relevance_classifier_prompt,
         intake_route_classifier_prompt=intake_route_classifier_prompt,
@@ -416,6 +420,7 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
     (
         question_asker_prompt,
         questionnaire_notulist_prompt,
+        unsupported_origin_follow_up_prompt,
         questionnaire_template,
         relevance_classifier_prompt,
         intake_route_classifier_prompt,
@@ -435,6 +440,7 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         relevance_classifier_prompt,
         intake_route_classifier_prompt,
         questionnaire_notulist_prompt,
+        unsupported_origin_follow_up_prompt,
         aroma_taste_classifier_prompt,
         handoff_classifier_prompt,
     ) = substitute_prompt_variables(
@@ -442,6 +448,7 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         relevance_classifier_prompt=relevance_classifier_prompt,
         intake_route_classifier_prompt=intake_route_classifier_prompt,
         questionnaire_notulist_prompt=questionnaire_notulist_prompt,
+        unsupported_origin_follow_up_prompt=unsupported_origin_follow_up_prompt,
         aroma_taste_classifier_prompt=aroma_taste_classifier_prompt,
         handoff_classifier_prompt=handoff_classifier_prompt,
         substitute_variables=_substitute_variables,
@@ -453,6 +460,7 @@ def load_domain_profile(path: Path) -> ResolvedDomainProfile:
         profile=profile,
         question_asker_prompt=question_asker_prompt,
         questionnaire_notulist_prompt=questionnaire_notulist_prompt,
+        unsupported_origin_follow_up_prompt=unsupported_origin_follow_up_prompt,
         questionnaire_template=questionnaire_template,
         relevance_classifier_prompt=relevance_classifier_prompt,
         intake_route_classifier_prompt=intake_route_classifier_prompt,

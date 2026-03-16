@@ -66,7 +66,8 @@ def _truncate_text(value: str, max_chars: int) -> str:
 
 _ORIGIN_LINE_PATTERN = re.compile(r"(?im)^\s*6\.\s*Herkomst\s*\(land en/of regio\):.*$")
 _ORIGIN_PHRASE_PATTERN = re.compile(
-    r"\b(?:uit|from)\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,40}",
+    r"(?:\b(?:uit|from|de)\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,40}"
+    r"|\bd['’][A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,40})",
     flags=re.IGNORECASE,
 )
 

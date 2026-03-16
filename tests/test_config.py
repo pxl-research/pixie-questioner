@@ -556,6 +556,15 @@ def test_cretskens_domain_profile_loads_intake_route_classifier_prompt() -> None
     assert "GENERAL_WINE" in profile.intake_route_classifier_prompt
 
 
+def test_cretskens_domain_profile_loads_unsupported_origin_follow_up_prompt() -> None:
+    profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
+
+    assert '"should_follow_up"' in profile.unsupported_origin_follow_up_prompt
+    assert "customer-facing follow-up question" in (
+        profile.unsupported_origin_follow_up_prompt
+    )
+
+
 def test_cretskens_notulist_prompt_encourages_main_course_inference() -> None:
     profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
 

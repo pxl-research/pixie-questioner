@@ -669,7 +669,7 @@ def test_ask_relaxes_origin_filtered_context_after_empty_ranker_results() -> Non
 
     result = asyncio.run(
         service.ask(
-            current_answer="Ik zoek een rode wijn uit Bulgarije",
+            current_answer="Je cherche un vin rouge de Bulgarie",
             state={},
         )
     )
@@ -677,8 +677,8 @@ def test_ask_relaxes_origin_filtered_context_after_empty_ranker_results() -> Non
     assert result.response_type == "recommendations"
     assert [item.barcode for item in (result.recommendations or [])] == ["w1"]
     assert len(ranker.calls) == 4
-    assert "bulgarije" in str(ranker.calls[0]["working_context"]).casefold()
-    assert "bulgarije" not in str(ranker.calls[-1]["working_context"]).casefold()
+    assert "bulgarie" in str(ranker.calls[0]["working_context"]).casefold()
+    assert "bulgarie" not in str(ranker.calls[-1]["working_context"]).casefold()
 
 
 def test_recommend_from_context_falls_back_when_query_hints_missing() -> None:

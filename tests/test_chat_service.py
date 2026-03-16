@@ -141,6 +141,14 @@ def _make_handoff_classifier(llm):
     )
 
 
+def _make_unsupported_origin_follow_up(llm):
+    return LLMPromptInvoker(
+        llm=llm,
+        system_prompt_template="S:{summary}\nQ:{current_question}\nA:{current_answer}",
+        error_label="Unsupported origin follow-up",
+    )
+
+
 QUESTIONNAIRE_TEMPLATE = "0. Initial user question: []\n1. Occasion, Vibe, Setting: []"
 CRETSKENS_QUESTIONNAIRE_TEMPLATE = (
     "0. Dish description (free text from customer): []\n"
@@ -958,6 +966,16 @@ def test_ask_cretskens_general_wine_opening_reports_unsupported_origin():
         ]
     )
     summarizer_llm = FakeLLM(["Klant zoekt een wijn om zo te drinken."])
+    unsupported_origin_llm = FakeLLM(
+        [
+            (
+                '{"should_follow_up":true,"question":"Bulgarije hebben we '
+                "momenteel niet in ons aanbod. Is een ander land of een "
+                "andere regio ook goed, of wil je liever dat ik los van "
+                'herkomst iets voorstel?"}'
+            )
+        ]
+    )
     route_classifier = StubIntakeRouteClassifier(["general_wine"])
     service = ChatService(
         llm=question_llm,
@@ -967,6 +985,9 @@ def test_ask_cretskens_general_wine_opening_reports_unsupported_origin():
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
         intake_route_classifier=route_classifier,
+        unsupported_origin_follow_up=_make_unsupported_origin_follow_up(
+            unsupported_origin_llm
+        ),
     )
 
     result = asyncio.run(
@@ -978,7 +999,7 @@ def test_ask_cretskens_general_wine_opening_reports_unsupported_origin():
 
     assert result.response_type == "answer"
     assert (
-        result.text == "Dat land of die regio hebben we momenteel niet in ons aanbod. "
+        result.text == "Bulgarije hebben we momenteel niet in ons aanbod. "
         "Is een ander land of een andere regio ook goed, of wil je liever "
         "dat ik los van herkomst iets voorstel?"
     )
@@ -995,6 +1016,49 @@ def test_ask_cretskens_general_wine_opening_reports_unsupported_origin():
     )
     assert question_llm.calls == []
     assert len(notulist_llm.calls) == 1
+    assert len(unsupported_origin_llm.calls) == 1
+
+
+def test_ask_cretskens_general_wine_opening_without_origin_uses_next_question():
+    question_llm = FakeLLM(["Uit welk land of welke regio mag de wijn komen?"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt een wijn om zo te drinken."])
+    unsupported_origin_llm = FakeLLM(['{"should_follow_up":false,"question":""}'])
+    route_classifier = StubIntakeRouteClassifier(["general_wine"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
+        unsupported_origin_follow_up=_make_unsupported_origin_follow_up(
+            unsupported_origin_llm
+        ),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek een rode wijn",
+            state=None,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Uit welk land of welke regio mag de wijn komen?"
+    assert result.state["intake_route"] == "general_wine"
+    assert result.state["intake_stage"] == "wine"
+    assert result.state["last_question"] == result.text
+    assert result.state["wine_follow_up_count"] == "1"
+    assert len(question_llm.calls) == 1
+    assert len(notulist_llm.calls) == 1
+    assert len(unsupported_origin_llm.calls) == 1
 
 
 def test_ask_cretskens_marker_like_opening_does_not_bypass_unknown_route_classifier():
