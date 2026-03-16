@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
@@ -62,12 +64,27 @@ def _truncate_text(value: str, max_chars: int) -> str:
     return normalized[:max_chars].rstrip()
 
 
+_ORIGIN_LINE_PATTERN = re.compile(r"(?im)^\s*6\.\s*Herkomst\s*\(land en/of regio\):.*$")
+_ORIGIN_PHRASE_PATTERN = re.compile(
+    r"\b(?:uit|from)\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,40}",
+    flags=re.IGNORECASE,
+)
+
+
 def _to_int(value: Any, default: int = 0) -> int:
     try:
         parsed = int(value)
     except (TypeError, ValueError):
         return default
     return max(parsed, 0)
+
+
+def _relax_origin_constraints(working_context: str) -> str:
+    without_origin_line = _ORIGIN_LINE_PATTERN.sub("", working_context)
+    relaxed = _ORIGIN_PHRASE_PATTERN.sub("", without_origin_line)
+    relaxed = re.sub(r"\n{3,}", "\n\n", relaxed)
+    relaxed = re.sub(r"[ \t]{2,}", " ", relaxed)
+    return relaxed.strip()
 
 
 def _to_string_list(value: Any) -> list[str]:
@@ -472,6 +489,35 @@ class WineAdvisorService:
                         candidate_barcodes = expanded_barcodes
                         state_candidate_barcodes = expanded_barcodes
                         break
+                    except RuntimeError as exc:
+                        last_error = exc
+
+        if normalized is None:
+            relaxed_working_context = _relax_origin_constraints(working_context)
+            if relaxed_working_context and relaxed_working_context != working_context:
+                relaxed_records = self._fallback_candidates_from_context(
+                    relaxed_working_context,
+                    limit=len(self._catalog_by_barcode),
+                )
+                relaxed_barcodes = [record.barcode for record in relaxed_records]
+                if relaxed_barcodes:
+                    try:
+                        selection = await self.ranker.select_with_explanation(
+                            working_context=relaxed_working_context,
+                            candidate_records=relaxed_records,
+                            candidate_barcodes=relaxed_barcodes,
+                            min_count=1,
+                            max_count=min(5, len(relaxed_barcodes)),
+                        )
+                        normalized = self._normalize_selected(
+                            selection.barcodes,
+                            relaxed_barcodes,
+                            1,
+                            min(5, len(relaxed_barcodes)),
+                        )
+                        candidate_records = relaxed_records
+                        candidate_barcodes = relaxed_barcodes
+                        state_candidate_barcodes = relaxed_barcodes
                     except RuntimeError as exc:
                         last_error = exc
 

@@ -891,18 +891,16 @@ def test_ask_cretskens_first_turn_without_dish_routes_to_general_wine():
     assert result.state["intake_stage"] == "wine"
     assert result.state["last_question"] == "Welke kleur wijn heb je in gedachten?"
     assert len(question_llm.calls) == 1
-    assert len(notulist_llm.calls) == 0
+    assert len(notulist_llm.calls) == 1
     assert route_classifier.calls == ["Ik zoek gewoon een wijn om zo te drinken"]
 
 
-def test_ask_cretskens_general_wine_route_answer_does_not_fill_wine_preferences():
-    question_llm = FakeLLM(["Welke kleur wijn heb je in gedachten?"])
+def test_ask_cretskens_general_wine_opening_can_capture_supported_origin():
+    question_llm = FakeLLM(["Wat is je maximum budget?"])
     notulist_llm = FakeLLM(
         [
             "5. Kleur van de wijn (wit, rood, rosé): rood\n"
-            "6. Herkomst (land en/of regio): Rioja\n"
-            "7. Maximum budget in euro: 20\n"
-            "8. Gewenste geur/smaak (vrije tekst): kruidig"
+            "6. Herkomst (land en/of regio): Frankrijk"
         ]
     )
     summarizer_llm = FakeLLM(["Klant zoekt een wijn om zo te drinken."])
@@ -919,31 +917,84 @@ def test_ask_cretskens_general_wine_route_answer_does_not_fill_wine_preferences(
 
     result = asyncio.run(
         service.ask(
-            current_answer="Ik zoek gewoon een wijn om zo te drinken",
+            current_answer="Ik zoek een rode wijn uit Frankrijk",
             state=None,
         )
     )
 
     assert result.response_type == "answer"
-    assert result.text == "Welke kleur wijn heb je in gedachten?"
+    assert result.text == "Wat is je maximum budget?"
     assert result.state["intake_route"] == "general_wine"
     assert result.state["intake_stage"] == "wine"
     assert result.state["wine_follow_up_count"] == "1"
     assert (
         result.state["wine_questionnaire"]
-        == "5. Kleur van de wijn (wit, rood, rosé): []\n"
-        "6. Herkomst (land en/of regio): []\n"
+        == "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+        "6. Herkomst (land en/of regio): Frankrijk\n"
         "7. Maximum budget in euro: []\n"
         "8. Gewenste geur/smaak (vrije tekst): []"
     )
     assert (
-        "5. Kleur van de wijn (wit, rood, rosé): []"
+        "5. Kleur van de wijn (wit, rood, rosé): rood"
+        in question_llm.calls[0][0]["content"]
+    )
+    assert (
+        "6. Herkomst (land en/of regio): Frankrijk"
         in question_llm.calls[0][0]["content"]
     )
     assert (
         "0. Dish description (free text from customer):"
         not in question_llm.calls[0][0]["content"]
     )
+    assert len(notulist_llm.calls) == 1
+
+
+def test_ask_cretskens_general_wine_opening_reports_unsupported_origin():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt een wijn om zo te drinken."])
+    route_classifier = StubIntakeRouteClassifier(["general_wine"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek een rode wijn uit Bulgarije",
+            state=None,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert (
+        result.text == "Dat land of die regio hebben we momenteel niet in ons aanbod. "
+        "Is een ander land of een andere regio ook goed, of wil je liever "
+        "dat ik los van herkomst iets voorstel?"
+    )
+    assert result.state["intake_route"] == "general_wine"
+    assert result.state["intake_stage"] == "wine"
+    assert result.state["last_question"] == result.text
+    assert result.state["wine_follow_up_count"] == "1"
+    assert (
+        result.state["wine_questionnaire"]
+        == "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+        "6. Herkomst (land en/of regio): []\n"
+        "7. Maximum budget in euro: []\n"
+        "8. Gewenste geur/smaak (vrije tekst): []"
+    )
+    assert question_llm.calls == []
+    assert len(notulist_llm.calls) == 1
 
 
 def test_ask_cretskens_marker_like_opening_does_not_bypass_unknown_route_classifier():

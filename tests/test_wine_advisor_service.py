@@ -648,6 +648,39 @@ def test_ask_expands_candidates_after_strict_shortlist_ranker_failures() -> None
     assert len(expanded_candidate_barcodes) > 1
 
 
+def test_ask_relaxes_origin_filtered_context_after_empty_ranker_results() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="bulgarije rood",
+            )
+        ]
+    )
+    ranker = StubRanker([[], [], [], ["w1"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        candidate_limit=1,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek een rode wijn uit Bulgarije",
+            state={},
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert [item.barcode for item in (result.recommendations or [])] == ["w1"]
+    assert len(ranker.calls) == 4
+    assert "bulgarije" in str(ranker.calls[0]["working_context"]).casefold()
+    assert "bulgarije" not in str(ranker.calls[-1]["working_context"]).casefold()
+
+
 def test_recommend_from_context_falls_back_when_query_hints_missing() -> None:
     controller = StubController(
         [
