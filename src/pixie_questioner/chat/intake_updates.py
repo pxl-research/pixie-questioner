@@ -146,11 +146,15 @@ def _should_skip_general_wine_routing_update(current_state: ChatState) -> bool:
     return is_routing_question(last_question)
 
 
+def _is_opening_general_wine_question(last_question: str) -> bool:
+    stripped = last_question.strip()
+    return stripped == INITIAL_QUESTION or is_routing_question(stripped)
+
+
 def _is_opening_general_wine_turn(current_state: ChatState) -> bool:
     if current_state.intake_route != INTAKE_ROUTE_GENERAL_WINE:
         return False
-    last_question = current_state.last_question.strip()
-    return last_question == INITIAL_QUESTION or is_routing_question(last_question)
+    return _is_opening_general_wine_question(current_state.last_question)
 
 
 async def _update_questionnaire(
