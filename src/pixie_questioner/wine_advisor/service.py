@@ -30,9 +30,6 @@ class RankerSelectionProtocol(Protocol):
     intro_text: str
 
 
-_EARLY_RECOMMENDATION_THRESHOLD = 5
-
-
 class TurnControllerProtocol(Protocol):
     async def decide(
         self,
@@ -641,29 +638,17 @@ class WineAdvisorService:
         )
 
         if normalized_meal_mode == MEAL_MODE_PAIRING:
-            early_candidates = rank_catalog_records(
+            pairing_candidates = rank_catalog_records(
                 self.catalog_records,
                 query=normalized_context,
                 limit=len(self._catalog_by_barcode),
                 min_score=1.0,
             )
-            if 0 < len(early_candidates) <= _EARLY_RECOMMENDATION_THRESHOLD:
-                early_barcodes = [r.barcode for r in early_candidates]
-                early_decision = TurnDecision(
-                    action="recommend",
-                    question_text="",
-                    meal_mode=normalized_meal_mode,
-                    query_hints=normalized_context,
-                )
-                return await self._finalize_recommendation(
-                    parsed_state,
-                    normalized_context,
-                    1,
-                    normalized_context,
-                    early_decision,
-                    early_candidates,
-                    early_barcodes,
-                    early_barcodes,
+            candidate_count = len(pairing_candidates)
+            if candidate_count > 0:
+                normalized_context = (
+                    f"Dish candidate wine count: {candidate_count}\n\n"
+                    + normalized_context
                 )
 
         decision = await self.turn_controller.decide(

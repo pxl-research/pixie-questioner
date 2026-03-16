@@ -720,13 +720,13 @@ def test_recommend_from_context_asks_question_when_controller_says_question() ->
     assert result.state["meal_mode"] == "drinking_only"
 
 
-def test_recommend_from_context_early_exit_when_few_pairing_candidates() -> None:
-    """When ≤5 wines match the dish context, recommend directly without asking questions."""
+def test_recommend_from_context_injects_candidate_count_for_pairing() -> None:
+    """Candidate count is injected into working_context so LLM can decide to recommend early."""
     controller = StubController(
         [
             TurnDecision(
-                action="question",
-                question_text="Welke kleur wijn wil je?",
+                action="recommend",
+                question_text="",
                 meal_mode="pairing",
                 query_hints="rund",
             )
@@ -747,44 +747,11 @@ def test_recommend_from_context_early_exit_when_few_pairing_candidates() -> None
     )
 
     assert result.response_type == "recommendations"
+    assert len(controller.calls) == 1, "Turn controller must always be called"
+    context_sent = controller.calls[0]["working_context"]
     assert (
-        len(controller.calls) == 0
-    ), "Turn controller should not be called on early exit"
-
-    controller = StubController(
-        [
-            TurnDecision(
-                action="recommend",
-                question_text="",
-                meal_mode="pairing",
-                query_hints="",
-            )
-        ]
-    )
-    ranker = EchoRanker()
-    service = WineAdvisorService(
-        catalog_records=_catalog(),
-        turn_controller=controller,
-        ranker=ranker,
-    )
-
-    result = asyncio.run(
-        service.recommend_from_context(
-            working_context=(
-                "Summary:\nPad thai met kip.\n\n"
-                "Questionnaire:\n"
-                "5. Kleur van de wijn (wit, rood, rosé): rosé\n"
-                "6. Herkomst (land en/of regio): australie\n"
-                "7. Maximum budget in euro: 20\n"
-                "8. Gewenste geur/smaak (vrije tekst): fris"
-            ),
-            meal_mode="pairing",
-        )
-    )
-
-    assert result.response_type == "recommendations"
-    assert ranker.calls
-    assert ranker.calls[0]["candidate_barcodes"]
+        "Dish candidate wine count:" in context_sent
+    ), "Candidate count should be injected into working_context"
 
 
 def test_ask_truncates_working_context_before_controller_call() -> None:

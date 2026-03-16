@@ -175,11 +175,9 @@ async def build_next_question_result(
         conversation_language,
     )
     if not next_question.strip():
-        return await build_completion_result(
-            handler,
-            current_state,
-            updated_questionnaire,
-            updated_summary,
+        raise RuntimeError(
+            "Question asker returned an empty question while intake still has "
+            "unanswered fields. This is a transient LLM failure."
         )
     next_state = to_intake_state_with_next_question(
         state=current_state,
