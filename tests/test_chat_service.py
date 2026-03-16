@@ -741,6 +741,54 @@ def test_ask_cretskens_first_turn_with_dish_routes_to_food_pairing():
     assert route_classifier.calls == ["We eten vanavond gegrilde zalm"]
 
 
+def test_ask_cretskens_unknown_dish_name_prompts_dish_follow_up_first():
+    question_llm = FakeLLM(["Wat voor gerecht is dat precies?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): trerdsgseyt\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): []\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant vermeldt onbekend gerecht: trerdsgseyt."])
+    route_classifier = StubIntakeRouteClassifier(["food_pairing"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="trerdsgseyt",
+            state=None,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Wat voor gerecht is dat precies?"
+    assert result.state["intake_route"] == "food_pairing"
+    assert result.state["dish_follow_up_count"] == "1"
+    assert result.state["wine_follow_up_count"] == "0"
+    assert result.state["last_question"] == "Wat voor gerecht is dat precies?"
+    assert result.state["questionnaire"].startswith(
+        "0. Dish description (free text from customer): trerdsgseyt"
+    )
+    assert len(question_llm.calls) == 1
+    assert len(notulist_llm.calls) == 1
+    assert route_classifier.calls == ["trerdsgseyt"]
+
+
 def test_ask_cretskens_first_turn_without_dish_routes_to_general_wine():
     question_llm = FakeLLM(["Welke kleur wijn heb je in gedachten?"])
     notulist_llm = FakeLLM(
