@@ -681,12 +681,50 @@ def test_ask_relaxes_origin_filtered_context_after_empty_ranker_results() -> Non
     assert "bulgarie" not in str(ranker.calls[-1]["working_context"]).casefold()
 
 
-def test_recommend_from_context_falls_back_when_query_hints_missing() -> None:
+def test_recommend_from_context_asks_question_when_controller_says_question() -> None:
     controller = StubController(
         [
             TurnDecision(
                 action="question",
                 question_text="Welke stijl zoek je?",
+                meal_mode="pairing",
+                query_hints="",
+            )
+        ]
+    )
+    ranker = EchoRanker()
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+    )
+
+    result = asyncio.run(
+        service.recommend_from_context(
+            working_context=(
+                "Summary:\nPad thai met kip.\n\n"
+                "Questionnaire:\n"
+                "5. Kleur van de wijn (wit, rood, rosé): rosé\n"
+                "6. Herkomst (land en/of regio): australie\n"
+                "7. Maximum budget in euro: 20\n"
+                "8. Gewenste geur/smaak (vrije tekst): fris"
+            ),
+            meal_mode="pairing",
+        )
+    )
+
+    assert result.response_type == "question"
+    assert result.text == "Welke stijl zoek je?"
+    assert result.state["turn_count"] == 1
+    assert result.state["meal_mode"] == "pairing"
+
+
+def test_recommend_from_context_falls_back_when_query_hints_missing() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
                 meal_mode="pairing",
                 query_hints="",
             )

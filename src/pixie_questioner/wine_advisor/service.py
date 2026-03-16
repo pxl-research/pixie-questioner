@@ -619,7 +619,7 @@ class WineAdvisorService:
 
         parsed_state = WineAdvisorState(
             phase=PHASE_INTAKE,
-            turn_count=max(self.max_turns - 1, 0),
+            turn_count=0,
             last_question="",
             meal_mode=normalized_meal_mode,
             working_context=normalized_context,
@@ -630,18 +630,30 @@ class WineAdvisorService:
         decision = await self.turn_controller.decide(
             current_answer=normalized_context,
             working_context=normalized_context,
-            turn_count=self.max_turns,
+            turn_count=1,
             max_turns=self.max_turns,
             current_meal_mode=parsed_state.meal_mode,
             last_question="",
             conversation_history="",
         )
+
         candidate_records, persist_candidates = self._candidate_records_for_decision(
             parsed_state,
             decision,
         )
         candidate_barcodes = [record.barcode for record in candidate_records]
         state_candidate_barcodes = candidate_barcodes if persist_candidates else []
+
+        if decision.action == "question" and decision.question_text.strip():
+            return self._finalize_question(
+                parsed_state,
+                normalized_context,
+                1,
+                normalized_context,
+                decision,
+                state_candidate_barcodes,
+            )
+
         if not candidate_barcodes:
             candidate_records = self._fallback_candidates_from_context(
                 normalized_context
@@ -656,7 +668,7 @@ class WineAdvisorService:
         return await self._finalize_recommendation(
             parsed_state,
             normalized_context,
-            self.max_turns,
+            1,
             normalized_context,
             decision,
             candidate_records,
