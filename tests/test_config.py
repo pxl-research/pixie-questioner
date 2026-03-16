@@ -556,6 +556,27 @@ def test_cretskens_domain_profile_loads_intake_route_classifier_prompt() -> None
     assert "GENERAL_WINE" in profile.intake_route_classifier_prompt
 
 
+def test_cretskens_notulist_prompt_encourages_main_course_inference() -> None:
+    profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
+
+    assert '"pad thai" → course type = main course (clearly implied) ✓' in (
+        profile.questionnaire_notulist_prompt
+    )
+
+
+def test_cretskens_notulist_prompt_has_generic_main_course_rule() -> None:
+    profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
+
+    assert (
+        "For clearly savory standalone meal dishes, set course type = main course"
+        in profile.questionnaire_notulist_prompt
+    )
+    assert (
+        "unless the customer explicitly indicates otherwise."
+        in profile.questionnaire_notulist_prompt
+    )
+
+
 def test_brooklyn_prompt_encourages_warm_non_repetitive_tone() -> None:
     profile = config.load_domain_profile(Path("profiles/brooklyn/domain_profile.yml"))
 
