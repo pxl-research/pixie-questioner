@@ -748,7 +748,7 @@ def test_recommend_from_context_injects_candidate_count_for_pairing() -> None:
 
     assert result.response_type == "recommendations"
     assert len(controller.calls) == 1, "Turn controller must always be called"
-    context_sent = controller.calls[0]["working_context"]
+    context_sent = str(controller.calls[0]["working_context"])
     assert (
         "Dish candidate wine count:" in context_sent
     ), "Candidate count should be injected into working_context"
