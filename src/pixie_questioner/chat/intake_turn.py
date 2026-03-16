@@ -8,8 +8,10 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from .intake_routing import build_routing_question_result
+from .intake_routing import initial_intake_stage_for_route
 from .intake_routing import intake_complete_for_state
 from .intake_routing import is_routing_question
+from .intake_routing import resolve_intake_stage
 from .intake_outcomes import (
     build_completion_result,
     build_next_question_result,
@@ -87,7 +89,11 @@ async def _maybe_route_cretskens_intake(
             build_routing_question_result(handler, current_state, language),
         )
 
-    next_state = replace(current_state, intake_route=resolved_route)
+    next_state = replace(
+        current_state,
+        intake_route=resolved_route,
+        intake_stage=initial_intake_stage_for_route(resolved_route),
+    )
     return next_state, None
 
 
@@ -138,24 +144,32 @@ async def _handle_on_topic_intake(
     force_complete: bool = False,
 ) -> ChatResult:
     current_state.boundary_violation_count = 0
-    updated_questionnaire, updated_summary = await apply_intake_updates(
+    updates = await apply_intake_updates(
         handler,
         current_state,
         current_answer,
     )
+    updated_state = replace(
+        current_state,
+        questionnaire=updates.questionnaire,
+        dish_questionnaire=updates.dish_questionnaire,
+        wine_questionnaire=updates.wine_questionnaire,
+        summary=updates.summary,
+    )
+    updated_state.intake_stage = resolve_intake_stage(updated_state)
     if (
-        intake_complete_for_state(current_state, updated_questionnaire)
+        intake_complete_for_state(updated_state, updates.questionnaire)
         or force_complete
     ):
         return await build_completion_result(
             handler,
-            current_state,
-            updated_questionnaire,
-            updated_summary,
+            updated_state,
+            updates.questionnaire,
+            updates.summary,
         )
     return await build_next_question_result(
         handler,
-        current_state,
-        updated_questionnaire,
-        updated_summary,
+        updated_state,
+        updates.questionnaire,
+        updates.summary,
     )

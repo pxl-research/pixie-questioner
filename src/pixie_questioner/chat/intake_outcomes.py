@@ -12,8 +12,12 @@ from .flow import (
     to_off_topic_redirect_state,
     to_terminated_state,
 )
-from .intake_routing import determine_next_question_track
-from .questionnaire import focus_questionnaire_for_route
+from .intake_routing import (
+    DISH_FIELD_INDICES,
+    WINE_FIELD_INDICES,
+    determine_next_question_track,
+)
+from .questionnaire import focus_questionnaire_for_route, mask_later_blank_fields
 from .types import ChatResult, ChatState
 
 if TYPE_CHECKING:
@@ -103,12 +107,23 @@ async def build_next_question_result(
         raise RuntimeError(
             "No follow-up question remains for the current intake state."
         )
-    focused_questionnaire = focus_questionnaire_for_route(
-        updated_questionnaire,
-        handler.questionnaire_indices,
-        current_state.intake_route,
-        allow_dish_questions=next_question_track != "wine",
-    )
+    if handler.is_categorized_handoff_mode() and next_question_track == "dish":
+        focused_questionnaire = mask_later_blank_fields(
+            current_state.dish_questionnaire,
+            DISH_FIELD_INDICES,
+        )
+    elif handler.is_categorized_handoff_mode() and next_question_track == "wine":
+        focused_questionnaire = mask_later_blank_fields(
+            current_state.wine_questionnaire,
+            WINE_FIELD_INDICES,
+        )
+    else:
+        focused_questionnaire = focus_questionnaire_for_route(
+            updated_questionnaire,
+            handler.questionnaire_indices,
+            current_state.intake_route,
+            allow_dish_questions=next_question_track != "wine",
+        )
     next_question = await handler.question_asker.ask(
         focused_questionnaire,
         conversation_language,

@@ -643,7 +643,9 @@ def test_ask_expands_candidates_after_strict_shortlist_ranker_failures() -> None
     ]
     assert len(ranker.calls) == 3
     assert ranker.calls[0]["candidate_barcodes"] == ["w1"]
-    assert len(ranker.calls[2]["candidate_barcodes"]) > 1
+    expanded_candidate_barcodes = ranker.calls[2]["candidate_barcodes"]
+    assert isinstance(expanded_candidate_barcodes, list)
+    assert len(expanded_candidate_barcodes) > 1
 
 
 def test_recommend_from_context_falls_back_when_query_hints_missing() -> None:
