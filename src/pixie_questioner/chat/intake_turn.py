@@ -156,7 +156,8 @@ async def _handle_on_topic_intake(
         wine_questionnaire=updates.wine_questionnaire,
         summary=updates.summary,
     )
-    updated_state.intake_stage = resolve_intake_stage(updated_state)
+    if handler.is_categorized_handoff_mode():
+        updated_state.intake_stage = resolve_intake_stage(updated_state)
     if (
         intake_complete_for_state(updated_state, updates.questionnaire)
         or force_complete

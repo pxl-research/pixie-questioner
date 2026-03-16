@@ -40,6 +40,7 @@ async def apply_intake_updates(
     current_state: ChatState,
     current_answer: str,
 ) -> IntakeUpdateResult:
+    categorized_handoff_mode = handler.is_categorized_handoff_mode()
     (
         updated_questionnaire,
         dish_questionnaire,
@@ -49,7 +50,7 @@ async def apply_intake_updates(
         current_state,
         current_answer,
     )
-    if handler.is_categorized_handoff_mode():
+    if categorized_handoff_mode:
         updated_questionnaire = (
             await handler.categorized_handoff.normalize_questionnaire(
                 updated_questionnaire
@@ -67,16 +68,18 @@ async def apply_intake_updates(
             updated_questionnaire,
             current_answer,
         )
-        (
-            dish_questionnaire,
-            wine_questionnaire,
-        ) = _split_stage_questionnaires(updated_questionnaire)
+        if categorized_handoff_mode:
+            (
+                dish_questionnaire,
+                wine_questionnaire,
+            ) = _split_stage_questionnaires(updated_questionnaire)
 
     updated_state = _state_with_updated_questionnaires(
         current_state,
         questionnaire=updated_questionnaire,
         dish_questionnaire=dish_questionnaire,
         wine_questionnaire=wine_questionnaire,
+        resolve_stage=categorized_handoff_mode,
     )
     updated_summary = await _update_summary(
         handler,
@@ -108,6 +111,7 @@ def _state_with_updated_questionnaires(
     questionnaire: str,
     dish_questionnaire: str,
     wine_questionnaire: str,
+    resolve_stage: bool,
 ) -> ChatState:
     updated_state = ChatState(
         questionnaire=questionnaire,
@@ -129,7 +133,8 @@ def _state_with_updated_questionnaires(
         wine_follow_up_count=current_state.wine_follow_up_count,
         routing_question_asked=current_state.routing_question_asked,
     )
-    updated_state.intake_stage = resolve_intake_stage(updated_state)
+    if resolve_stage:
+        updated_state.intake_stage = resolve_intake_stage(updated_state)
     return updated_state
 
 
@@ -162,8 +167,7 @@ async def _update_questionnaire(
         )
         if merged is None:
             merged = current_state.questionnaire
-        dish_questionnaire, wine_questionnaire = _split_stage_questionnaires(merged)
-        return merged, dish_questionnaire, wine_questionnaire
+        return merged, "", ""
 
     dish_questionnaire, wine_questionnaire = _split_stage_questionnaires(
         current_state.questionnaire

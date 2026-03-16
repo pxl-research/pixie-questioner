@@ -229,6 +229,37 @@ def test_ask_updates_state_and_returns_next_question():
     assert "If uncertain, default to Dutch." in question_llm.calls[-1][0]["content"]
 
 
+def test_ask_summary_feedback_does_not_emit_cretskens_stage_fields():
+    question_llm = FakeLLM(["Next question"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Updated answer\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["Updated summary"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_token="TOKEN"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="User answer",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
+        )
+    )
+
+    assert "dish_questionnaire" not in result.state
+    assert "wine_questionnaire" not in result.state
+    assert "intake_stage" not in result.state
+
+
 def test_ask_merges_partial_notulist_update_instead_of_repeating_same_field():
     questionnaire_template = (
         "0. Initial user question: []\n"
@@ -467,6 +498,37 @@ def test_ask_returns_summary_when_questionnaire_complete():
         {"label": "Nee", "value": "no"},
     ]
     assert question_llm.calls == []
+
+
+def test_ask_summary_feedback_completion_does_not_emit_cretskens_stage_fields():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Filled\n1. Occasion, Vibe, Setting: Filled"]
+    )
+    summarizer_llm = FakeLLM(["Eind samenvatting"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_DEFAULT_POLICY,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="User answer",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "AI question",
+            },
+        )
+    )
+
+    assert "dish_questionnaire" not in result.state
+    assert "wine_questionnaire" not in result.state
+    assert "intake_stage" not in result.state
 
 
 def test_ask_returns_categorized_handoff_when_questionnaire_complete():
