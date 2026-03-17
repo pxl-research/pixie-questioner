@@ -237,7 +237,10 @@ def _normalize_origin_lookup_value(value: str) -> str:
     without_accents = "".join(
         character for character in decomposed if not unicodedata.combining(character)
     )
-    return re.sub(r"\s+", " ", without_accents).strip()
+    # Collapse hyphens, slashes, and similar punctuation to spaces so that
+    # user variants like "Zuid Afrika" match the catalog "Zuid-Afrika".
+    collapsed = re.sub(r"[-/''\"]+", " ", without_accents)
+    return re.sub(r"\s+", " ", collapsed).strip()
 
 
 _SUPPORTED_ORIGIN_LOOKUP = frozenset(
@@ -260,11 +263,17 @@ def _is_supported_origin_value(value: str) -> bool:
 
 
 # Reverse lookup: normalized origin → canonical catalog form.
-_SUPPORTED_ORIGIN_CANONICAL: dict[str, str] = {
-    _normalize_origin_lookup_value(raw): raw
-    for raw in (*WINE_COUNTRY_VALUES, *WINE_REGION_VALUES)
-    if _normalize_origin_lookup_value(raw)
-}
+# Sorted longest-first so substring scanning returns the most specific match
+# (e.g. "haut medoc, bordeaux" before "bordeaux").
+_SUPPORTED_ORIGIN_CANONICAL: list[tuple[str, str]] = sorted(
+    (
+        (_normalize_origin_lookup_value(raw), raw)
+        for raw in (*WINE_COUNTRY_VALUES, *WINE_REGION_VALUES)
+        if _normalize_origin_lookup_value(raw)
+    ),
+    key=lambda pair: (-len(pair[0]), pair[0]),
+)
+_SUPPORTED_ORIGIN_CANONICAL_DICT: dict[str, str] = dict(_SUPPORTED_ORIGIN_CANONICAL)
 
 
 def _find_supported_origin_in_answer(answer: str) -> str | None:
@@ -276,9 +285,9 @@ def _find_supported_origin_in_answer(answer: str) -> str | None:
     normalized_answer = _normalize_origin_lookup_value(answer)
     if not normalized_answer:
         return None
-    if normalized_answer in _SUPPORTED_ORIGIN_CANONICAL:
-        return _SUPPORTED_ORIGIN_CANONICAL[normalized_answer]
-    for normalized_origin, canonical in _SUPPORTED_ORIGIN_CANONICAL.items():
+    if normalized_answer in _SUPPORTED_ORIGIN_CANONICAL_DICT:
+        return _SUPPORTED_ORIGIN_CANONICAL_DICT[normalized_answer]
+    for normalized_origin, canonical in _SUPPORTED_ORIGIN_CANONICAL:
         pattern = r"\b" + re.escape(normalized_origin) + r"\b"
         if re.search(pattern, normalized_answer):
             return canonical
