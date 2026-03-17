@@ -185,16 +185,29 @@ def _build_audit_client(settings: Settings) -> AuditClient | None:
     )
 
 
+_MIN_SIGNING_KEY_LENGTH = 32
+
+
 def _resolve_signing_key(settings: Settings) -> str:
     signing_key = settings.state_signing_key
-    if signing_key:
+    if signing_key and len(signing_key) >= _MIN_SIGNING_KEY_LENGTH:
         return signing_key
-    ephemeral_key = _secrets.token_hex(32)
+    if signing_key:
+        # Key is set but too short.  Falling back to an ephemeral key would
+        # cause every worker process to use a different secret, producing
+        # intermittent 400 errors in multi-worker deployments.  Fail fast
+        # so the misconfiguration is caught before traffic is served.
+        raise RuntimeError(
+            f"STATE_SIGNING_KEY is too short ({len(signing_key)} chars); "
+            f"minimum is {_MIN_SIGNING_KEY_LENGTH}. "
+            "Generate one with: "
+            'python -c "import secrets; print(secrets.token_hex(32))"'
+        )
     logger.warning(
         "STATE_SIGNING_KEY not set — using ephemeral key. "
         "Client sessions will not survive server restarts."
     )
-    return ephemeral_key
+    return _secrets.token_hex(32)
 
 
 def build_runtime(settings: Settings | None = None) -> AppRuntime:
