@@ -40,9 +40,20 @@ class QuestionAsker:
         )
         return stripped.strip(_COMPLETION_STRIP_CHARS)
 
-    async def ask(self, questionnaire: str, conversation_language: str) -> str:
+    async def ask(
+        self,
+        questionnaire: str,
+        conversation_language: str,
+        last_response: str = "",
+    ) -> str:
         """Ask the LLM for the next question and return the cleaned text."""
         system_prompt = self._render_prompt(questionnaire)
+        if last_response:
+            system_prompt = (
+                f"{system_prompt}\n\nYour previous response (do not repeat "
+                f"its opener or acknowledgment phrasing):\n"
+                f"---\n{last_response}\n---\n"
+            )
         system_prompt = (
             f"{system_prompt}{self.language.build_instruction(conversation_language)}"
         )

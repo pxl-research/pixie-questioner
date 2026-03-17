@@ -20,7 +20,7 @@ from .intake_routing import (
     determine_next_question_track,
 )
 from .questionnaire import focus_questionnaire_for_route, mask_later_blank_fields
-from .types import INTAKE_ROUTE_FOOD_PAIRING, ChatResult, ChatState
+from .types import INITIAL_QUESTION, INTAKE_ROUTE_FOOD_PAIRING, ChatResult, ChatState
 
 if TYPE_CHECKING:
     from .turn_handler import ChatTurnHandler
@@ -176,9 +176,13 @@ async def build_next_question_result(
             current_state.intake_route,
             allow_dish_questions=next_question_track != "wine",
         )
+    last_response = current_state.last_question
+    if last_response.strip() == INITIAL_QUESTION:
+        last_response = ""
     next_question = await handler.question_asker.ask(
         focused_questionnaire,
         conversation_language,
+        last_response=last_response,
     )
     if not next_question.strip():
         raise RuntimeError(
