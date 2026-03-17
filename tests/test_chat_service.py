@@ -1303,7 +1303,8 @@ def test_ask_cretskens_general_wine_unsupported_origin_followup_with_non_blank_f
 
 def test_ask_cretskens_no_preference_origin_marks_field_to_prevent_reask():
     """Regression: when user says 'geen voorkeur' after being explicitly asked for origin,
-    field 6 must be marked as 'geen voorkeur' so it is not re-asked in subsequent turns."""
+    field 6 must be marked as 'geen voorkeur' so it is not re-asked in subsequent turns.
+    """
     question_llm = FakeLLM(["Wat is je maximale budget?"])
     notulist_llm = FakeLLM(
         [
@@ -1358,9 +1359,10 @@ def test_ask_cretskens_no_preference_origin_marks_field_to_prevent_reask():
     assert result.response_type == "answer"
     assert result.text == "Wat is je maximale budget?"
     # Field 6 must be marked so origin is not re-asked.
-    assert "6. Herkomst (land en/of regio): geen voorkeur" in result.state[
-        "wine_questionnaire"
-    ]
+    assert (
+        "6. Herkomst (land en/of regio): geen voorkeur"
+        in result.state["wine_questionnaire"]
+    )
     assert len(unsupported_origin_llm.calls) == 1
 
 
