@@ -185,16 +185,29 @@ def _build_audit_client(settings: Settings) -> AuditClient | None:
     )
 
 
+_MIN_SIGNING_KEY_LENGTH = 32
+
+
 def _resolve_signing_key(settings: Settings) -> str:
     signing_key = settings.state_signing_key
-    if signing_key:
+    if signing_key and len(signing_key) >= _MIN_SIGNING_KEY_LENGTH:
         return signing_key
-    ephemeral_key = _secrets.token_hex(32)
-    logger.warning(
-        "STATE_SIGNING_KEY not set — using ephemeral key. "
-        "Client sessions will not survive server restarts."
-    )
-    return ephemeral_key
+    if signing_key:
+        # Key is set but too short — refuse it to prevent accidental use of a
+        # weak or well-known placeholder value (e.g. from .env.example).
+        logger.error(
+            "STATE_SIGNING_KEY is too short (got %d chars, need >= %d). "
+            "Falling back to an ephemeral key — sessions will not survive "
+            "server restarts and this MUST be fixed in production.",
+            len(signing_key),
+            _MIN_SIGNING_KEY_LENGTH,
+        )
+    else:
+        logger.warning(
+            "STATE_SIGNING_KEY not set — using ephemeral key. "
+            "Client sessions will not survive server restarts."
+        )
+    return _secrets.token_hex(32)
 
 
 def build_runtime(settings: Settings | None = None) -> AppRuntime:

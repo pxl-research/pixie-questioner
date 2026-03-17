@@ -534,5 +534,5 @@ def test_case_route_rejects_state_from_other_case(monkeypatch, tmp_path: Path) -
     )
 
     assert brooklyn_response.status_code == 400
-    assert "scope invalid" in brooklyn_response.json()["detail"].casefold()
+    assert "invalid or expired state" in brooklyn_response.json()["detail"].casefold()
     assert len(brooklyn_stub.calls) == 0

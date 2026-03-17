@@ -205,10 +205,14 @@ def _get_client_ip(raw_request: Request, *, trusted_proxy_ips: frozenset[str]) -
         return immediate_client_ip
 
     forwarded_for = raw_request.headers.get("x-forwarded-for", "")
-    for candidate in forwarded_for.split(","):
-        normalized = candidate.strip()
-        if normalized:
-            return normalized
+    # Take the rightmost non-empty entry: when the trusted proxy *appends*
+    # the real client IP (e.g. nginx proxy_add_x_forwarded_for), the
+    # rightmost entry is the one the proxy itself wrote and cannot be forged
+    # by the client.  Taking the leftmost would allow any client to spoof an
+    # arbitrary IP and bypass IP-based rate limiting.
+    candidates = [c.strip() for c in forwarded_for.split(",") if c.strip()]
+    if candidates:
+        return candidates[-1]
     return immediate_client_ip
 
 
@@ -242,7 +246,7 @@ async def _handle_chat_request(
             request.session_id,
             exc,
         )
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Invalid or expired state.") from exc
 
     response.headers["X-Pixie-Chat-Contract"] = CHAT_CONTRACT_VERSION
     response.headers["X-Pixie-Case"] = normalized_case_id
