@@ -1150,6 +1150,76 @@ def test_ask_cretskens_general_wine_does_not_complete_when_notulist_fills_all_wi
     assert len(notulist_llm.calls) == 1
 
 
+def test_ask_cretskens_general_wine_opening_no_origin_does_not_block_later_unsupported_check():
+    """Regression: opening turn without origin must not mark field 6 as 'geen voorkeur',
+    which would prevent the unsupported-origin check from firing on the next turn."""
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): Bulgarije\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt rode wijn."])
+    unsupported_origin_llm = FakeLLM(
+        [
+            (
+                '{"should_follow_up":true,"question":"Bulgarije hebben we '
+                "momenteel niet in ons aanbod. Is een ander land of een "
+                'andere regio ook goed?"}'
+            )
+        ]
+    )
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        unsupported_origin_follow_up=_make_unsupported_origin_follow_up(
+            unsupported_origin_llm
+        ),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Bulgarije",
+            state={
+                "questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): []\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "wine_questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): []\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "summary": "",
+                "last_question": "Heb je een voorkeur voor een land of regio waar de wijn vandaan komt?",
+                "intake_route": "general_wine",
+                "intake_stage": "wine",
+                "wine_follow_up_count": "1",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert (
+        result.text == "Bulgarije hebben we momenteel niet in ons aanbod. "
+        "Is een ander land of een andere regio ook goed?"
+    )
+    assert result.state["last_question"] == result.text
+    assert question_llm.calls == []
+    assert len(notulist_llm.calls) == 1
+    assert len(unsupported_origin_llm.calls) == 1
+
+
 def test_ask_cretskens_general_wine_unsupported_origin_followup_with_non_blank_field():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(
@@ -1228,6 +1298,69 @@ def test_ask_cretskens_general_wine_unsupported_origin_followup_with_non_blank_f
     assert result.state["wine_follow_up_count"] == "3"
     assert question_llm.calls == []
     assert len(notulist_llm.calls) == 1
+    assert len(unsupported_origin_llm.calls) == 1
+
+
+def test_ask_cretskens_no_preference_origin_marks_field_to_prevent_reask():
+    """Regression: when user says 'geen voorkeur' after being explicitly asked for origin,
+    field 6 must be marked as 'geen voorkeur' so it is not re-asked in subsequent turns."""
+    question_llm = FakeLLM(["Wat is je maximale budget?"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant heeft geen voorkeur voor herkomst."])
+    unsupported_origin_llm = FakeLLM(['{"should_follow_up":false,"question":""}'])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        unsupported_origin_follow_up=_make_unsupported_origin_follow_up(
+            unsupported_origin_llm
+        ),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Zonder voorkeur dan",
+            state={
+                "questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): []\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "wine_questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): []\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "summary": "",
+                "last_question": (
+                    "Sorry, we hebben helaas geen wijnen uit Nederland. "
+                    "Zou een andere regio ook goed zijn?"
+                ),
+                "intake_route": "general_wine",
+                "intake_stage": "wine",
+                "wine_follow_up_count": "2",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Wat is je maximale budget?"
+    # Field 6 must be marked so origin is not re-asked.
+    assert "6. Herkomst (land en/of regio): geen voorkeur" in result.state[
+        "wine_questionnaire"
+    ]
     assert len(unsupported_origin_llm.calls) == 1
 
 
