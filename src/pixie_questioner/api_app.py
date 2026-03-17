@@ -246,7 +246,9 @@ async def _handle_chat_request(
             request.session_id,
             exc,
         )
-        raise HTTPException(status_code=400, detail="Invalid or expired state.") from exc
+        raise HTTPException(
+            status_code=400, detail="Invalid or expired state."
+        ) from exc
 
     response.headers["X-Pixie-Chat-Contract"] = CHAT_CONTRACT_VERSION
     response.headers["X-Pixie-Case"] = normalized_case_id
