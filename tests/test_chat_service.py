@@ -4184,3 +4184,66 @@ def test_ask_wraps_summarizer_invocation_error_with_cause():
     assert "Conversation summarizer invocation failed." in str(exc.value.__cause__)
     assert exc.value.__cause__.__cause__ is not None
     assert "upstream summarizer failure" in str(exc.value.__cause__.__cause__)
+
+
+def test_question_asker_receives_last_response_on_follow_up_turn():
+    """Previous assistant response is injected into the question-asker system prompt."""
+    question_llm = FakeLLM(["Next question"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: User answer\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["Updated summary"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_token="TOKEN"),
+    )
+
+    asyncio.run(
+        service.ask(
+            current_answer="User answer",
+            state={
+                "questionnaire": "Prev []",
+                "summary": "Prev summary",
+                "last_question": "Eerder gestelde vraag?",
+            },
+        )
+    )
+
+    system_prompt = question_llm.calls[-1][0]["content"]
+    assert "Eerder gestelde vraag?" in system_prompt
+
+
+def test_question_asker_omits_last_response_on_initial_turn():
+    """The INITIAL_QUESTION sentinel must not be injected into the question-asker prompt."""
+    question_llm = FakeLLM(["Opening question"])
+    notulist_llm = FakeLLM(
+        ["0. Initial user question: Hallo\n1. Occasion, Vibe, Setting: []"]
+    )
+    summarizer_llm = FakeLLM(["Summary"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_token="TOKEN"),
+    )
+
+    asyncio.run(
+        service.ask(
+            current_answer="Hallo",
+            state={
+                "questionnaire": QUESTIONNAIRE_TEMPLATE,
+                "summary": "",
+                "last_question": "Initial question:",
+            },
+        )
+    )
+
+    system_prompt = question_llm.calls[-1][0]["content"]
+    assert "Initial question:" not in system_prompt
+    assert "Your previous response" not in system_prompt
