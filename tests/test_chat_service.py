@@ -1374,6 +1374,84 @@ def test_ask_cretskens_no_preference_origin_marks_field_to_prevent_reask():
     assert len(unsupported_origin_llm.calls) == 1
 
 
+def test_ask_cretskens_no_preference_origin_marks_field_when_notulist_fills_value():
+    """Regression: when user says 'zonder voorkeur dan' after an unsupported-origin
+    follow-up and the notulist LLM fills field 6 with a non-supported value like
+    'geen voorkeur', the field must still be marked so origin is not re-asked.
+
+    Previously, the stale origin_is_blank=False guard prevented marking field 6
+    after the code cleared it, causing an infinite loop.
+    """
+    question_llm = FakeLLM(["Wat is je maximale budget?"])
+    # Notulist fills field 6 with "geen voorkeur" (non-blank, non-supported)
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): geen voorkeur\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant heeft geen voorkeur voor herkomst."])
+    unsupported_origin_llm = FakeLLM(
+        ['{"should_follow_up":false,"no_preference_expressed":true,"question":""}']
+    )
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        unsupported_origin_follow_up=_make_unsupported_origin_follow_up(
+            unsupported_origin_llm
+        ),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Zonder voorkeur dan",
+            state={
+                "questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): []\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "wine_questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): []\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "summary": "",
+                "last_question": (
+                    "Helaas hebben we op dit moment geen wijnen uit Bulgarije "
+                    "in ons assortiment. Zou een wijn uit een ander land of "
+                    "regio ook goed zijn, of wilt u liever een suggestie "
+                    "zonder herkomstvoorkeur?"
+                ),
+                "intake_route": "general_wine",
+                "intake_stage": "wine",
+                "wine_follow_up_count": "2",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Wat is je maximale budget?"
+    # Field 6 must be marked even when the notulist filled it with a
+    # non-supported value before the unsupported-origin check cleared it.
+    assert (
+        "6. Herkomst (land en/of regio): geen voorkeur"
+        in result.state["wine_questionnaire"]
+    )
+    assert (
+        "6. Herkomst (land en/of regio): geen voorkeur" in result.state["questionnaire"]
+    )
+    assert len(unsupported_origin_llm.calls) == 1
+
+
 def test_ask_cretskens_opening_general_wine_no_preference_expressed_marks_origin_field():
     """When user says 'geen voorkeur' on the very first (opening) general-wine turn,
     field 6 must be marked as 'geen voorkeur' to avoid re-asking on the next turn."""

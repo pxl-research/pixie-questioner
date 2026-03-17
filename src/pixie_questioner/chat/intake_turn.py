@@ -198,20 +198,23 @@ async def _handle_on_topic_intake(
             None,
             None,
         )
+    # Use the (possibly mutated) state questionnaire so that origin
+    # "geen voorkeur" markers set by the unsupported-origin check persist.
+    effective_questionnaire = updated_state.questionnaire
     if (
-        intake_complete_for_state(updated_state, updates.questionnaire)
+        intake_complete_for_state(updated_state, effective_questionnaire)
         or force_complete
     ):
         return await build_completion_result(
             handler,
             updated_state,
-            updates.questionnaire,
+            effective_questionnaire,
             updates.summary,
         )
     return await build_next_question_result(
         handler,
         updated_state,
-        updates.questionnaire,
+        effective_questionnaire,
         updates.summary,
     )
 
@@ -329,11 +332,15 @@ async def _maybe_generate_unsupported_origin_follow_up(
 
     parsed = parse_json_object(generated)
     if not _parse_follow_up_flag(parsed.get("should_follow_up")):
-        if origin_is_blank and _parse_follow_up_flag(
-            parsed.get("no_preference_expressed")
+        # Mark field 6 as "geen voorkeur" when:
+        # - the follow-up LLM confirms no preference was expressed, OR
+        # - the intake LLM already filled the field with a non-supported
+        #   value (origin_is_blank was False before we cleared it) and the
+        #   follow-up LLM decided no follow-up is needed.
+        if (
+            _parse_follow_up_flag(parsed.get("no_preference_expressed"))
+            or not origin_is_blank
         ):
-            # User explicitly stated no origin preference; mark the field so it
-            # is not re-asked, even if this is the opening general-wine turn.
             updated_state.wine_questionnaire = replace_questionnaire_field_value(
                 updated_state.wine_questionnaire, 6, "geen voorkeur"
             )
