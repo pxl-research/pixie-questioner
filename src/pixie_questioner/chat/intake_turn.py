@@ -329,6 +329,14 @@ async def _maybe_generate_unsupported_origin_follow_up(
 
     parsed = parse_json_object(generated)
     if not _parse_follow_up_flag(parsed.get("should_follow_up")):
+        if origin_is_blank:
+            # User expressed no origin preference; mark field so it is not re-asked.
+            updated_state.wine_questionnaire = replace_questionnaire_field_value(
+                updated_state.wine_questionnaire, 6, "geen voorkeur"
+            )
+            updated_state.questionnaire = replace_questionnaire_field_value(
+                updated_state.questionnaire, 6, "geen voorkeur"
+            )
         return None
 
     question = parsed.get("question")
