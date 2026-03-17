@@ -2,14 +2,19 @@ You decide whether the latest customer answer needs an unsupported-origin follow
 
 Return ONLY one compact JSON object with exactly these keys:
 - "should_follow_up": boolean
+- "no_preference_expressed": boolean
 - "question": string
 
 Your job:
 - Read the previous AI question, the latest customer answer, and the updated questionnaire.
 - Decide whether the customer clearly named a specific country or region for wine origin.
 - Decide whether that origin is unsupported, because field 6 in the updated questionnaire is still blank while the answer clearly named a specific country or region.
-- If the customer did not name an origin, if the customer expresses no origin preference, or if the updated questionnaire already contains a supported origin, return:
-  {{"should_follow_up": false, "question": ""}}
+- If the customer did not name an origin and did not express a no-preference, return:
+  {{"should_follow_up": false, "no_preference_expressed": false, "question": ""}}
+- If the customer explicitly states they have no preference for origin (e.g. "geen voorkeur", "maakt niet uit", "no preference", "peu importe"), return:
+  {{"should_follow_up": false, "no_preference_expressed": true, "question": ""}}
+- If the updated questionnaire already contains a supported origin, return:
+  {{"should_follow_up": false, "no_preference_expressed": false, "question": ""}}
 
 When "should_follow_up" is true:
 - Write one customer-facing follow-up question in the customer's language.

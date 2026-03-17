@@ -1030,7 +1030,9 @@ def test_ask_cretskens_general_wine_opening_without_origin_uses_next_question():
         ]
     )
     summarizer_llm = FakeLLM(["Klant zoekt een wijn om zo te drinken."])
-    unsupported_origin_llm = FakeLLM(['{"should_follow_up":false,"question":""}'])
+    unsupported_origin_llm = FakeLLM(
+        ['{"should_follow_up":false,"no_preference_expressed":false,"question":""}']
+    )
     route_classifier = StubIntakeRouteClassifier(["general_wine"])
     service = ChatService(
         llm=question_llm,
@@ -1058,6 +1060,9 @@ def test_ask_cretskens_general_wine_opening_without_origin_uses_next_question():
     assert result.state["intake_stage"] == "wine"
     assert result.state["last_question"] == result.text
     assert result.state["wine_follow_up_count"] == "1"
+    # Opening turn: field 6 must remain blank so unsupported-origin check
+    # can still fire when the user names a country on the next turn.
+    assert "6. Herkomst (land en/of regio): []" in result.state["wine_questionnaire"]
     assert len(question_llm.calls) == 1
     assert len(notulist_llm.calls) == 1
     assert len(unsupported_origin_llm.calls) == 1
@@ -1150,9 +1155,10 @@ def test_ask_cretskens_general_wine_does_not_complete_when_notulist_fills_all_wi
     assert len(notulist_llm.calls) == 1
 
 
-def test_ask_cretskens_general_wine_opening_no_origin_does_not_block_later_unsupported_check():
-    """Regression: opening turn without origin must not mark field 6 as 'geen voorkeur',
-    which would prevent the unsupported-origin check from firing on the next turn."""
+def test_ask_cretskens_general_wine_unsupported_origin_still_triggers_after_explicit_origin_question():
+    """Regression: when origin was explicitly asked and user names an unsupported country,
+    the unsupported-origin follow-up must still fire (field 6 must not be pre-marked).
+    """
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(
         [
@@ -1315,7 +1321,9 @@ def test_ask_cretskens_no_preference_origin_marks_field_to_prevent_reask():
         ]
     )
     summarizer_llm = FakeLLM(["Klant heeft geen voorkeur voor herkomst."])
-    unsupported_origin_llm = FakeLLM(['{"should_follow_up":false,"question":""}'])
+    unsupported_origin_llm = FakeLLM(
+        ['{"should_follow_up":false,"no_preference_expressed":true,"question":""}']
+    )
     service = ChatService(
         llm=question_llm,
         question_asker_prompt="PROMPT {summary} {completion_token}",
@@ -1359,6 +1367,53 @@ def test_ask_cretskens_no_preference_origin_marks_field_to_prevent_reask():
     assert result.response_type == "answer"
     assert result.text == "Wat is je maximale budget?"
     # Field 6 must be marked so origin is not re-asked.
+    assert (
+        "6. Herkomst (land en/of regio): geen voorkeur"
+        in result.state["wine_questionnaire"]
+    )
+    assert len(unsupported_origin_llm.calls) == 1
+
+
+def test_ask_cretskens_opening_general_wine_no_preference_expressed_marks_origin_field():
+    """When user says 'geen voorkeur' on the very first (opening) general-wine turn,
+    field 6 must be marked as 'geen voorkeur' to avoid re-asking on the next turn."""
+    question_llm = FakeLLM(["Wat is je maximale budget?"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt rode wijn, geen voorkeur voor herkomst."])
+    unsupported_origin_llm = FakeLLM(
+        ['{"should_follow_up":false,"no_preference_expressed":true,"question":""}']
+    )
+    route_classifier = StubIntakeRouteClassifier(["general_wine"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
+        unsupported_origin_follow_up=_make_unsupported_origin_follow_up(
+            unsupported_origin_llm
+        ),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek een rode wijn, geen voorkeur voor herkomst",
+            state=None,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Wat is je maximale budget?"
+    # Even on the opening turn, an explicit no-preference must mark field 6.
     assert (
         "6. Herkomst (land en/of regio): geen voorkeur"
         in result.state["wine_questionnaire"]
