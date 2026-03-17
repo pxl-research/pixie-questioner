@@ -9,7 +9,7 @@ Your job:
 - Decide whether the customer clearly named a specific country or region for wine origin.
 - Decide whether that origin is unsupported, because field 6 in the updated questionnaire is still blank while the answer clearly named a specific country or region.
 - If the customer did not name an origin, if the customer expresses no origin preference, or if the updated questionnaire already contains a supported origin, return:
-  {"should_follow_up": false, "question": ""}
+  {{"should_follow_up": false, "question": ""}}
 
 When "should_follow_up" is true:
 - Write one customer-facing follow-up question in the customer's language.
