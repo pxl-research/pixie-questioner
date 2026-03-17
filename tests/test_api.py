@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import sys
+
+import pytest
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -979,6 +981,64 @@ def test_chat_uses_x_forwarded_for_for_trusted_proxy_ip_rate_limits(
     assert second_response.status_code == 200
 
 
+def test_chat_uses_x_forwarded_for_rightmost_non_trusted_in_multi_proxy_chain(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """In a two-proxy chain both proxies are trusted; the real client IP is the
+    first non-trusted entry walking right-to-left through XFF."""
+    monkeypatch.setenv("TRUSTED_PROXY_IPS", "testclient,10.0.0.1")
+    main = _load_main(monkeypatch, tmp_path)
+    advisor_stub = StubWineAdvisorService(
+        WineAdvisorResult(
+            text="Vraag",
+            response_type="question",
+            state={"phase": "intake", "turn_count": 1},
+            recommendations=None,
+        )
+    )
+    main.runtime.cretskens_service = StubCretskensService(advisor_stub.result)
+    main.runtime.ip_rate_limiter = SlidingWindowRateLimiter(
+        max_requests=1, window_seconds=60
+    )
+    client = TestClient(main.app)
+
+    # XFF chain: spoofed_prefix, real_client, inner_proxy(10.0.0.1)
+    # Walking right→left: 10.0.0.1 is trusted (skip), 198.51.100.10 is not → use it.
+    first_response = client.post(
+        "/cases/cretskens/chat",
+        headers={"X-Forwarded-For": "1.2.3.4, 198.51.100.10, 10.0.0.1"},
+        json={
+            "session_id": "session-multiproxy-1",
+            "current_answer": "hallo",
+            "state": {},
+        },
+    )
+    # Same real client IP → rate limited.
+    second_response = client.post(
+        "/cases/cretskens/chat",
+        headers={"X-Forwarded-For": "9.9.9.9, 198.51.100.10, 10.0.0.1"},
+        json={
+            "session_id": "session-multiproxy-2",
+            "current_answer": "hallo",
+            "state": {},
+        },
+    )
+    # Different real client IP → not rate limited.
+    third_response = client.post(
+        "/cases/cretskens/chat",
+        headers={"X-Forwarded-For": "9.9.9.9, 203.0.113.20, 10.0.0.1"},
+        json={
+            "session_id": "session-multiproxy-3",
+            "current_answer": "hallo",
+            "state": {},
+        },
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 429
+    assert third_response.status_code == 200
+
+
 def test_turn_controller_prompt_includes_preference_loop_rules(
     monkeypatch, tmp_path: Path
 ) -> None:
@@ -996,3 +1056,19 @@ def test_turn_controller_prompt_includes_preference_loop_rules(
     assert (
         'If unsure between question vs recommend, choose action "question".' in prompt
     )
+
+
+def test_build_runtime_raises_on_short_signing_key(monkeypatch, tmp_path: Path) -> None:
+    """A configured STATE_SIGNING_KEY shorter than 32 chars must raise RuntimeError
+    at startup so misconfigured multi-worker deployments fail fast instead of
+    generating per-process ephemeral keys that produce intermittent 400s."""
+    import pixie_questioner.config as cfg_mod
+    from pixie_questioner.app_runtime import build_runtime
+
+    monkeypatch.setenv("STATE_SIGNING_KEY", "too-short")
+    cfg_mod.get_settings.cache_clear()
+    try:
+        with pytest.raises(RuntimeError, match="STATE_SIGNING_KEY is too short"):
+            build_runtime()
+    finally:
+        cfg_mod.get_settings.cache_clear()

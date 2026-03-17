@@ -205,14 +205,17 @@ def _get_client_ip(raw_request: Request, *, trusted_proxy_ips: frozenset[str]) -
         return immediate_client_ip
 
     forwarded_for = raw_request.headers.get("x-forwarded-for", "")
-    # Take the rightmost non-empty entry: when the trusted proxy *appends*
-    # the real client IP (e.g. nginx proxy_add_x_forwarded_for), the
-    # rightmost entry is the one the proxy itself wrote and cannot be forged
-    # by the client.  Taking the leftmost would allow any client to spoof an
-    # arbitrary IP and bypass IP-based rate limiting.
-    candidates = [c.strip() for c in forwarded_for.split(",") if c.strip()]
-    if candidates:
-        return candidates[-1]
+    # Walk right-to-left through the XFF list and return the first entry that
+    # is not itself a trusted proxy.  Appending proxies write the real client
+    # IP as the rightmost entry, but in multi-proxy setups (e.g. CDN + ingress)
+    # several rightmost entries may be trusted.  Skipping them avoids collapsing
+    # many users into one rate-limit bucket.  Entries to the left of the first
+    # untrusted hop are client-supplied and cannot be trusted.
+    for candidate in reversed(
+        [c.strip() for c in forwarded_for.split(",") if c.strip()]
+    ):
+        if candidate.casefold() not in trusted_proxy_ips:
+            return candidate
     return immediate_client_ip
 
 
