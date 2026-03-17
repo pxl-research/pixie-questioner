@@ -1155,6 +1155,70 @@ def test_ask_cretskens_general_wine_does_not_complete_when_notulist_fills_all_wi
     assert len(notulist_llm.calls) == 1
 
 
+def test_ask_cretskens_supported_origin_fills_field_when_notulist_misses_it():
+    """Regression: when user answers a supported country (e.g. 'Spanje') but the
+    notulist fails to fill field 6, the fallback extraction must fill it directly
+    to prevent an infinite re-ask loop.
+    """
+    question_llm = FakeLLM(["Wat is je maximum budget?"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt rode wijn."])
+    unsupported_origin_llm = FakeLLM(["should not be called"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        unsupported_origin_follow_up=_make_unsupported_origin_follow_up(
+            unsupported_origin_llm
+        ),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Spanje",
+            state={
+                "questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): []\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "wine_questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): []\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "summary": "",
+                "last_question": "Uit welk land of welke regio mag de wijn komen?",
+                "intake_route": "general_wine",
+                "intake_stage": "wine",
+                "wine_follow_up_count": "1",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Wat is je maximum budget?"
+    assert (
+        "6. Herkomst (land en/of regio): Spanje" in result.state["wine_questionnaire"]
+    )
+    assert "6. Herkomst (land en/of regio): Spanje" in result.state["questionnaire"]
+    # Unsupported-origin LLM must NOT be called — the fallback fills it directly.
+    assert unsupported_origin_llm.calls == []
+    assert len(notulist_llm.calls) == 1
+
+
 def test_ask_cretskens_general_wine_unsupported_origin_still_triggers_after_explicit_origin_question():
     """Regression: when origin was explicitly asked and user names an unsupported country,
     the unsupported-origin follow-up must still fire (field 6 must not be pre-marked).

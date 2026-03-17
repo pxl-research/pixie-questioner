@@ -237,7 +237,10 @@ def _normalize_origin_lookup_value(value: str) -> str:
     without_accents = "".join(
         character for character in decomposed if not unicodedata.combining(character)
     )
-    return re.sub(r"\s+", " ", without_accents).strip()
+    # Collapse hyphens, slashes, and similar punctuation to spaces so that
+    # user variants like "Zuid Afrika" match the catalog "Zuid-Afrika".
+    collapsed = re.sub(r"[-/''\"]+", " ", without_accents)
+    return re.sub(r"\s+", " ", collapsed).strip()
 
 
 _SUPPORTED_ORIGIN_LOOKUP = frozenset(
@@ -257,6 +260,38 @@ def _is_supported_origin_value(value: str) -> bool:
         if candidate.strip() in _SUPPORTED_ORIGIN_LOOKUP:
             return True
     return False
+
+
+# Reverse lookup: normalized origin → canonical catalog form.
+# Sorted longest-first so substring scanning returns the most specific match
+# (e.g. "haut medoc, bordeaux" before "bordeaux").
+_SUPPORTED_ORIGIN_CANONICAL: list[tuple[str, str]] = sorted(
+    (
+        (_normalize_origin_lookup_value(raw), raw)
+        for raw in (*WINE_COUNTRY_VALUES, *WINE_REGION_VALUES)
+        if _normalize_origin_lookup_value(raw)
+    ),
+    key=lambda pair: (-len(pair[0]), pair[0]),
+)
+_SUPPORTED_ORIGIN_CANONICAL_DICT: dict[str, str] = dict(_SUPPORTED_ORIGIN_CANONICAL)
+
+
+def _find_supported_origin_in_answer(answer: str) -> str | None:
+    """Return the canonical supported origin found in *answer*, or ``None``.
+
+    Checks exact full-answer match first, then word-boundary substring.
+    Only used as a fallback when the notulist failed to fill field 6.
+    """
+    normalized_answer = _normalize_origin_lookup_value(answer)
+    if not normalized_answer:
+        return None
+    if normalized_answer in _SUPPORTED_ORIGIN_CANONICAL_DICT:
+        return _SUPPORTED_ORIGIN_CANONICAL_DICT[normalized_answer]
+    for normalized_origin, canonical in _SUPPORTED_ORIGIN_CANONICAL:
+        pattern = r"\b" + re.escape(normalized_origin) + r"\b"
+        if re.search(pattern, normalized_answer):
+            return canonical
+    return None
 
 
 async def _maybe_generate_unsupported_origin_follow_up(
@@ -307,6 +342,19 @@ async def _maybe_generate_unsupported_origin_follow_up(
             6,
             "[]",
         )
+
+    # When the notulist left field 6 blank but the user's answer contains a
+    # supported origin, fill it directly to prevent an endless re-ask loop.
+    if origin_is_blank:
+        extracted = _find_supported_origin_in_answer(current_answer)
+        if extracted is not None:
+            updated_state.wine_questionnaire = replace_questionnaire_field_value(
+                updated_state.wine_questionnaire, 6, extracted
+            )
+            updated_state.questionnaire = replace_questionnaire_field_value(
+                updated_state.questionnaire, 6, extracted
+            )
+            return None
 
     follow_up_context = (
         f"Conversation language: {updated_state.conversation_language}\n"
