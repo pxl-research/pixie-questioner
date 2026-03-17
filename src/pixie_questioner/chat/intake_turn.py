@@ -332,15 +332,12 @@ async def _maybe_generate_unsupported_origin_follow_up(
 
     parsed = parse_json_object(generated)
     if not _parse_follow_up_flag(parsed.get("should_follow_up")):
-        # Mark field 6 as "geen voorkeur" when:
-        # - the follow-up LLM confirms no preference was expressed, OR
-        # - the intake LLM already filled the field with a non-supported
-        #   value (origin_is_blank was False before we cleared it) and the
-        #   follow-up LLM decided no follow-up is needed.
-        if (
-            _parse_follow_up_flag(parsed.get("no_preference_expressed"))
-            or not origin_is_blank
-        ):
+        # Mark field 6 as "geen voorkeur" when the follow-up LLM explicitly
+        # confirms no preference was expressed.  The origin_is_blank guard is
+        # intentionally absent: when the notulist fills field 6 with a
+        # non-supported value (e.g. "geen voorkeur"), origin_is_blank is False
+        # before we clear it, which previously prevented marking.
+        if _parse_follow_up_flag(parsed.get("no_preference_expressed")):
             updated_state.wine_questionnaire = replace_questionnaire_field_value(
                 updated_state.wine_questionnaire, 6, "geen voorkeur"
             )
