@@ -259,6 +259,32 @@ def _is_supported_origin_value(value: str) -> bool:
     return False
 
 
+# Reverse lookup: normalized origin → canonical catalog form.
+_SUPPORTED_ORIGIN_CANONICAL: dict[str, str] = {
+    _normalize_origin_lookup_value(raw): raw
+    for raw in (*WINE_COUNTRY_VALUES, *WINE_REGION_VALUES)
+    if _normalize_origin_lookup_value(raw)
+}
+
+
+def _find_supported_origin_in_answer(answer: str) -> str | None:
+    """Return the canonical supported origin found in *answer*, or ``None``.
+
+    Checks exact full-answer match first, then word-boundary substring.
+    Only used as a fallback when the notulist failed to fill field 6.
+    """
+    normalized_answer = _normalize_origin_lookup_value(answer)
+    if not normalized_answer:
+        return None
+    if normalized_answer in _SUPPORTED_ORIGIN_CANONICAL:
+        return _SUPPORTED_ORIGIN_CANONICAL[normalized_answer]
+    for normalized_origin, canonical in _SUPPORTED_ORIGIN_CANONICAL.items():
+        pattern = r"\b" + re.escape(normalized_origin) + r"\b"
+        if re.search(pattern, normalized_answer):
+            return canonical
+    return None
+
+
 async def _maybe_generate_unsupported_origin_follow_up(
     handler: ChatTurnHandler,
     current_state: ChatState,
@@ -307,6 +333,19 @@ async def _maybe_generate_unsupported_origin_follow_up(
             6,
             "[]",
         )
+
+    # When the notulist left field 6 blank but the user's answer contains a
+    # supported origin, fill it directly to prevent an endless re-ask loop.
+    if origin_is_blank:
+        extracted = _find_supported_origin_in_answer(current_answer)
+        if extracted is not None:
+            updated_state.wine_questionnaire = replace_questionnaire_field_value(
+                updated_state.wine_questionnaire, 6, extracted
+            )
+            updated_state.questionnaire = replace_questionnaire_field_value(
+                updated_state.questionnaire, 6, extracted
+            )
+            return None
 
     follow_up_context = (
         f"Conversation language: {updated_state.conversation_language}\n"
