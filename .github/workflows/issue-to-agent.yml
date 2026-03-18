@@ -126,20 +126,20 @@ jobs:
               pr = createdPr.data;
             }
 
-            const copilotMarker = '<!-- issue-to-agent-trigger -->';
+            const codexMarker = '<!-- issue-to-agent-trigger -->';
             const prComments = await github.paginate(github.rest.issues.listComments, {
               owner,
               repo,
               issue_number: pr.number,
               per_page: 100,
             });
-            const hasTrigger = prComments.some(comment => comment.body && comment.body.includes(copilotMarker));
+            const hasTrigger = prComments.some(comment => comment.body && comment.body.includes(codexMarker));
 
             if (!hasTrigger) {
               const issueBody = (issue.body || '').slice(0, 4000);
               const reviewBody = [
-                copilotMarker,
-                '@copilot This issue is ready for implementation. Please take it end-to-end.',
+                codexMarker,
+                '@codex This issue is ready for implementation. Please take it end-to-end.',
                 '',
                 `Issue: #${issue.number}`,
                 `Branch: ${branch}`,

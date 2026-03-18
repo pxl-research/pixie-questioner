@@ -25,7 +25,7 @@ def _workflow_on() -> dict[str, Any]:
 def _workflow_script() -> str:
     workflow = _load_workflow()
     jobs = cast(dict[str, Any], workflow["jobs"])
-    trigger = cast(dict[str, Any], jobs["trigger-copilot"])
+    trigger = cast(dict[str, Any], jobs["trigger-codex"])
     steps = cast(list[dict[str, Any]], trigger["steps"])
     return cast(str, steps[0]["with"]["script"])
 
@@ -48,7 +48,7 @@ def test_review_workflow_skips_closed_or_merged_prs() -> None:
     assert 'if (!pr || pr.state !== "open")' in script
     assert (
         "github.event.issue.pull_request != null"
-        in _load_workflow()["jobs"]["trigger-copilot"]["if"]
+        in _load_workflow()["jobs"]["trigger-codex"]["if"]
     )
 
 
@@ -57,4 +57,6 @@ def test_review_workflow_only_enables_auto_merge_when_threads_are_resolved() -> 
 
     assert "unresolvedThreads.length === 0" in script
     assert "enablePullRequestAutoMerge" in script
-    assert "copilot-pull-request-reviewer[bot]" in script
+    assert "chatgpt-codex-connector[bot]" in script
+    assert "<!-- codex-review-trigger -->" in script
+    assert "@codex A reviewer" in script

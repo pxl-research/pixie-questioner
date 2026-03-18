@@ -37,7 +37,7 @@ def test_issue_to_agent_workflow_contains_codex_handoff_flow() -> None:
     assert "label.name !== 'codex:ready'" in script
     assert "git commit --allow-empty" in script
     assert "github.rest.pulls.create" in script
-    assert "@copilot" in script
+    assert "@codex" in script
     assert "codex:in-progress" in script
 
 
