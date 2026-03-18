@@ -1,0 +1,149 @@
+name: copilot-handle-pr-reviews
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: copilot-pr-reviews-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  trigger-copilot:
+    name: Trigger Copilot Coding Agent
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.pull_request != null &&
+      github.event.review.state == 'changes_requested'
+
+    steps:
+      - name: Collect review threads and trigger Copilot
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_AUTOMATION_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const pr = context.payload.pull_request;
+            const prNumber = pr.number;
+            const reviewer = context.payload.review?.user?.login || context.actor;
+
+            // Skip if a copilot trigger was already posted for this PR.
+            const existingComments = (await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number: prNumber,
+              per_page: 100,
+            })).data || [];
+
+            const triggerMarker = "<!-- copilot-review-trigger -->";
+            if (existingComments.some(c => c.body && c.body.includes(triggerMarker))) {
+              core.info("Skip: Copilot review trigger already posted on this PR");
+              return;
+            }
+
+            // Fetch all unresolved review threads via GraphQL.
+            async function fetchUnresolvedThreads() {
+              const threads = [];
+              let hasNextPage = true;
+              let cursor = null;
+
+              while (hasNextPage) {
+                const result = await github.graphql(
+                  `
+                  query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+                    repository(owner: $owner, name: $repo) {
+                      pullRequest(number: $number) {
+                        reviewThreads(first: 100, after: $cursor) {
+                          nodes {
+                            id
+                            isResolved
+                            isOutdated
+                            comments(first: 20) {
+                              nodes {
+                                body
+                                path
+                                line
+                                author { login }
+                              }
+                            }
+                          }
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                        }
+                      }
+                    }
+                  }
+                  `,
+                  { owner, repo, number: prNumber, cursor }
+                );
+
+                const page = result.repository.pullRequest.reviewThreads;
+                threads.push(...page.nodes);
+                hasNextPage = page.pageInfo.hasNextPage;
+                cursor = page.pageInfo.endCursor;
+              }
+
+              return threads.filter(t => !t.isResolved);
+            }
+
+            const unresolvedThreads = await fetchUnresolvedThreads();
+
+            if (unresolvedThreads.length === 0) {
+              core.info("Skip: no unresolved review threads");
+              return;
+            }
+
+            // Build a summary of the open threads for context.
+            const threadSummary = unresolvedThreads.map((thread, idx) => {
+              const firstComment = thread.comments?.nodes?.[0];
+              if (!firstComment) return null;
+              const location = [
+                firstComment.path || null,
+                firstComment.line ? `L${firstComment.line}` : null,
+              ].filter(Boolean).join(":");
+              const outdatedTag = thread.isOutdated ? " _(outdated)_" : "";
+              return `${idx + 1}. **${location || "general"}**${outdatedTag} — ${firstComment.author?.login || "unknown"}: ${firstComment.body?.split("\n")[0]?.substring(0, 120) || "(empty)"}`;
+            }).filter(Boolean).join("\n");
+
+            const body = [
+              triggerMarker,
+              `@copilot A reviewer (${reviewer}) has requested changes on this PR.`,
+              `There are **${unresolvedThreads.length}** unresolved review thread(s):`,
+              "",
+              threadSummary,
+              "",
+              "Please handle each thread:",
+              "",
+              "1. Read and evaluate whether the feedback is technically correct,",
+              "   relevant, and consistent with the rules in AGENTS.md.",
+              "2. If a comment is valid and actionable: apply the fix, push a commit,",
+              "   and reply to the thread explaining what was changed.",
+              "3. If a comment is not applicable, already addressed, or conflicts with",
+              "   project constraints: reply with a short explanation of why you are",
+              "   skipping it.",
+              "4. After handling each thread, resolve the conversation.",
+              "",
+              "Rules:",
+              "- Do not apply fixes blindly — use your own judgment.",
+              "- Group related fixes into a single logical commit where possible.",
+              "- Do not modify prompts, schemas, or questionnaire content unless the",
+              "  review comment explicitly and correctly targets one of those.",
+              "- Follow AGENTS.md and repository conventions.",
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: prNumber,
+              body,
+            });
+
+            core.info(`Posted Copilot trigger for ${unresolvedThreads.length} unresolved thread(s)`);
