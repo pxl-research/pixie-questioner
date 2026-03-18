@@ -73,3 +73,9 @@ def test_auto_pr_workflow_uses_pat_for_project_automation() -> None:
 
     assert "projects" not in permissions
     assert step["with"]["github-token"] == "${{ secrets.PROJECT_AUTOMATION_TOKEN }}"
+
+
+def test_auto_pr_workflow_does_not_enable_auto_merge_eagerly() -> None:
+    script = _workflow_script()
+
+    assert "enablePullRequestAutoMerge" not in script

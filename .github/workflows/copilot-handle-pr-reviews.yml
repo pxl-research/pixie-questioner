@@ -1,8 +1,12 @@
-name: copilot-handle-pr-reviews
+name: codex-handle-pr-reviews
 
 on:
   pull_request_review:
     types: [submitted]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
@@ -10,60 +14,54 @@ permissions:
   issues: read
 
 concurrency:
-  group: copilot-pr-reviews-${{ github.event.pull_request.number }}
+  group: codex-pr-reviews-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  trigger-copilot:
-    name: Trigger Copilot Coding Agent
+  trigger-codex:
+    name: Trigger Codex Coding Agent
     runs-on: ubuntu-latest
     if: >-
-      github.event.pull_request != null
+      github.event.pull_request != null || github.event.issue.pull_request != null
 
     steps:
-      - name: Collect review threads and trigger Copilot
+      - name: Collect review threads and trigger Codex
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.PROJECT_AUTOMATION_TOKEN }}
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const pr = context.payload.pull_request;
-            const prNumber = pr.number;
-            const reviewer = context.payload.review?.user?.login || context.actor;
-            const reviewState = context.payload.review?.state || "";
-
-            // Prevent loops: skip reviews submitted by bots (Copilot, github-actions).
-            const blockedActors = new Set(["copilot[bot]", "github-actions[bot]"]);
-            if (blockedActors.has(reviewer)) {
-              core.info(`Skip: reviewer is a blocked actor (${reviewer})`);
+            let pr = context.payload.pull_request;
+            if (!pr && context.payload.issue?.pull_request) {
+              const prLookup = await github.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: context.payload.issue.number,
+              });
+              pr = prLookup.data;
+            }
+            if (!pr || pr.state !== "open") {
+              core.info("Skip: pull request is not open");
               return;
             }
+            const prNumber = pr.number;
+            const reviewer = (
+              context.payload.review?.user?.login ||
+              context.payload.comment?.user?.login ||
+              context.actor
+            );
+            const reviewerLogin = (reviewer || "").toLowerCase();
+            const reviewState = context.payload.review?.state || "";
 
-            // Skip if a copilot trigger was already posted after the latest push.
-            const commits = (await github.rest.pulls.listCommits({
-              owner,
-              repo,
-              pull_number: prNumber,
-            })).data || [];
-            const latestPushDate = commits.length > 0
-              ? new Date(commits[commits.length - 1].commit.committer.date)
-              : new Date(0);
-
-            const existingComments = (await github.rest.issues.listComments({
-              owner,
-              repo,
-              issue_number: prNumber,
-              per_page: 100,
-            })).data || [];
-
-            const triggerMarker = "<!-- copilot-review-trigger -->";
-            const alreadyTriggered = existingComments.some(c => {
-              if (!c.body || !c.body.includes(triggerMarker)) return false;
-              return new Date(c.created_at) > latestPushDate;
-            });
-            if (alreadyTriggered) {
-              core.info("Skip: Copilot review trigger already posted since last push");
+            // Prevent workflow loops triggered by automation comments.
+            const blockedActors = new Set([
+              "github-actions[bot]",
+              "chatgpt-codex-connector",
+              "chatgpt-codex-connector[bot]",
+            ]);
+            if (blockedActors.has(reviewerLogin)) {
+              core.info(`Skip: reviewer is a blocked actor (${reviewerLogin})`);
               return;
             }
 
@@ -115,9 +113,77 @@ jobs:
             }
 
             const unresolvedThreads = await fetchUnresolvedThreads();
+            const requestedReviewers = pr.requested_reviewers || [];
+            const codexRequested = requestedReviewers.some(r => {
+              const login = (r?.login || "").toLowerCase();
+              return (
+                login === "chatgpt-codex-connector" ||
+                login === "chatgpt-codex-connector[bot]" ||
+                login === "codex"
+              );
+            });
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner,
+              repo,
+              pull_number: prNumber,
+              per_page: 100,
+            });
+            const codexReviewed = reviews.some(review => {
+              const login = (review.user?.login || "").toLowerCase();
+              return (
+                login === "chatgpt-codex-connector[bot]" ||
+                login === "chatgpt-codex-connector" ||
+                login === "codex"
+              );
+            });
+
+            if (unresolvedThreads.length === 0 && codexRequested && !codexReviewed) {
+              core.info("Skip: waiting for Codex reviewer output before enabling auto-merge");
+              return;
+            }
 
             if (unresolvedThreads.length === 0) {
-              core.info("Skip: no unresolved review threads");
+              try {
+                await github.graphql(
+                  `mutation($prId: ID!) {
+                    enablePullRequestAutoMerge(input: {pullRequestId: $prId, mergeMethod: SQUASH}) {
+                      clientMutationId
+                    }
+                  }`,
+                  { prId: pr.node_id }
+                );
+                core.info("Enabled auto-merge: no unresolved review threads remain");
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                core.info(`Could not enable auto-merge: ${message}`);
+              }
+              return;
+            }
+
+            // Skip if a codex trigger was already posted after the latest push.
+            const commits = (await github.rest.pulls.listCommits({
+              owner,
+              repo,
+              pull_number: prNumber,
+            })).data || [];
+            const latestPushDate = commits.length > 0
+              ? new Date(commits[commits.length - 1].commit.committer.date)
+              : new Date(0);
+
+            const existingComments = (await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number: prNumber,
+              per_page: 100,
+            })).data || [];
+
+            const triggerMarker = "<!-- codex-review-trigger -->";
+            const alreadyTriggered = existingComments.some(c => {
+              if (!c.body || !c.body.includes(triggerMarker)) return false;
+              return new Date(c.created_at) > latestPushDate;
+            });
+            if (alreadyTriggered) {
+              core.info("Skip: Codex review trigger already posted since last push");
               return;
             }
 
@@ -136,8 +202,8 @@ jobs:
             const body = [
               triggerMarker,
               reviewState === "changes_requested"
-                ? `@copilot A reviewer (${reviewer}) has requested changes on this PR.`
-                : `@copilot A reviewer (${reviewer}) left feedback on this PR.`,
+                ? `@codex A reviewer (${reviewer}) has requested changes on this PR.`
+                : `@codex A reviewer (${reviewer}) left feedback on this PR.`,
               `There are **${unresolvedThreads.length}** unresolved review thread(s):`,
               "",
               threadSummary,
@@ -168,4 +234,4 @@ jobs:
               body,
             });
 
-            core.info(`Posted Copilot trigger for ${unresolvedThreads.length} unresolved thread(s)`);
+            core.info(`Posted Codex trigger for ${unresolvedThreads.length} unresolved thread(s)`);
