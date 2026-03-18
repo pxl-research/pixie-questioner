@@ -19,7 +19,7 @@ If on `main`/`master`, create a task branch first:
 git switch -c <type>/<short-description>
 ```
 
-Branch prefixes: `feat/`, `fix/`, `refactor/` (only if requested), `chore/`.
+Branch prefixes: `feat/`, `feature/`, `fix/`, `bug/`, `refactor/` (only if requested), `chore/`, `test/`.
 
 ---
 
@@ -27,7 +27,7 @@ Branch prefixes: `feat/`, `fix/`, `refactor/` (only if requested), `chore/`.
 
 1. Branch is not `main`/`master`
 2. Staged changes match the task (`git diff --cached`)
-3. No forbidden changes, temp files, or `docs/plans/` files staged
+3. No forbidden changes, temp files, or temporary `docs/plans/` files staged (`.gitkeep` is allowed)
 4. Relevant validation passed (see `.agents/testing.md`)
 
 ---
