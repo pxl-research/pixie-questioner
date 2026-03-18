@@ -1,0 +1,29 @@
+name: Ruwe Probleem Intake
+description: Start met een ruwe probleemomschrijving. De intake-automation stelt verduidelijkingsvragen en kan daarna een uitvoerbaar ticket aanmaken.
+title: "intake: "
+labels:
+  - intake
+body:
+  - type: textarea
+    id: problem_raw
+    attributes:
+      label: Ruwe probleemomschrijving
+      description: Beschrijf het probleem in je eigen woorden.
+      placeholder: Wat gaat er fout? Voor wie? Sinds wanneer?
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Wat is de impact als dit niet opgelost wordt?
+      placeholder: Blokkerend, workaround mogelijk, business impact...
+    validations:
+      required: false
+  - type: textarea
+    id: extra_context
+    attributes:
+      label: Extra context
+      description: Logs, links, screenshots, reproduceerbare stappen...
+    validations:
+      required: false
