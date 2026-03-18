@@ -18,6 +18,30 @@ Set real Azure values in `.env.dev` before calling the LLM-backed routes.
 
 Open `http://localhost:8000/docs` for the OpenAPI UI.
 
+## Engineering Automation Flow
+
+This repository includes GitHub automation for issue intake and autonomous PR bootstrapping.
+
+### 1. Start from a rough issue
+
+- Create an issue using `.github/ISSUE_TEMPLATE/raw-intake.yml`.
+- The issue is labeled `intake` and `issue-intake` workflow posts clarification questions.
+
+### 2. Convert intake to an actionable ticket
+
+- Reply in the issue thread with context/answers.
+- Post `/create-ticket` in the intake issue.
+- The workflow creates a new ticket labeled `codex:ready` and closes the intake issue.
+
+### 3. Auto-bootstrap implementation PR
+
+- Labeling an issue `codex:ready` triggers `.github/workflows/issue-to-agent.yml`.
+- The workflow creates a branch (`feat/<issue>-<slug>` or `fix/<issue>-<slug>`), opens a PR, and posts an `@copilot` execution handoff comment.
+- Existing workflows then continue the lifecycle:
+  - `.github/workflows/auto-pr.yml` ensures PR metadata/project fields and enables auto-merge.
+  - `.github/workflows/ci.yml` runs validation checks.
+  - `.github/workflows/copilot-handle-pr-reviews.yml` retriggers Copilot when unresolved review feedback is submitted.
+
 ## API Contract
 
 ### POST /cases/{case_id}/chat

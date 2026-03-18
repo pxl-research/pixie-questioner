@@ -1,0 +1,192 @@
+name: issue-to-agent
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  bootstrap-pr:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.issue.pull_request == null
+    steps:
+      - name: Bootstrap implementation branch and PR for codex-ready issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_AUTOMATION_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue = context.payload.issue;
+            const label = context.payload.label;
+
+            if (!label || label.name !== 'codex:ready') {
+              core.info('Skip: event label is not codex:ready');
+              return;
+            }
+
+            if (!issue || issue.state !== 'open') {
+              core.info('Skip: issue is not open');
+              return;
+            }
+
+            function slugify(text) {
+              return text
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '')
+                .slice(0, 48) || 'work-item';
+            }
+
+            function labelName(raw) {
+              if (typeof raw === 'string') return raw;
+              return raw?.name || '';
+            }
+
+            const issueLabels = (issue.labels || []).map(labelName);
+            const prefix = issueLabels.includes('bug') || issueLabels.includes('fix') ? 'fix' : 'feat';
+            const branch = `${prefix}/${issue.number}-${slugify(issue.title || '')}`;
+
+            // This API flow is equivalent to creating a branch and running:
+            // git commit --allow-empty -m "chore: bootstrap issue #<id>"
+            const mainRef = await github.rest.git.getRef({
+              owner,
+              repo,
+              ref: 'heads/main',
+            });
+            const baseSha = mainRef.data.object.sha;
+
+            const baseCommit = await github.rest.git.getCommit({
+              owner,
+              repo,
+              commit_sha: baseSha,
+            });
+
+            let branchExists = false;
+            try {
+              await github.rest.git.getRef({
+                owner,
+                repo,
+                ref: `heads/${branch}`,
+              });
+              branchExists = true;
+            } catch (err) {
+              core.info(`Branch does not exist yet: ${branch}`);
+            }
+
+            if (!branchExists) {
+              const bootstrapCommit = await github.rest.git.createCommit({
+                owner,
+                repo,
+                message: `chore: bootstrap issue #${issue.number}`,
+                tree: baseCommit.data.tree.sha,
+                parents: [baseSha],
+              });
+
+              await github.rest.git.createRef({
+                owner,
+                repo,
+                ref: `refs/heads/${branch}`,
+                sha: bootstrapCommit.data.sha,
+              });
+            }
+
+            const openPrs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              base: 'main',
+              per_page: 100,
+            });
+
+            let pr = openPrs.find(candidate => {
+              const headRef = candidate.head?.ref;
+              const closesIssue = (candidate.body || '').includes(`Closes #${issue.number}`);
+              return headRef === branch || closesIssue;
+            });
+
+            if (!pr) {
+              const createdPr = await github.rest.pulls.create({
+                owner,
+                repo,
+                head: branch,
+                base: 'main',
+                title: `${prefix}: ${issue.title}`,
+                body: [
+                  `Closes #${issue.number}`,
+                  '',
+                  'Auto-generated from issue-to-agent workflow.',
+                ].join('\n'),
+              });
+              pr = createdPr.data;
+            }
+
+            const copilotMarker = '<!-- issue-to-agent-trigger -->';
+            const prComments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: pr.number,
+              per_page: 100,
+            });
+            const hasTrigger = prComments.some(comment => comment.body && comment.body.includes(copilotMarker));
+
+            if (!hasTrigger) {
+              const issueBody = (issue.body || '').slice(0, 4000);
+              const reviewBody = [
+                copilotMarker,
+                '@copilot This issue is ready for implementation. Please take it end-to-end.',
+                '',
+                `Issue: #${issue.number}`,
+                `Branch: ${branch}`,
+                '',
+                'Execution rules:',
+                '1. Implement only what is needed for this issue.',
+                '2. Run Docker-based tests/lint/type checks before committing.',
+                '3. Push commits to this PR branch.',
+                '4. Resolve review feedback threads when valid.',
+                '',
+                'Issue context:',
+                issueBody || '(empty)',
+              ].join('\n');
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: pr.number,
+                body: reviewBody,
+              });
+            }
+
+            try {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: issue.number,
+                labels: ['codex:in-progress'],
+              });
+            } catch (err) {
+              core.info(`Could not add codex:in-progress label: ${err.message}`);
+            }
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner,
+                repo,
+                issue_number: issue.number,
+                name: 'codex:ready',
+              });
+            } catch (err) {
+              core.info(`Could not remove codex:ready label: ${err.message}`);
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: issue.number,
+              body: `Implementation gestart op branch \`${branch}\` via PR #${pr.number}.`,
+            });
