@@ -30,20 +30,26 @@ def _workflow_script() -> str:
     return cast(str, steps[0]["with"]["script"])
 
 
-def test_review_workflow_listens_for_review_thread_resolution_events() -> None:
+def test_review_workflow_listens_for_supported_review_events() -> None:
     on_config = _workflow_on()
 
     assert on_config["pull_request_review"]["types"] == ["submitted"]
-    assert on_config["pull_request_review_thread"]["types"] == [
-        "resolved",
-        "unresolved",
+    assert on_config["pull_request_review_comment"]["types"] == [
+        "created",
+        "edited",
+        "deleted",
     ]
+    assert on_config["issue_comment"]["types"] == ["created"]
 
 
 def test_review_workflow_skips_closed_or_merged_prs() -> None:
     script = _workflow_script()
 
     assert 'if (!pr || pr.state !== "open")' in script
+    assert (
+        "github.event.issue.pull_request != null"
+        in _load_workflow()["jobs"]["trigger-copilot"]["if"]
+    )
 
 
 def test_review_workflow_only_enables_auto_merge_when_threads_are_resolved() -> None:
