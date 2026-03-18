@@ -3,6 +3,8 @@ name: copilot-handle-pr-reviews
 on:
   pull_request_review:
     types: [submitted]
+  pull_request_review_thread:
+    types: [resolved, unresolved]
 
 permissions:
   contents: read
@@ -29,41 +31,18 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const pr = context.payload.pull_request;
+            if (!pr || pr.state !== "open") {
+              core.info("Skip: pull request is not open");
+              return;
+            }
             const prNumber = pr.number;
             const reviewer = context.payload.review?.user?.login || context.actor;
             const reviewState = context.payload.review?.state || "";
 
             // Prevent loops: skip reviews submitted by bots (Copilot, github-actions).
             const blockedActors = new Set(["copilot[bot]", "github-actions[bot]"]);
-            if (blockedActors.has(reviewer)) {
+            if (context.eventName === "pull_request_review" && blockedActors.has(reviewer)) {
               core.info(`Skip: reviewer is a blocked actor (${reviewer})`);
-              return;
-            }
-
-            // Skip if a copilot trigger was already posted after the latest push.
-            const commits = (await github.rest.pulls.listCommits({
-              owner,
-              repo,
-              pull_number: prNumber,
-            })).data || [];
-            const latestPushDate = commits.length > 0
-              ? new Date(commits[commits.length - 1].commit.committer.date)
-              : new Date(0);
-
-            const existingComments = (await github.rest.issues.listComments({
-              owner,
-              repo,
-              issue_number: prNumber,
-              per_page: 100,
-            })).data || [];
-
-            const triggerMarker = "<!-- copilot-review-trigger -->";
-            const alreadyTriggered = existingComments.some(c => {
-              if (!c.body || !c.body.includes(triggerMarker)) return false;
-              return new Date(c.created_at) > latestPushDate;
-            });
-            if (alreadyTriggered) {
-              core.info("Skip: Copilot review trigger already posted since last push");
               return;
             }
 
@@ -115,9 +94,77 @@ jobs:
             }
 
             const unresolvedThreads = await fetchUnresolvedThreads();
+            const requestedReviewers = pr.requested_reviewers || [];
+            const copilotRequested = requestedReviewers.some(r => {
+              const login = (r?.login || "").toLowerCase();
+              return login === "copilot";
+            });
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner,
+              repo,
+              pull_number: prNumber,
+              per_page: 100,
+            });
+            const copilotReviewed = reviews.some(review => {
+              const login = (review.user?.login || "").toLowerCase();
+              return (
+                login === "copilot-pull-request-reviewer[bot]" ||
+                login === "copilot-pull-request-reviewer" ||
+                login === "copilot"
+              );
+            });
+
+            if (unresolvedThreads.length === 0 && copilotRequested && !copilotReviewed) {
+              core.info("Skip: waiting for Copilot reviewer output before enabling auto-merge");
+              return;
+            }
 
             if (unresolvedThreads.length === 0) {
-              core.info("Skip: no unresolved review threads");
+              try {
+                await github.graphql(
+                  `mutation($prId: ID!) {
+                    enablePullRequestAutoMerge(input: {pullRequestId: $prId, mergeMethod: SQUASH}) {
+                      clientMutationId
+                    }
+                  }`,
+                  { prId: pr.node_id }
+                );
+                core.info("Enabled auto-merge: no unresolved review threads remain");
+              } catch (err) {
+                core.info(`Could not enable auto-merge: ${err.message}`);
+              }
+              return;
+            }
+
+            if (context.eventName !== "pull_request_review") {
+              core.info("Skip: unresolved threads remain and event is not a review submission");
+              return;
+            }
+
+            // Skip if a copilot trigger was already posted after the latest push.
+            const commits = (await github.rest.pulls.listCommits({
+              owner,
+              repo,
+              pull_number: prNumber,
+            })).data || [];
+            const latestPushDate = commits.length > 0
+              ? new Date(commits[commits.length - 1].commit.committer.date)
+              : new Date(0);
+
+            const existingComments = (await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number: prNumber,
+              per_page: 100,
+            })).data || [];
+
+            const triggerMarker = "<!-- copilot-review-trigger -->";
+            const alreadyTriggered = existingComments.some(c => {
+              if (!c.body || !c.body.includes(triggerMarker)) return false;
+              return new Date(c.created_at) > latestPushDate;
+            });
+            if (alreadyTriggered) {
+              core.info("Skip: Copilot review trigger already posted since last push");
               return;
             }
 
