@@ -1,0 +1,393 @@
+name: codex-handle-pr-comments
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: codex-pr-comments-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: Prepare PR context
+    runs-on: ubuntu-latest
+
+    outputs:
+      should_run: ${{ steps.prepare.outputs.should_run }}
+      skip_reason: ${{ steps.prepare.outputs.skip_reason }}
+      pr_number: ${{ steps.prepare.outputs.pr_number }}
+      head_ref: ${{ steps.prepare.outputs.head_ref }}
+      head_repo: ${{ steps.prepare.outputs.head_repo }}
+      actor_login: ${{ steps.prepare.outputs.actor_login }}
+      task_file: ${{ steps.prepare.outputs.task_file }}
+
+    steps:
+      - name: Prepare task for Codex
+        id: prepare
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require("fs");
+            const path = require("path");
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const eventName = context.eventName;
+            const payload = context.payload;
+            const actor = payload.sender?.login || context.actor;
+
+            // Never react to our own bot comments to prevent loops.
+            const blockedActors = new Set([
+              "github-actions[bot]"
+            ]);
+            if (blockedActors.has(actor)) {
+              core.setOutput("should_run", "false");
+              core.setOutput("skip_reason", `Blocked actor: ${actor}`);
+              return;
+            }
+
+            // Resolve PR number from different event payloads.
+            let prNumber = null;
+            let triggerText = "";
+            let triggerKind = eventName;
+
+            if (eventName === "issue_comment") {
+              if (!payload.issue?.pull_request) {
+                core.setOutput("should_run", "false");
+                core.setOutput("skip_reason", "Issue comment is not on a pull request");
+                return;
+              }
+              prNumber = payload.issue.number;
+              triggerText = payload.comment?.body || "";
+              triggerKind = "issue_comment";
+            } else if (eventName === "pull_request_review_comment") {
+              prNumber = payload.pull_request?.number;
+              triggerText = payload.comment?.body || "";
+              triggerKind = "pull_request_review_comment";
+            } else if (eventName === "pull_request_review") {
+              prNumber = payload.pull_request?.number;
+              triggerText = payload.review?.body || "";
+              triggerKind = "pull_request_review";
+            }
+
+            if (!prNumber) {
+              core.setOutput("should_run", "false");
+              core.setOutput("skip_reason", "Could not resolve pull request number");
+              return;
+            }
+
+            // Only maintainers/write/admin and trusted bots may trigger code changes.
+            let permission = "none";
+            try {
+              const permResp = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner,
+                repo,
+                username: actor
+              });
+              permission = permResp.data.permission || "none";
+            } catch (e) {
+              // Bots or edge cases can fail here; keep permission as none.
+            }
+
+            const trustedPermissions = new Set(["admin", "write", "maintain"]);
+            const trustedBots = new Set(["copilot[bot]"]);
+            const isTrusted = trustedPermissions.has(permission) || trustedBots.has(actor);
+
+            if (!isTrusted) {
+              core.setOutput("should_run", "false");
+              core.setOutput("skip_reason", `Untrusted actor: ${actor} (${permission})`);
+              return;
+            }
+
+            const prResp = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: prNumber
+            });
+
+            const pr = prResp.data;
+
+            if (pr.base.ref !== "main") {
+              core.setOutput("should_run", "false");
+              core.setOutput("skip_reason", `PR targets ${pr.base.ref}, not main`);
+              return;
+            }
+
+            // Fork PRs cannot receive pushes via the default token.
+            if (!pr.head.repo || pr.head.repo.full_name !== `${owner}/${repo}`) {
+              core.setOutput("should_run", "false");
+              core.setOutput("skip_reason", "PR branch is not in the same repository");
+              return;
+            }
+
+            // Fetch all unresolved review threads via GraphQL.
+            async function fetchAllReviewThreads() {
+              const threads = [];
+              let hasNextPage = true;
+              let cursor = null;
+
+              while (hasNextPage) {
+                const result = await github.graphql(
+                  `
+                  query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+                    repository(owner: $owner, name: $repo) {
+                      pullRequest(number: $number) {
+                        reviewThreads(first: 100, after: $cursor) {
+                          nodes {
+                            id
+                            isResolved
+                            isOutdated
+                            comments(first: 30) {
+                              nodes {
+                                id
+                                body
+                                path
+                                line
+                                originalLine
+                                diffHunk
+                                createdAt
+                                url
+                                author {
+                                  login
+                                }
+                              }
+                            }
+                          }
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
+                        }
+                      }
+                    }
+                  }
+                  `,
+                  {
+                    owner,
+                    repo,
+                    number: prNumber,
+                    cursor
+                  }
+                );
+
+                const page = result.repository.pullRequest.reviewThreads;
+                threads.push(...page.nodes);
+                hasNextPage = page.pageInfo.hasNextPage;
+                cursor = page.pageInfo.endCursor;
+              }
+
+              return threads;
+            }
+
+            const allThreads = await fetchAllReviewThreads();
+            const unresolvedThreads = allThreads.filter(t => !t.isResolved);
+
+            if (unresolvedThreads.length === 0) {
+              core.setOutput("should_run", "false");
+              core.setOutput("skip_reason", "No unresolved review threads");
+              return;
+            }
+
+            // Build a consolidated task file for Codex.
+            const taskDir = path.join(process.env.GITHUB_WORKSPACE, ".github", "codex", "tmp");
+            fs.mkdirSync(taskDir, { recursive: true });
+
+            const taskFile = path.join(taskDir, `pr-${prNumber}-comment-task.md`);
+
+            const sanitizedTriggerText = String(triggerText || "")
+              .replace(/\0/g, "")
+              .trim();
+
+            const threadSections = unresolvedThreads.map((thread, idx) => {
+              const comments = (thread.comments?.nodes || []).map((c, j) => {
+                return [
+                  `### Comment ${j + 1}`,
+                  `Author: ${c.author?.login || "unknown"}`,
+                  c.path ? `Path: ${c.path}` : null,
+                  c.line ? `Line: ${c.line}` : null,
+                  c.url ? `URL: ${c.url}` : null,
+                  "",
+                  "Body:",
+                  c.body || "",
+                  "",
+                  c.diffHunk ? "Diff hunk:" : null,
+                  c.diffHunk || null
+                ].filter(Boolean).join("\n");
+              }).join("\n\n");
+
+              return [
+                `## Open Review Thread ${idx + 1}`,
+                `Thread ID: ${thread.id}`,
+                `Outdated: ${thread.isOutdated ? "yes" : "no"}`,
+                "",
+                comments
+              ].join("\n");
+            }).join("\n\n---\n\n");
+
+            const doc = [
+              "# Task: handle open PR feedback",
+              "",
+              "You are working inside a GitHub Actions job on the pull request branch.",
+              "",
+              "## Goal",
+              "Assess the new PR feedback and handle all currently open review threads in one pass.",
+              "",
+              "## Hard rules",
+              "- Follow AGENTS.md and repository conventions.",
+              "- Do not apply fixes blindly.",
+              "- Use your own judgment on whether feedback is correct and actionable.",
+              "- If feedback is valid, make the smallest correct change.",
+              "- If multiple valid comments are closely related, group them in one logical commit.",
+              "- If a comment is not applicable, already handled, or conflicts with repo constraints, do not change code for it.",
+              "- Do not merge the PR.",
+              "- Do not modify GitHub workflow files unless the feedback explicitly requires it.",
+              "- After edits, leave a concise final markdown summary suitable for posting back to the PR.",
+              "",
+              "## Trigger",
+              `Event: ${triggerKind}`,
+              `Actor: ${actor}`,
+              "",
+              "Trigger text:",
+              "```text",
+              sanitizedTriggerText || "(empty)",
+              "```",
+              "",
+              "## Pull request",
+              `PR #${pr.number}: ${pr.title}`,
+              `Base branch: ${pr.base.ref}`,
+              `Head branch: ${pr.head.ref}`,
+              `Author: ${pr.user?.login || "unknown"}`,
+              "",
+              "## Currently open review threads",
+              threadSections,
+              "",
+              "## Required final response format",
+              "Return only a concise markdown summary with these sections:",
+              "1. `Status`",
+              "2. `What I changed`",
+              "3. `What I intentionally skipped`",
+              "4. `Validation note`",
+            ].join("\n");
+
+            fs.writeFileSync(taskFile, doc, "utf8");
+
+            core.setOutput("should_run", "true");
+            core.setOutput("skip_reason", "");
+            core.setOutput("pr_number", String(pr.number));
+            core.setOutput("head_ref", pr.head.ref);
+            core.setOutput("head_repo", pr.head.repo.full_name);
+            core.setOutput("actor_login", actor);
+            core.setOutput("task_file", path.relative(process.env.GITHUB_WORKSPACE, taskFile));
+
+      - name: Upload task file
+        if: steps.prepare.outputs.should_run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-task
+          path: ${{ steps.prepare.outputs.task_file }}
+          retention-days: 1
+
+  codex:
+    name: Run Codex on PR branch
+    needs: prepare
+    if: needs.prepare.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout PR head branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ needs.prepare.outputs.head_repo }}
+          ref: ${{ needs.prepare.outputs.head_ref }}
+          fetch-depth: 0
+
+      - name: Download task file
+        uses: actions/download-artifact@v4
+        with:
+          name: codex-task
+          path: .github/codex/tmp
+
+      - name: Make workspace writable after sudo drop
+        run: chmod -R g+rwX "$GITHUB_WORKSPACE"
+
+      - name: Run Codex
+        id: run_codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: ${{ needs.prepare.outputs.task_file }}
+          output-file: codex-output.md
+          safety-strategy: drop-sudo
+          sandbox: workspace-write
+          allow-bots: copilot[bot]
+          codex-args: --full-auto
+
+      - name: Clean up generated files
+        run: rm -rf .github/codex/tmp/ codex-output.md
+
+      - name: Commit and push changes if any
+        id: commit_push
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            git add -A
+            git commit -m "Address PR feedback via Codex"
+            git push origin "HEAD:${{ needs.prepare.outputs.head_ref }}"
+
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Post summary comment to PR
+        uses: actions/github-script@v7
+        env:
+          FINAL_MESSAGE: ${{ steps.run_codex.outputs.final-message }}
+          CHANGED: ${{ steps.commit_push.outputs.changed }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const body = [
+              "<!-- codex-pr-feedback-handler -->",
+              process.env.FINAL_MESSAGE || "Status\n\nNo summary was returned by Codex.",
+              "",
+              `Branch updated: ${process.env.CHANGED === "true" ? "yes" : "no"}`
+            ].join("\n\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number("${{ needs.prepare.outputs.pr_number }}"),
+              body
+            });
+
+  skipped:
+    name: Explain skip
+    needs: prepare
+    if: needs.prepare.outputs.should_run != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log skip reason
+        run: |
+          echo "Skipped: ${{ needs.prepare.outputs.skip_reason }}"
