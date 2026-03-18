@@ -4,9 +4,11 @@ on:
     branches:
       - 'feat/**'
       - 'feature/**'
+      - 'fix/**'
       - 'bug/**'
       - 'refactor/**'
       - 'chore/**'
+      - 'test/**'
 permissions:
   contents: read
   pull-requests: write
@@ -21,7 +23,7 @@ jobs:
           script: |
             const {owner, repo} = context.repo;
             const branch = context.ref.replace('refs/heads/','');
-            const match = branch.match(/^(feat|feature|bug|refactor|chore)\/(?:(\d+)-)?(.+)$/);
+            const match = branch.match(/^(feat|feature|fix|bug|refactor|chore|test)\/(?:(\d+)-)?(.+)$/);
             if (!match) {
               core.warning(`Branch ${branch} does not match expected pattern`);
               return;
@@ -82,7 +84,7 @@ jobs:
             if (prs.data.length) {
               pr = prs.data[0];
             } else {
-              const typeMap = {feature:'feat', bug:'fix', refactor:'refactor', chore:'chore'};
+              const typeMap = {feature:'feat', fix:'fix', bug:'fix', refactor:'refactor', chore:'chore', test:'test'};
               const title = `${typeMap[type]}: ${slug.replace(/-/g,' ')}`;
               const createPayload = { owner, repo, head: branch, base: 'main', title };
               if (issue) {
@@ -96,7 +98,7 @@ jobs:
             const fieldStatus = 'PVTSSF_lADOB2OsP84BRN75zg_HBVU';
             const optionStatusReview = '883cdec6';
             const fieldWorkType = 'PVTSSF_lADOB2OsP84BRN75zg_HEFM';
-            const workTypeOptions = { bug: '29b7e082', feature: '3e6662c5', refactor: 'a60aa747', chore: '748f009e' };
+            const workTypeOptions = { bug: '29b7e082', fix: '29b7e082', feature: '3e6662c5', refactor: 'a60aa747', chore: '748f009e' };
             const fieldShipped = 'PVTSSF_lADOB2OsP84BRN75zg_HET4';
             const optionShippedNo = 'ef0a02b7';
 
