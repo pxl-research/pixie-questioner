@@ -1,0 +1,66 @@
+name: review-to-codex
+
+on:
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  trigger-codex:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request != null
+    steps:
+      - name: Trigger Codex to assess and address review comments
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const actor = context.actor || "";
+
+            // Skip bots (including Codex itself) to prevent infinite loops.
+            if (actor.endsWith("[bot]")) {
+              core.info(`Skip: actor is a bot (${actor})`);
+              return;
+            }
+
+            const pr = context.payload.pull_request;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const triggerBody = [
+              "@copilot Please assess and address all open review comments on this PR.",
+              "",
+              "Work through the following steps in order:",
+              "",
+              "1. Fetch all unresolved review threads on this PR.",
+              "2. For each thread: evaluate whether the feedback is technically correct,",
+              "   relevant to the project, and consistent with the rules in AGENTS.md.",
+              "   Do not apply fixes blindly — use your own judgment.",
+              "3. If a comment is valid and actionable:",
+              "   - Apply the fix and push a commit to this branch.",
+              "   - Reply to the thread with a brief explanation of what was changed.",
+              "4. If a comment is not applicable, already addressed, or conflicts with",
+              "   project constraints (AGENTS.md invariants, layer boundaries, etc.):",
+              "   - Reply to the thread with a short, respectful explanation of why you",
+              "     are skipping it.",
+              "5. After handling each thread (fixed or explicitly skipped), resolve",
+              "   the conversation.",
+              "",
+              "Rules:",
+              "- Every open thread must receive a reply.",
+              "- Group related fixes into a single logical commit where possible.",
+              "- Do not modify prompts, schemas, or questionnaire content unless the",
+              "  review comment explicitly and correctly targets one of those.",
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: pr.number,
+              body: triggerBody,
+            });
