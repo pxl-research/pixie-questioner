@@ -1,105 +1,59 @@
-# Commit Agent
+# .agents/commit.md
 
-Use this agent to commit changes after they have been reviewed and approved. Can be invoked manually or automatically after tests pass.
+Operational guide for commits in `pixie-questioner`.
+Principles and forbidden-change rules live in `AGENTS.md`; this file covers mechanics only.
 
-## Workflow
-
-1. Check the current branch with `git branch --show-current`
-2. If the current branch is `main` or `master`, create and switch to a new branch before staging or committing
-3. If the task context is clear, use a short descriptive branch name; otherwise ask the user for the branch name
-4. Check for staged changes first (`git diff --cached`)
-5. If no staged changes, use unstaged changes (`git diff`)
-6. Analyze changes and group them logically
-7. Create atomic commits for each logical unit
+---
 
 ## Branch Guardrail
 
-- Never create a commit on `main` or `master`.
-- If a new branch is required, prefer a short name that matches the task context, for example `fix/state-signing` or `chore/codex-branch-workflow`.
-- Do not discard unrelated working tree changes to satisfy this rule.
-
-## Planning Docs Guardrail
-
-- Never commit files under `docs/plans/`, except `docs/plans/.gitkeep`.
-- Delete temporary planning documents before staging or committing implementation work.
-- If `docs/plans/` contains temporary files, remove them and confirm they are absent from both the index and the working tree before committing.
-
-## Commit Message Format
-
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-```text
-<type>(<scope>): <description>
-
-[optional body]
-
-[optional footer(s)]
-```
-
-**Types:**
-
-- `feat`: new feature
-- `fix`: bug fix
-- `docs`: documentation only
-- `style`: formatting, no code change
-- `refactor`: code change without fix or feature
-- `test`: adding or updating tests
-- `chore`: maintenance tasks
-
-**Rules:**
-
-- No emojis in commit messages
-- Subject line max 72 characters
-- Use imperative mood ("add" not "added")
-- Lowercase subject line
-- No period at end of subject
-
-## Splitting Commits
-
-Split into multiple commits when:
-
-- Changes affect different logical areas (e.g., API + tests)
-- Unrelated fixes are bundled together
-- Refactoring is mixed with new features
-
-Keep in single commit when:
-
-- Changes are tightly coupled
-- Splitting would break the build
-
-## Commands
+Before any commit, verify the branch:
 
 ```bash
-# View current branch
 git branch --show-current
-
-# Create and switch to a branch
-git switch -c <type/short-name>
-
-# View staged changes
-git diff --cached
-
-# View unstaged changes
-git diff
-
-# Stage specific files
-git add <file>
-
-# Commit with message
-git commit -m "type(scope): description"
-
-# Stage and commit all
-git add -A && git commit -m "type(scope): description"
 ```
 
-## Auto-commit Trigger
+If on `main`/`master`, create a task branch first:
 
-After successful test run, the agent may auto-commit if:
+```bash
+git switch -c <type>/<short-description>
+```
 
-- All tests pass (`pytest` exits 0)
-- Linting passes (`ruff check .` exits 0)
-- Formatting is clean (`black --check .` exits 0)
+Branch prefixes: `feat/`, `fix/`, `refactor/` (only if requested), `chore/`.
 
-## Invocation
+---
 
-Prompt: "Use `.agents/commit.md` to commit the approved changes."
+## Pre-Commit Checklist
+
+1. Branch is not `main`/`master`
+2. Staged changes match the task (`git diff --cached`)
+3. No forbidden changes, temp files, or `docs/plans/` files staged
+4. Relevant validation passed (see `.agents/testing.md`)
+
+---
+
+## Commit Messages
+
+Format: `<type>: <imperative description>`
+
+Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`
+
+Examples:
+- `fix: preserve cretskens state mutation order`
+- `test: cover empty current_answer handling`
+
+Add a body only when it materially improves review clarity.
+
+---
+
+## Splitting vs. Single Commit
+
+Split when changes affect different logical areas or one part could be reverted independently.
+Keep together when splitting would break behavior or make history harder to follow.
+
+---
+
+## Iteration Pattern
+
+For non-trivial work: implement small change → validate via Docker → commit → repeat.
+Avoid accumulating large uncommitted diffs.
