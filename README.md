@@ -18,29 +18,20 @@ Set real Azure values in `.env.dev` before calling the LLM-backed routes.
 
 Open `http://localhost:8000/docs` for the OpenAPI UI.
 
-## Engineering Automation Flow
+## Engineering Workflow
 
-This repository includes GitHub automation for issue intake and autonomous PR bootstrapping.
+The current setup is intentionally simple:
 
-### 1. Start from a rough issue
+1. Describe the task directly in Codex (CLI, IDE extension, or app).
+2. Codex implements changes on a feature branch.
+3. Push the branch and open/update a PR.
+4. GitHub Actions run:
+   - `.github/workflows/auto-pr.yml` to ensure PR/project metadata
+   - `.github/workflows/ci.yml` for validation
+   - `.github/workflows/docker-publish.yml` only for pushes to `main`
+   - `.github/workflows/release-log.yml` on merged PRs to `main`
 
-- Create an issue using `.github/ISSUE_TEMPLATE/raw-intake.yml`.
-- The issue is labeled `intake` and `issue-intake` workflow posts clarification questions.
-
-### 2. Convert intake to an actionable ticket
-
-- Reply in the issue thread with context/answers.
-- Post `/create-ticket` in the intake issue.
-- The workflow creates a new ticket labeled `codex:ready` and closes the intake issue.
-
-### 3. Auto-bootstrap implementation PR
-
-- Labeling an issue `codex:ready` triggers `.github/workflows/issue-to-agent.yml`.
-- The workflow creates a branch (`feat/<issue>-<slug>` or `fix/<issue>-<slug>`), opens a PR, and posts an `@copilot` execution handoff comment.
-- Existing workflows then continue the lifecycle:
-  - `.github/workflows/auto-pr.yml` ensures PR metadata/project fields and enables auto-merge.
-  - `.github/workflows/ci.yml` runs validation checks.
-  - `.github/workflows/copilot-handle-pr-reviews.yml` retriggers Copilot when unresolved review feedback is submitted.
+No issue-intake automation is active at this time.
 
 ## API Contract
 
