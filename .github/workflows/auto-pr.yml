@@ -98,7 +98,7 @@ jobs:
             const fieldStatus = 'PVTSSF_lADOB2OsP84BRN75zg_HBVU';
             const optionStatusReview = '883cdec6';
             const fieldWorkType = 'PVTSSF_lADOB2OsP84BRN75zg_HEFM';
-            const workTypeOptions = { bug: '29b7e082', fix: '29b7e082', feature: '3e6662c5', refactor: 'a60aa747', chore: '748f009e' };
+            const workTypeOptions = { bug: '29b7e082', fix: '29b7e082', feature: '3e6662c5', refactor: 'a60aa747', chore: '748f009e', test: '748f009e' };
             const fieldShipped = 'PVTSSF_lADOB2OsP84BRN75zg_HET4';
             const optionShippedNo = 'ef0a02b7';
 
