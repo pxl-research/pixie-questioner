@@ -8,13 +8,15 @@ Push and merge workflow for `pixie-questioner`.
 
 1. Branch is not `main`/`master`
 2. Local validation passed (see `.agents/testing.md`)
-3. No forbidden changes, temp files, or `docs/plans/` files in history
+3. No forbidden changes, temp files, or temporary `docs/plans/` files in history (`.gitkeep` is allowed)
 4. Diff is focused and commit history is coherent
 5. `README.md` / `AGENTS.md` still accurate for the changes
 
 ---
 
 ## Push Sequence
+
+**Never push unless the user explicitly requests it** (e.g., `Push deze branch`).
 
 1. Run final validation
 2. Review `git diff` one last time

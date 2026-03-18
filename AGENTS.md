@@ -35,7 +35,7 @@ All commands run via Docker Compose. Never run directly on the host.
 
 ```bash
 docker compose -f docker-compose.dev.yml up --build                          # Run API
-docker compose -f docker-compose.dev.yml run --rm api pytest                 # Tests (add RUN_LIVE_LLM_TESTS=0 prefix)
+RUN_LIVE_LLM_TESTS=0 docker compose -f docker-compose.dev.yml run --rm api pytest  # Tests (live LLM tests disabled)
 docker compose -f docker-compose.dev.yml run --rm api ruff check .           # Lint
 docker compose -f docker-compose.dev.yml run --rm api black --check .        # Format
 docker compose -f docker-compose.dev.yml run --rm api uv tool run ty check   # Type check
@@ -99,7 +99,7 @@ Do not infer API, schema, or behavior changes.
 
 - Validation passed via Docker Compose
 - Commits on a non-main branch
-- No `docs/plans/` files committed
+- No temporary `docs/plans/` files committed (except `.gitkeep`)
 - Push includes pre-push maintenance review (see `.agents/push.md`)
 
 ---
