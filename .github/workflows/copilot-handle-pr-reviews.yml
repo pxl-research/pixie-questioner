@@ -18,8 +18,7 @@ jobs:
     name: Trigger Copilot Coding Agent
     runs-on: ubuntu-latest
     if: >-
-      github.event.pull_request != null &&
-      github.event.review.state == 'changes_requested'
+      github.event.pull_request != null
 
     steps:
       - name: Collect review threads and trigger Copilot
@@ -32,8 +31,25 @@ jobs:
             const pr = context.payload.pull_request;
             const prNumber = pr.number;
             const reviewer = context.payload.review?.user?.login || context.actor;
+            const reviewState = context.payload.review?.state || "";
 
-            // Skip if a copilot trigger was already posted for this PR.
+            // Prevent loops: skip reviews submitted by bots (Copilot, github-actions).
+            const blockedActors = new Set(["copilot[bot]", "github-actions[bot]"]);
+            if (blockedActors.has(reviewer)) {
+              core.info(`Skip: reviewer is a blocked actor (${reviewer})`);
+              return;
+            }
+
+            // Skip if a copilot trigger was already posted after the latest push.
+            const commits = (await github.rest.pulls.listCommits({
+              owner,
+              repo,
+              pull_number: prNumber,
+            })).data || [];
+            const latestPushDate = commits.length > 0
+              ? new Date(commits[commits.length - 1].commit.committer.date)
+              : new Date(0);
+
             const existingComments = (await github.rest.issues.listComments({
               owner,
               repo,
@@ -42,8 +58,12 @@ jobs:
             })).data || [];
 
             const triggerMarker = "<!-- copilot-review-trigger -->";
-            if (existingComments.some(c => c.body && c.body.includes(triggerMarker))) {
-              core.info("Skip: Copilot review trigger already posted on this PR");
+            const alreadyTriggered = existingComments.some(c => {
+              if (!c.body || !c.body.includes(triggerMarker)) return false;
+              return new Date(c.created_at) > latestPushDate;
+            });
+            if (alreadyTriggered) {
+              core.info("Skip: Copilot review trigger already posted since last push");
               return;
             }
 
@@ -115,7 +135,9 @@ jobs:
 
             const body = [
               triggerMarker,
-              `@copilot A reviewer (${reviewer}) has requested changes on this PR.`,
+              reviewState === "changes_requested"
+                ? `@copilot A reviewer (${reviewer}) has requested changes on this PR.`
+                : `@copilot A reviewer (${reviewer}) left feedback on this PR.`,
               `There are **${unresolvedThreads.length}** unresolved review thread(s):`,
               "",
               threadSummary,

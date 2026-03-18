@@ -93,7 +93,7 @@ jobs:
               pr = (await github.rest.pulls.create(createPayload)).data;
             }
 
-            // Enable auto-merge (squash) so the PR merges automatically once checks pass.
+            // Enable auto-merge (squash) on every push so it stays active after new commits.
             try {
               await github.graphql(
                 `mutation($prId: ID!) {
