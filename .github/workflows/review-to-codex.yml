@@ -32,8 +32,38 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
+            if (!pr) {
+              core.info('No pull request found in payload; skipping');
+              return;
+            }
+
+            // Only proceed if there are review comments on the PR to avoid noise
+            const reviewComments = (await github.rest.pulls.listReviewComments({
+              owner,
+              repo,
+              pull_number: pr.number,
+            })).data || [];
+
+            if (reviewComments.length === 0) {
+              core.info('Skip: no review comments on PR');
+              return;
+            }
+
+            // Prevent duplicate trigger comments by checking existing issue comments
+            const existingComments = (await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number: pr.number,
+            })).data || [];
+
+            const triggerMarker = '@codex Please assess and address all open review comments on this PR.';
+            if (existingComments.some(c => c.body && c.body.includes(triggerMarker))) {
+              core.info('Skip: codex trigger already present on PR');
+              return;
+            }
+
             const triggerBody = [
-              "@copilot Please assess and address all open review comments on this PR.",
+              "@codex Please assess and address all open review comments on this PR.",
               "",
               "Work through the following steps in order:",
               "",
