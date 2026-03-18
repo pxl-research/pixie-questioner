@@ -60,3 +60,6 @@ def test_review_workflow_only_enables_auto_merge_when_threads_are_resolved() -> 
     assert "chatgpt-codex-connector[bot]" in script
     assert "<!-- codex-review-trigger -->" in script
     assert "@codex A reviewer" in script
+    assert 'const reviewerLogin = (reviewer || "").toLowerCase();' in script
+    assert "blockedActors.has(reviewerLogin)" in script
+    assert "err instanceof Error ? err.message : String(err)" in script

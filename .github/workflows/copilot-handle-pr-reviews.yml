@@ -51,6 +51,7 @@ jobs:
               context.payload.comment?.user?.login ||
               context.actor
             );
+            const reviewerLogin = (reviewer || "").toLowerCase();
             const reviewState = context.payload.review?.state || "";
 
             // Prevent workflow loops triggered by automation comments.
@@ -59,8 +60,8 @@ jobs:
               "chatgpt-codex-connector",
               "chatgpt-codex-connector[bot]",
             ]);
-            if (blockedActors.has(reviewer)) {
-              core.info(`Skip: reviewer is a blocked actor (${reviewer})`);
+            if (blockedActors.has(reviewerLogin)) {
+              core.info(`Skip: reviewer is a blocked actor (${reviewerLogin})`);
               return;
             }
 
@@ -153,7 +154,8 @@ jobs:
                 );
                 core.info("Enabled auto-merge: no unresolved review threads remain");
               } catch (err) {
-                core.info(`Could not enable auto-merge: ${err.message}`);
+                const message = err instanceof Error ? err.message : String(err);
+                core.info(`Could not enable auto-merge: ${message}`);
               }
               return;
             }
