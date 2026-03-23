@@ -189,6 +189,34 @@ def test_turn_controller_raises_on_invalid_payload() -> None:
         )
 
 
+def test_turn_controller_retries_once_after_invalid_payload() -> None:
+    controller = LLMTurnController(
+        llm=FakeLLM(
+            [
+                "geen json payload",
+                (
+                    '{"action":"recommend","question_text":"","meal_mode":"drinking_only",'
+                    '"query_hints":"fris fruitig"}'
+                ),
+            ]
+        ),
+        system_prompt_template="{current_answer}",
+    )
+
+    decision = asyncio.run(
+        controller.decide(
+            current_answer="fris en fruitig",
+            working_context="",
+            turn_count=1,
+            max_turns=6,
+        )
+    )
+
+    assert decision.action == "recommend"
+    assert decision.meal_mode == "drinking_only"
+    assert decision.query_hints == "fris fruitig"
+
+
 def test_ranker_accepts_valid_unique_candidate_barcodes() -> None:
     ranker = LLMWineRanker(
         llm=FakeLLM(['{"barcodes":["c3","c1","c2"]}']),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Literal
@@ -12,6 +13,7 @@ from pydantic import BaseModel, ValidationError, model_validator
 from ..llm_client import extract_llm_content, resolve_llm_client
 
 _JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", flags=re.DOTALL)
+logger = logging.getLogger(__name__)
 
 
 class _TurnDecisionPayload(BaseModel):
@@ -75,6 +77,20 @@ class LLMTurnController:
         except ValidationError as exc:
             raise RuntimeError("Invalid turn controller payload.") from exc
 
+    def _build_retry_prompt(self, prompt: str) -> str:
+        return (
+            f"{prompt}\n\n"
+            "Your previous output was invalid. Return strict JSON only with keys: "
+            'action ("question" or "recommend"), question_text, meal_mode, '
+            "query_hints, decision_explanation."
+        )
+
+    async def _invoke_payload(self, prompt: str) -> _TurnDecisionPayload:
+        response = await resolve_llm_client(self.llm).ainvoke(
+            [{"role": "system", "content": prompt}]
+        )
+        return self._parse_payload(extract_llm_content(response))
+
     async def decide(
         self,
         *,
@@ -95,10 +111,18 @@ class LLMTurnController:
             last_question=last_question,
             conversation_history=conversation_history,
         )
-        response = await resolve_llm_client(self.llm).ainvoke(
-            [{"role": "system", "content": prompt}]
-        )
-        payload = self._parse_payload(extract_llm_content(response))
+        try:
+            payload = await self._invoke_payload(prompt)
+        except Exception:
+            logger.warning(
+                "Turn controller produced invalid payload on first attempt.",
+                exc_info=True,
+            )
+            retry_prompt = self._build_retry_prompt(prompt)
+            try:
+                payload = await self._invoke_payload(retry_prompt)
+            except Exception as retry_error:
+                raise RuntimeError("Invalid turn controller payload.") from retry_error
 
         question_text = (payload.question_text or "").strip()
         if payload.action == "question" and not question_text:

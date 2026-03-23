@@ -682,7 +682,7 @@ def test_ask_relaxes_origin_filtered_context_after_empty_ranker_results() -> Non
     assert "bulgarie" not in str(ranker.calls[-1]["working_context"]).casefold()
 
 
-def test_recommend_from_context_asks_question_when_controller_says_question() -> None:
+def test_recommend_from_context_forces_recommendation_after_completed_intake() -> None:
     controller = StubController(
         [
             TurnDecision(
@@ -714,9 +714,10 @@ def test_recommend_from_context_asks_question_when_controller_says_question() ->
         )
     )
 
-    assert result.response_type == "question"
-    assert result.text == "Welke stijl zoek je?"
-    assert result.state["turn_count"] == 1
+    assert result.response_type == "recommendations"
+    assert result.state["phase"] == "completed"
+    assert len(result.recommendations or []) >= 1
+    assert len(ranker.calls) == 1
     assert result.state["meal_mode"] == "drinking_only"
 
 
