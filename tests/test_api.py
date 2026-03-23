@@ -639,8 +639,10 @@ def test_cretskens_chat_completed_intake_returns_recommendations(
     assert chat_stub.calls == [("We eten vanavond pad thai", None)]
     assert advisor_stub.calls == []
     assert len(advisor_stub.recommend_calls) == 1
-    assert advisor_stub.recommend_calls[0][1] == "pairing"
-    assert "pad thai" in advisor_stub.recommend_calls[0][0]
+    working_context, meal_mode = advisor_stub.recommend_calls[0]
+    assert meal_mode == "pairing"
+    assert "pad thai" in working_context
+    assert "8. Gewenste geur/smaak (vrije tekst): fris en fruitig" in working_context
 
 
 def test_chat_returns_recommendations(monkeypatch, tmp_path: Path) -> None:

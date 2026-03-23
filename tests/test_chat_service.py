@@ -93,22 +93,6 @@ class StubIntakeRouteClassifier:
         return self.responses.pop(0)
 
 
-class SequencedLLM:
-    def __init__(self, outcomes: list[str | Exception]) -> None:
-        self.outcomes = list(outcomes)
-        self.calls: list[list[dict[str, str]]] = []
-
-    async def ainvoke(self, messages: list[dict[str, str]]) -> str:
-        await asyncio.sleep(0)
-        self.calls.append(messages)
-        if not self.outcomes:
-            raise AssertionError("No outcomes left for SequencedLLM.")
-        outcome = self.outcomes.pop(0)
-        if isinstance(outcome, Exception):
-            raise outcome
-        return outcome
-
-
 def _make_notulist(llm):
     return LLMPromptInvoker(
         llm=llm,
@@ -122,14 +106,6 @@ def _make_summarizer(llm):
         llm=llm,
         system_prompt_template="Q:{current_question}\nA:{current_answer}\nS:{summary}",
         error_label="Conversation summarizer",
-    )
-
-
-def _make_aroma_taste_classifier(llm):
-    return LLMPromptInvoker(
-        llm=llm,
-        system_prompt_template="K:{summary}\nQ:{current_question}\nA:{current_answer}",
-        error_label="Aroma taste classifier",
     )
 
 
@@ -555,7 +531,6 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
         ]
     )
     summarizer_llm = FakeLLM(["Klant eet vol-au-vent."])
-    aroma_llm = FakeLLM(['{"geur_citrus":true,"smaak_zoet":false}'])
     handoff_llm = FakeLLM(
         [
             (
@@ -572,7 +547,6 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
-        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
         handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
 
@@ -599,8 +573,6 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
     assert '"land": "Frankrijk"' in result.text
     assert '"regio": "Bordeaux"' in result.text
     assert '"prijs": 30' in result.text
-    assert '"geur_citrus": true' in result.text
-    assert '"smaak_zoet": false' in result.text
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None
@@ -613,11 +585,8 @@ def test_ask_returns_categorized_handoff_when_questionnaire_complete():
         "land": "Frankrijk",
         "regio": "Bordeaux",
         "prijs": 30,
-        "geur_citrus": True,
-        "smaak_zoet": False,
     }
     assert question_llm.calls == []
-    assert len(aroma_llm.calls) == 1
     assert len(handoff_llm.calls) == 1
 
 
@@ -2012,7 +1981,6 @@ def test_ask_categorized_handoff_derives_country_from_region_only():
         ]
     )
     summarizer_llm = FakeLLM(["Klant eet rundstoofvlees."])
-    aroma_llm = FakeLLM(['{"smaak_fruitig":true,"smaak_fris_zuur":true}'])
     handoff_llm = FakeLLM(
         [
             (
@@ -2028,7 +1996,6 @@ def test_ask_categorized_handoff_derives_country_from_region_only():
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
-        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
         handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
 
@@ -2049,8 +2016,6 @@ def test_ask_categorized_handoff_derives_country_from_region_only():
     assert handoff["regio"] == "Rioja"
     assert handoff["land"] == "Spanje"
     assert handoff["prijs"] == 25
-    assert handoff["smaak_fruitig"] is True
-    assert handoff["smaak_fris_zuur"] is True
 
 
 def test_ask_categorized_handoff_region_wins_on_country_conflict():
@@ -2069,7 +2034,6 @@ def test_ask_categorized_handoff_region_wins_on_country_conflict():
         ]
     )
     summarizer_llm = FakeLLM(["Klant eet gegrilde zalm."])
-    aroma_llm = FakeLLM(['{"smaak_kruidig":true,"smaak_bruisend":true}'])
     handoff_llm = FakeLLM(
         [
             (
@@ -2085,7 +2049,6 @@ def test_ask_categorized_handoff_region_wins_on_country_conflict():
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
-        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
         handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
 
@@ -2106,11 +2069,9 @@ def test_ask_categorized_handoff_region_wins_on_country_conflict():
     assert handoff["regio"] == "Bordeaux"
     assert handoff["land"] == "Frankrijk"
     assert handoff["prijs"] == 40
-    assert handoff["smaak_kruidig"] is True
-    assert handoff["smaak_bruisend"] is True
 
 
-def test_ask_categorized_handoff_aroma_taste_last_statement_wins():
+def test_ask_categorized_handoff_keeps_wrapped_aroma_text_out_of_handoff():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(
         [
@@ -2122,11 +2083,10 @@ def test_ask_categorized_handoff_aroma_taste_last_statement_wins():
             "5. Kleur van de wijn (wit, rood, rosé): wit\n"
             "6. Herkomst (land en/of regio): Frankrijk\n"
             "7. Maximum budget in euro: 20\n"
-            "8. Gewenste geur/smaak (vrije tekst): fruitig, niet fruitig, maar toch fruitig"
+            '8. Gewenste geur/smaak (vrije tekst): Aroma flags: {"smaak_droog":"true","smaak_fris_zuur":true}'
         ]
     )
     summarizer_llm = FakeLLM(["Klant eet gegrilde kip."])
-    aroma_llm = FakeLLM(['{"smaak_fruitig":true}'])
     handoff_llm = FakeLLM(
         ['{"foodpair_witvlees_gevogelte":true,"foodpair_bbq_grill":true}']
     )
@@ -2137,105 +2097,6 @@ def test_ask_categorized_handoff_aroma_taste_last_statement_wins():
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
-        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
-        handoff_classifier=_make_handoff_classifier(handoff_llm),
-    )
-
-    result = asyncio.run(
-        service.ask(
-            current_answer="fruitig, niet fruitig, maar toch fruitig",
-            state={
-                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
-                "summary": "",
-                "last_question": "Welke geur of smaak zoek je?",
-                "intake_route": "food_pairing",
-                "wine_follow_up_count": "1",
-            },
-        )
-    )
-
-    handoff = json.loads(result.state["handoff_categories_v1"])
-    assert handoff["smaak_fruitig"] is True
-    assert len(aroma_llm.calls) == 1
-
-
-def test_ask_categorized_handoff_ignores_invalid_aroma_classifier_output():
-    question_llm = FakeLLM(["Should not be used"])
-    notulist_llm = FakeLLM(
-        [
-            "0. Dish description (free text from customer): gegrilde kip\n"
-            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
-            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
-            "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
-            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
-            "5. Kleur van de wijn (wit, rood, rosé): wit\n"
-            "6. Herkomst (land en/of regio): Frankrijk\n"
-            "7. Maximum budget in euro: 20\n"
-            "8. Gewenste geur/smaak (vrije tekst): fruitig en fris"
-        ]
-    )
-    summarizer_llm = FakeLLM(["Klant eet gegrilde kip."])
-    aroma_llm = FakeLLM(["geen geldig json antwoord"])
-    handoff_llm = FakeLLM(
-        ['{"foodpair_witvlees_gevogelte":true,"foodpair_bbq_grill":true}']
-    )
-    service = ChatService(
-        llm=question_llm,
-        question_asker_prompt="PROMPT {summary} {completion_token}",
-        notulist=_make_notulist(notulist_llm),
-        summarizer=_make_summarizer(summarizer_llm),
-        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
-        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
-        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
-        handoff_classifier=_make_handoff_classifier(handoff_llm),
-    )
-
-    result = asyncio.run(
-        service.ask(
-            current_answer="fruitig en fris",
-            state={
-                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
-                "summary": "",
-                "last_question": "Welke geur of smaak zoek je?",
-                "intake_route": "food_pairing",
-                "wine_follow_up_count": "1",
-            },
-        )
-    )
-
-    handoff = json.loads(result.state["handoff_categories_v1"])
-    assert "smaak_fruitig" not in handoff
-    assert "smaak_fris_zuur" not in handoff
-
-
-def test_ask_categorized_handoff_parses_wrapped_aroma_classifier_output():
-    question_llm = FakeLLM(["Should not be used"])
-    notulist_llm = FakeLLM(
-        [
-            "0. Dish description (free text from customer): gegrilde kip\n"
-            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
-            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
-            "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
-            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
-            "5. Kleur van de wijn (wit, rood, rosé): wit\n"
-            "6. Herkomst (land en/of regio): Frankrijk\n"
-            "7. Maximum budget in euro: 20\n"
-            "8. Gewenste geur/smaak (vrije tekst): droog en fris"
-        ]
-    )
-    summarizer_llm = FakeLLM(["Klant eet gegrilde kip."])
-    aroma_llm = FakeLLM(['Aroma flags: {"smaak_droog":"true","smaak_fris_zuur":true}'])
-    handoff_llm = FakeLLM(
-        ['{"foodpair_witvlees_gevogelte":true,"foodpair_bbq_grill":true}']
-    )
-    service = ChatService(
-        llm=question_llm,
-        question_asker_prompt="PROMPT {summary} {completion_token}",
-        notulist=_make_notulist(notulist_llm),
-        summarizer=_make_summarizer(summarizer_llm),
-        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
-        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
-        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
         handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
 
@@ -2252,12 +2113,18 @@ def test_ask_categorized_handoff_parses_wrapped_aroma_classifier_output():
         )
     )
 
+    assert (
+        "8. Gewenste geur/smaak (vrije tekst): "
+        'Aroma flags: {"smaak_droog":"true","smaak_fris_zuur":true}'
+    ) in result.state["questionnaire"]
     handoff = json.loads(result.state["handoff_categories_v1"])
-    assert handoff["smaak_droog"] is True
-    assert handoff["smaak_fris_zuur"] is True
+    assert handoff == {
+        "foodpair_witvlees_gevogelte": True,
+        "foodpair_bbq_grill": True,
+    }
 
 
-def test_ask_categorized_handoff_parses_non_json_aroma_key_values():
+def test_ask_categorized_handoff_keeps_parseable_aroma_text_out_of_handoff():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(
         [
@@ -2269,11 +2136,10 @@ def test_ask_categorized_handoff_parses_non_json_aroma_key_values():
             "5. Kleur van de wijn (wit, rood, rosé): wit\n"
             "6. Herkomst (land en/of regio): Frankrijk\n"
             "7. Maximum budget in euro: 20\n"
-            "8. Gewenste geur/smaak (vrije tekst): kruidig"
+            "8. Gewenste geur/smaak (vrije tekst): smaak_kruidig: true"
         ]
     )
     summarizer_llm = FakeLLM(["Klant eet gegrilde kip."])
-    aroma_llm = FakeLLM(["smaak_kruidig: true"])
     handoff_llm = FakeLLM(
         ['{"foodpair_witvlees_gevogelte":true,"foodpair_bbq_grill":true}']
     )
@@ -2284,7 +2150,6 @@ def test_ask_categorized_handoff_parses_non_json_aroma_key_values():
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
-        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
         handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
 
@@ -2301,113 +2166,21 @@ def test_ask_categorized_handoff_parses_non_json_aroma_key_values():
         )
     )
 
+    assert (
+        "8. Gewenste geur/smaak (vrije tekst): smaak_kruidig: true"
+        in result.state["questionnaire"]
+    )
     handoff = json.loads(result.state["handoff_categories_v1"])
-    assert handoff["smaak_kruidig"] is True
+    assert handoff == {
+        "foodpair_witvlees_gevogelte": True,
+        "foodpair_bbq_grill": True,
+    }
 
 
-def test_ask_categorized_handoff_retries_unstructured_aroma_classifier_output():
-    question_llm = FakeLLM(["Should not be used"])
-    notulist_llm = FakeLLM(
-        [
-            "0. Dish description (free text from customer): gegrilde kip\n"
-            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
-            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
-            "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
-            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
-            "5. Kleur van de wijn (wit, rood, rosé): wit\n"
-            "6. Herkomst (land en/of regio): Frankrijk\n"
-            "7. Maximum budget in euro: 20\n"
-            "8. Gewenste geur/smaak (vrije tekst): kruidig"
-        ]
-    )
-    summarizer_llm = FakeLLM(["Klant eet gegrilde kip."])
-    aroma_llm = FakeLLM(["kruidig", '{"smaak_kruidig":true}'])
-    handoff_llm = FakeLLM(
-        ['{"foodpair_witvlees_gevogelte":true,"foodpair_bbq_grill":true}']
-    )
-    service = ChatService(
-        llm=question_llm,
-        question_asker_prompt="PROMPT {summary} {completion_token}",
-        notulist=_make_notulist(notulist_llm),
-        summarizer=_make_summarizer(summarizer_llm),
-        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
-        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
-        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
-        handoff_classifier=_make_handoff_classifier(handoff_llm),
-    )
-
-    result = asyncio.run(
-        service.ask(
-            current_answer="kruidig",
-            state={
-                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
-                "summary": "",
-                "last_question": "Welke geur of smaak zoek je?",
-                "intake_route": "food_pairing",
-                "wine_follow_up_count": "1",
-            },
-        )
-    )
-
-    handoff = json.loads(result.state["handoff_categories_v1"])
-    assert handoff["smaak_kruidig"] is True
-    assert len(aroma_llm.calls) == 2
-
-
-def test_ask_categorized_handoff_maps_generic_kruidig_key():
-    question_llm = FakeLLM(["Should not be used"])
-    notulist_llm = FakeLLM(
-        [
-            "0. Dish description (free text from customer): gegrilde kip\n"
-            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
-            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
-            "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
-            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
-            "5. Kleur van de wijn (wit, rood, rosé): wit\n"
-            "6. Herkomst (land en/of regio): Frankrijk\n"
-            "7. Maximum budget in euro: 20\n"
-            "8. Gewenste geur/smaak (vrije tekst): kruidig"
-        ]
-    )
-    summarizer_llm = FakeLLM(["Klant eet gegrilde kip."])
-    aroma_llm = FakeLLM(['{"kruidig":true}'])
-    handoff_llm = FakeLLM(
-        ['{"foodpair_witvlees_gevogelte":true,"foodpair_bbq_grill":true}']
-    )
-    service = ChatService(
-        llm=question_llm,
-        question_asker_prompt="PROMPT {summary} {completion_token}",
-        notulist=_make_notulist(notulist_llm),
-        summarizer=_make_summarizer(summarizer_llm),
-        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
-        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
-        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
-        handoff_classifier=_make_handoff_classifier(handoff_llm),
-    )
-
-    result = asyncio.run(
-        service.ask(
-            current_answer="kruidig",
-            state={
-                "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
-                "summary": "",
-                "last_question": "Welke geur of smaak zoek je?",
-                "intake_route": "food_pairing",
-                "wine_follow_up_count": "1",
-            },
-        )
-    )
-
-    handoff = json.loads(result.state["handoff_categories_v1"])
-    assert handoff["geur_kruidig"] is True
-    assert handoff["smaak_kruidig"] is True
-
-
-def test_ask_completed_categorized_handoff_fallback_classifies_text_field8():
+def test_ask_completed_categorized_handoff_keeps_text_field8_out_of_handoff():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(["Should not be used"])
     summarizer_llm = FakeLLM(["Should not be used"])
-    aroma_llm = FakeLLM(['{"smaak_kruidig":true}'])
     handoff_llm = FakeLLM(
         ['{"foodpair_witvlees_gevogelte":true,"foodpair_stoofgerecht":true}']
     )
@@ -2418,7 +2191,6 @@ def test_ask_completed_categorized_handoff_fallback_classifies_text_field8():
         summarizer=_make_summarizer(summarizer_llm),
         questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
         domain_policy=_replace_policy(completion_mode="categorized_handoff"),
-        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
         handoff_classifier=_make_handoff_classifier(handoff_llm),
     )
     completed_state = {
@@ -2448,7 +2220,7 @@ def test_ask_completed_categorized_handoff_fallback_classifies_text_field8():
     handoff = json.loads(result.state["handoff_categories_v1"])
     assert handoff["foodpair_witvlees_gevogelte"] is True
     assert handoff["foodpair_stoofgerecht"] is True
-    assert handoff["smaak_kruidig"] is True
+    assert "smaak_kruidig" not in handoff
 
 
 def test_ask_categorized_handoff_omits_unparseable_price():
@@ -2499,7 +2271,7 @@ def test_ask_categorized_handoff_omits_unparseable_price():
     assert handoff["land"] == "Italië"
 
 
-def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
+def test_ask_completed_phase_sanitizes_legacy_categorized_handoff_answer():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(["Should not be used"])
     summarizer_llm = FakeLLM(["Should not be used"])
@@ -2547,19 +2319,121 @@ def test_ask_completed_phase_returns_stable_categorized_handoff_answer():
     assert '"foodpair_stoofgerecht": true' in result.text
     assert '"kleur": "rood"' in result.text
     assert '"regio": "Bordeaux"' in result.text
-    assert '"geur_citrus": true' in result.text
-    assert '"smaak_mineralig": true' in result.text
+    assert '"geur_citrus"' not in result.text
+    assert '"smaak_mineralig"' not in result.text
     assert result.summary is None
     assert result.follow_up_question is None
     assert result.quick_replies is None
     assert result.state["phase"] == "completed"
-    assert (
-        result.state["handoff_categories_v1"]
-        == completed_state["handoff_categories_v1"]
-    )
+    assert json.loads(result.state["handoff_categories_v1"]) == {
+        "foodpair_witvlees_gevogelte": True,
+        "foodpair_stoofgerecht": True,
+        "kleur": "rood",
+        "land": "Frankrijk",
+        "regio": "Bordeaux",
+        "prijs": 30,
+    }
     assert question_llm.calls == []
     assert notulist_llm.calls == []
     assert summarizer_llm.calls == []
+
+
+def test_ask_completed_phase_sanitizes_legacy_machine_coded_field8_state():
+    question_llm = FakeLLM(["Should not be used"])
+    notulist_llm = FakeLLM(["Should not be used"])
+    summarizer_llm = FakeLLM(["Should not be used"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+    questionnaire_only_state = {
+        "questionnaire": (
+            "0. Dish description (free text from customer): vol-au-vent\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
+            "3. Cooking method (BBQ or grill, stew, or none): stew\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): Bordeaux, Frankrijk\n"
+            "7. Maximum budget in euro: 30\n"
+            '8. Gewenste geur/smaak (vrije tekst): {"smaak_fruitig":true}'
+        ),
+        "summary": "Klant eet vol-au-vent.",
+        "last_question": "Welke geur of smaak zoek je?",
+        "phase": "completed",
+        "feedback_status": "pending",
+        "handoff_categories_v1": '{"foodpair_witvlees_gevogelte":true}',
+    }
+
+    questionnaire_only_result = asyncio.run(
+        service.ask(current_answer="Nog iets", state=questionnaire_only_state)
+    )
+
+    assert (
+        "8. Gewenste geur/smaak (vrije tekst): []"
+        in questionnaire_only_result.state["questionnaire"]
+    )
+    assert (
+        "8. Gewenste geur/smaak (vrije tekst): []"
+        in questionnaire_only_result.state["wine_questionnaire"]
+    )
+    assert "smaak_" not in questionnaire_only_result.state["questionnaire"]
+    assert "smaak_" not in questionnaire_only_result.state["wine_questionnaire"]
+    assert "geur_" not in questionnaire_only_result.state["questionnaire"]
+    assert "geur_" not in questionnaire_only_result.state["wine_questionnaire"]
+
+    split_section_state = {
+        "questionnaire": (
+            "0. Dish description (free text from customer): vol-au-vent\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
+            "3. Cooking method (BBQ or grill, stew, or none): stew\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): Bordeaux, Frankrijk\n"
+            "7. Maximum budget in euro: 30\n"
+            "8. Gewenste geur/smaak (vrije tekst): citrus en mineraal"
+        ),
+        "dish_questionnaire": (
+            "0. Dish description (free text from customer): vol-au-vent\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
+            "3. Cooking method (BBQ or grill, stew, or none): stew\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none"
+        ),
+        "wine_questionnaire": (
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): Bordeaux, Frankrijk\n"
+            "7. Maximum budget in euro: 30\n"
+            '8. Gewenste geur/smaak (vrije tekst): {"geur_citrus":true}'
+        ),
+        "summary": "Klant eet vol-au-vent.",
+        "last_question": "Welke geur of smaak zoek je?",
+        "phase": "completed",
+        "feedback_status": "pending",
+        "handoff_categories_v1": '{"foodpair_witvlees_gevogelte":true}',
+    }
+
+    split_section_result = asyncio.run(
+        service.ask(current_answer="Nog iets", state=split_section_state)
+    )
+
+    assert (
+        "8. Gewenste geur/smaak (vrije tekst): citrus en mineraal"
+        in split_section_result.state["questionnaire"]
+    )
+    assert (
+        "8. Gewenste geur/smaak (vrije tekst): citrus en mineraal"
+        in split_section_result.state["wine_questionnaire"]
+    )
+    assert "smaak_" not in split_section_result.state["questionnaire"]
+    assert "smaak_" not in split_section_result.state["wine_questionnaire"]
+    assert "geur_" not in split_section_result.state["questionnaire"]
+    assert "geur_" not in split_section_result.state["wine_questionnaire"]
 
 
 def test_ask_enters_feedback_flow_on_stop_classification():
@@ -3842,59 +3716,6 @@ def test_ask_logs_warning_when_handoff_classifier_fails(caplog) -> None:
     assert result.response_type == "answer"
     assert json.loads(result.state["handoff_categories_v1"]) == {}
     assert "handoff core categories" in caplog.text
-
-
-def test_ask_logs_warning_when_aroma_retry_fails(caplog) -> None:
-    question_llm = FakeLLM(["Should not be used"])
-    notulist_llm = FakeLLM(
-        [
-            "0. Dish description (free text from customer): gegrilde kip\n"
-            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
-            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
-            "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
-            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
-            "5. Kleur van de wijn (wit, rood, rosé): wit\n"
-            "6. Herkomst (land en/of regio): Frankrijk\n"
-            "7. Maximum budget in euro: 20\n"
-            "8. Gewenste geur/smaak (vrije tekst): kruidig"
-        ]
-    )
-    summarizer_llm = FakeLLM(["Klant eet gegrilde kip."])
-    aroma_llm = SequencedLLM(["kruidig", RuntimeError("retry failed")])
-    handoff_llm = FakeLLM(
-        ['{"foodpair_witvlees_gevogelte":true,"foodpair_bbq_grill":true}']
-    )
-    service = ChatService(
-        llm=question_llm,
-        question_asker_prompt="PROMPT {summary} {completion_token}",
-        notulist=_make_notulist(notulist_llm),
-        summarizer=_make_summarizer(summarizer_llm),
-        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
-        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
-        aroma_taste_classifier=_make_aroma_taste_classifier(aroma_llm),
-        handoff_classifier=_make_handoff_classifier(handoff_llm),
-    )
-
-    with caplog.at_level(logging.WARNING):
-        result = asyncio.run(
-            service.ask(
-                current_answer="kruidig",
-                state={
-                    "questionnaire": CRETSKENS_QUESTIONNAIRE_TEMPLATE,
-                    "summary": "",
-                    "last_question": "Welke geur of smaak zoek je?",
-                    "intake_route": "food_pairing",
-                    "wine_follow_up_count": "1",
-                },
-            )
-        )
-
-    handoff = json.loads(result.state["handoff_categories_v1"])
-    assert "smaak_kruidig" not in handoff
-    assert (
-        "Failed to reclassify aroma and taste flags with strict JSON retry."
-        in caplog.text
-    )
 
 
 def test_ask_seeds_questionnaire_from_template_when_state_empty():

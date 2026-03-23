@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .categorized_handoff import sanitize_handoff_categories_v1
 from .flow import (
     ensure_feedback_context,
     mark_feedback_completed,
@@ -90,6 +91,8 @@ async def _build_completed_categorized_handoff_result(
                 current_state.questionnaire
             )
         )
+    else:
+        handoff_categories_v1 = sanitize_handoff_categories_v1(handoff_categories_v1)
 
     language = (
         current_state.conversation_language or handler.language.default_language_code

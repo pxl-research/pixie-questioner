@@ -90,47 +90,6 @@ WINE_REGION_TO_COUNTRY: dict[str, str] = {
 
 WINE_REGION_VALUES = frozenset(WINE_REGION_TO_COUNTRY)
 
-AROMA_TASTE_KEY_ORDER: tuple[str, ...] = (
-    "geur_citrus",
-    "geur_groen_vegetaal",
-    "geur_wit_fruit",
-    "geur_tropisch_fruit",
-    "geur_steenfruit",
-    "geur_rood_fruit",
-    "geur_donker_fruit",
-    "geur_floraal",
-    "geur_kruidig",
-    "geur_mineraal_aards",
-    "geur_zoet_rijping",
-    "geur_hout_geroosterd",
-    "smaak_zoet",
-    "smaak_droog",
-    "smaak_fris_zuur",
-    "smaak_fruitig",
-    "smaak_kruidig",
-    "smaak_bruisend",
-    "smaak_houtgerijpt",
-    "smaak_mineralig",
-    "smaak_romig",
-)
-
-_NORMALIZED_AROMA_KEYS: dict[str, tuple[str, ...]] = {}
-for _key in AROMA_TASTE_KEY_ORDER:
-    _normalized = re.sub(r"[^a-z0-9]+", "_", _key.casefold()).strip("_")
-    _NORMALIZED_AROMA_KEYS[_normalized] = (_key,)
-
-_AROMA_SUFFIX_MAP: dict[str, tuple[str, ...]] = {}
-for _key in AROMA_TASTE_KEY_ORDER:
-    _suffix = _key.split("_", maxsplit=1)[1]
-    existing_keys = _AROMA_SUFFIX_MAP.get(_suffix, ())
-    _AROMA_SUFFIX_MAP[_suffix] = (*existing_keys, _key)
-
-for _ambiguous_key in ("kruidig",):
-    if _ambiguous_key in _AROMA_SUFFIX_MAP:
-        _AROMA_SUFFIX_MAP[_ambiguous_key] = tuple(
-            sorted(set(_AROMA_SUFFIX_MAP[_ambiguous_key]))
-        )
-
 
 def extract_questionnaire_field_value(questionnaire: str, index: int) -> str:
     match = re.search(rf"(?m)^\s*{index}\.\s*[^:\n]*:[^\S\n]*(.*?)$", questionnaire)
@@ -182,81 +141,6 @@ def parse_json_object(value: str) -> dict[str, object]:
     return {}
 
 
-def parse_aroma_taste_flags(value: str) -> dict[str, bool]:
-    if is_blank_questionnaire_value(value):
-        return {}
-    parsed = parse_json_object(value)
-    flags = _extract_flags_from_mapping(parsed)
-    if flags:
-        return flags
-    return _extract_flags_from_text(value)
-
-
-def _extract_bool_value(raw_value: object) -> bool | None:
-    if isinstance(raw_value, bool):
-        return raw_value
-    if isinstance(raw_value, str):
-        normalized = raw_value.strip().casefold().strip('"').strip("'")
-        if normalized in {"true", "false"}:
-            return normalized == "true"
-    return None
-
-
-def _candidate_aroma_keys(raw_key: str) -> tuple[str, ...]:
-    normalized_key = re.sub(r"[^a-z0-9]+", "_", raw_key.casefold()).strip("_")
-    direct = _NORMALIZED_AROMA_KEYS.get(normalized_key)
-    if direct is not None:
-        return direct
-    suffix = _AROMA_SUFFIX_MAP.get(normalized_key)
-    if suffix is not None:
-        return suffix
-    return ()
-
-
-def _extract_flags_from_mapping(parsed: dict[str, object]) -> dict[str, bool]:
-    if not parsed:
-        return {}
-
-    mappings: list[dict[str, object]] = [parsed]
-    for value in parsed.values():
-        if isinstance(value, dict):
-            normalized_mapping = {
-                key: nested_value
-                for key, nested_value in value.items()
-                if isinstance(key, str)
-            }
-            mappings.append(normalized_mapping)
-
-    flags: dict[str, bool] = {}
-    for mapping in mappings:
-        for raw_key, raw_value in mapping.items():
-            if not isinstance(raw_key, str):
-                continue
-            bool_value = _extract_bool_value(raw_value)
-            if bool_value is not None:
-                for candidate_key in _candidate_aroma_keys(raw_key):
-                    flags[candidate_key] = bool_value
-    return flags
-
-
-def _extract_flags_from_text(value: str) -> dict[str, bool]:
-    pattern = re.compile(
-        r"(?P<key>[a-z0-9_\-/]+)\s*[:=]\s*(?P<bool>true|false)",
-        flags=re.IGNORECASE,
-    )
-    flags: dict[str, bool] = {}
-    for match in pattern.finditer(value):
-        bool_value = match.group("bool").strip().casefold() == "true"
-        for candidate_key in _candidate_aroma_keys(match.group("key")):
-            flags[candidate_key] = bool_value
-    return flags
-
-
-def serialize_aroma_taste_flags(flags: dict[str, bool]) -> str:
-    ordered = {key: flags[key] for key in AROMA_TASTE_KEY_ORDER if key in flags}
-    return json.dumps(ordered, ensure_ascii=False, separators=(",", ":"))
-
-
 def sanitize_handoff_core_categories(
     raw_categories: dict[str, object],
 ) -> dict[str, bool | str | int]:
@@ -270,6 +154,12 @@ def sanitize_handoff_core_categories(
     if prijs is not None:
         categories["prijs"] = prijs
     return categories
+
+
+def sanitize_handoff_categories_v1(handoff_categories_v1: str) -> str:
+    parsed = parse_json_object(handoff_categories_v1)
+    categories = sanitize_handoff_core_categories(parsed)
+    return json.dumps(categories, ensure_ascii=False, separators=(",", ":"))
 
 
 def _extract_foodpair_categories(
@@ -336,39 +226,9 @@ def _build_core_classifier_rules() -> str:
 @dataclass
 class CategorizedHandoffBuilder:
     handoff_classifier: LLMPromptInvoker | None
-    aroma_taste_classifier: LLMPromptInvoker | None
-
-    async def normalize_questionnaire(self, questionnaire: str) -> str:
-        field_value = extract_questionnaire_field_value(questionnaire, 8)
-        if is_blank_questionnaire_value(field_value):
-            return questionnaire
-
-        parsed_flags = parse_aroma_taste_flags(field_value)
-        if parsed_flags:
-            return replace_questionnaire_field_value(
-                questionnaire=questionnaire,
-                index=8,
-                new_value=serialize_aroma_taste_flags(parsed_flags),
-            )
-
-        classified_flags = await self._classify_aroma_taste_flags(field_value)
-        if not classified_flags:
-            return questionnaire
-        return replace_questionnaire_field_value(
-            questionnaire=questionnaire,
-            index=8,
-            new_value=serialize_aroma_taste_flags(classified_flags),
-        )
 
     async def build_handoff_categories_v1(self, questionnaire: str) -> str:
         categories = await self._classify_handoff_core_categories(questionnaire)
-        field_value = extract_questionnaire_field_value(questionnaire, 8)
-        aroma_taste_flags = parse_aroma_taste_flags(field_value)
-        if not aroma_taste_flags and not is_blank_questionnaire_value(field_value):
-            aroma_taste_flags = await self._classify_aroma_taste_flags(field_value)
-        for key in AROMA_TASTE_KEY_ORDER:
-            if key in aroma_taste_flags:
-                categories[key] = aroma_taste_flags[key]
         return json.dumps(categories, ensure_ascii=False, separators=(",", ":"))
 
     def build_handoff_text(self, handoff_line: str, handoff_categories_v1: str) -> str:
@@ -394,40 +254,3 @@ class CategorizedHandoffBuilder:
             return {}
         parsed = parse_json_object(classifier_output)
         return sanitize_handoff_core_categories(parsed)
-
-    async def _classify_aroma_taste_flags(self, value: str) -> dict[str, bool]:
-        if self.aroma_taste_classifier is None:
-            return {}
-        allowed_keys = "\n".join(f"- {key}" for key in AROMA_TASTE_KEY_ORDER)
-        try:
-            classified = await self.aroma_taste_classifier.generate(
-                current_question="Classify aroma and taste preferences.",
-                current_answer=value,
-                summary=allowed_keys,
-            )
-        except Exception:
-            logger.warning(
-                "Failed to classify aroma and taste flags.",
-                exc_info=True,
-            )
-            return {}
-        parsed = parse_aroma_taste_flags(classified)
-        if parsed:
-            return parsed
-        strict_summary = (
-            f"{allowed_keys}\n"
-            "Return strict JSON only with exact allowed keys and boolean values."
-        )
-        try:
-            retried = await self.aroma_taste_classifier.generate(
-                current_question="Return strict JSON aroma and taste flags.",
-                current_answer=value,
-                summary=strict_summary,
-            )
-        except Exception:
-            logger.warning(
-                "Failed to reclassify aroma and taste flags with strict JSON retry.",
-                exc_info=True,
-            )
-            return {}
-        return parse_aroma_taste_flags(retried)
