@@ -636,6 +636,7 @@ class WineAdvisorService:
             candidate_barcodes=[],
             selected_barcodes=[],
         )
+        final_turn_count = self.max_turns
 
         if normalized_meal_mode == MEAL_MODE_PAIRING:
             pairing_candidates = rank_catalog_records(
@@ -654,7 +655,7 @@ class WineAdvisorService:
         decision = await self.turn_controller.decide(
             current_answer=normalized_context,
             working_context=normalized_context,
-            turn_count=1,
+            turn_count=final_turn_count,
             max_turns=self.max_turns,
             current_meal_mode=parsed_state.meal_mode,
             last_question="",
@@ -667,16 +668,6 @@ class WineAdvisorService:
         )
         candidate_barcodes = [record.barcode for record in candidate_records]
         state_candidate_barcodes = candidate_barcodes if persist_candidates else []
-
-        if decision.action == "question" and decision.question_text.strip():
-            return self._finalize_question(
-                parsed_state,
-                normalized_context,
-                1,
-                normalized_context,
-                decision,
-                state_candidate_barcodes,
-            )
 
         if not candidate_barcodes:
             candidate_records = self._fallback_candidates_from_context(
@@ -692,7 +683,7 @@ class WineAdvisorService:
         return await self._finalize_recommendation(
             parsed_state,
             normalized_context,
-            1,
+            final_turn_count,
             normalized_context,
             decision,
             candidate_records,
