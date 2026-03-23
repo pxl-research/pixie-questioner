@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import logging
 
 from dataclasses import replace
@@ -19,13 +20,22 @@ from .intake_routing import (
     WINE_FIELD_INDICES,
     determine_next_question_track,
 )
-from .questionnaire import focus_questionnaire_for_route, mask_later_blank_fields
+from .questionnaire import (
+    first_blank_field_index,
+    focus_questionnaire_for_route,
+    mask_later_blank_fields,
+)
 from .types import INITIAL_QUESTION, INTAKE_ROUTE_FOOD_PAIRING, ChatResult, ChatState
 
 if TYPE_CHECKING:
     from .turn_handler import ChatTurnHandler
 
 logger = logging.getLogger(__name__)
+_FALLBACK_QUESTION_TEMPLATES = {
+    "nl": "Kun je je voorkeur delen voor: {label}?",
+    "en": "Could you share your preference for: {label}?",
+    "fr": "Pouvez-vous préciser votre préférence pour : {label} ?",
+}
 
 
 async def handle_off_topic_intake(
@@ -184,7 +194,27 @@ async def build_next_question_result(
         conversation_language,
         last_response=last_response,
     )
-    if not next_question.strip():
+    normalized_question = next_question.strip()
+    if handler.is_categorized_handoff_mode() and not _is_question_like(
+        normalized_question
+    ):
+        fallback_question = _build_deterministic_fallback_question(
+            current_state=current_state,
+            updated_questionnaire=updated_questionnaire,
+            next_question_track=next_question_track,
+            conversation_language=conversation_language,
+            questionnaire_indices=handler.questionnaire_indices,
+        )
+        if fallback_question is None:
+            raise RuntimeError(
+                "Question asker returned an invalid follow-up while intake still has "
+                "unanswered fields."
+            )
+        logger.warning(
+            "Question asker returned a non-question follow-up; using deterministic fallback."
+        )
+        normalized_question = fallback_question
+    if not normalized_question:
         raise RuntimeError(
             "Question asker returned an empty question while intake still has "
             "unanswered fields. This is a transient LLM failure."
@@ -193,7 +223,7 @@ async def build_next_question_result(
         state=current_state,
         updated_questionnaire=updated_questionnaire,
         updated_summary=updated_summary,
-        next_question=next_question,
+        next_question=normalized_question,
     )
     if next_question_track == "dish":
         next_state = replace(
@@ -205,7 +235,64 @@ async def build_next_question_result(
             next_state,
             wine_follow_up_count=current_state.wine_follow_up_count + 1,
         )
-    return handler.answer_result(next_question, next_state, None, None, None)
+    return handler.answer_result(normalized_question, next_state, None, None, None)
+
+
+def _is_question_like(text: str) -> bool:
+    normalized = text.strip()
+    if not normalized:
+        return False
+    return normalized.endswith(("?", "？"))
+
+
+def _build_deterministic_fallback_question(
+    *,
+    current_state: ChatState,
+    updated_questionnaire: str,
+    next_question_track: str,
+    conversation_language: str,
+    questionnaire_indices: list[int],
+) -> str | None:
+    field_index: int | None
+    label_source = updated_questionnaire
+    if next_question_track == "dish":
+        field_index = first_blank_field_index(
+            current_state.dish_questionnaire,
+            DISH_FIELD_INDICES,
+        )
+        label_source = current_state.dish_questionnaire
+    elif next_question_track == "wine":
+        field_index = first_blank_field_index(
+            current_state.wine_questionnaire,
+            WINE_FIELD_INDICES,
+        )
+        label_source = current_state.wine_questionnaire
+    else:
+        field_index = first_blank_field_index(
+            updated_questionnaire, questionnaire_indices
+        )
+    if field_index is None:
+        return None
+
+    language_code = conversation_language.casefold().split("-")[0]
+    template = _FALLBACK_QUESTION_TEMPLATES.get(
+        language_code,
+        _FALLBACK_QUESTION_TEMPLATES["en"],
+    )
+    label = _extract_field_label(label_source, field_index)
+    if label is None:
+        label = f"field {field_index}"
+    return template.format(label=label)
+
+
+def _extract_field_label(questionnaire: str, field_index: int) -> str | None:
+    match = re.search(
+        rf"(?m)^\s*{field_index}\.\s*([^:\n]+):",
+        questionnaire,
+    )
+    if match is None:
+        return None
+    return " ".join(match.group(1).split()).strip()
 
 
 async def _build_categorized_completion_result(

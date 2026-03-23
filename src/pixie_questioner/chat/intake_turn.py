@@ -172,6 +172,11 @@ async def _handle_on_topic_intake(
     )
     if handler.is_categorized_handoff_mode():
         updated_state.intake_stage = resolve_intake_stage(updated_state)
+    _maybe_apply_supported_origin_fallback(
+        handler,
+        updated_state,
+        current_answer,
+    )
     unsupported_origin_follow_up = await _maybe_generate_unsupported_origin_follow_up(
         handler,
         current_state,
@@ -236,6 +241,40 @@ def _parse_follow_up_flag(value: object) -> bool:
         if normalized == "false":
             return False
     return False
+
+
+def _maybe_apply_supported_origin_fallback(
+    handler: ChatTurnHandler,
+    updated_state: ChatState,
+    current_answer: str,
+) -> None:
+    if not handler.is_categorized_handoff_mode():
+        return
+    if (
+        updated_state.intake_stage != INTAKE_STAGE_WINE
+        and updated_state.intake_route != INTAKE_ROUTE_GENERAL_WINE
+    ):
+        return
+    current_origin_value = extract_questionnaire_field_value(
+        updated_state.wine_questionnaire, 6
+    )
+    if not is_blank_questionnaire_value(
+        current_origin_value
+    ) and _is_supported_origin_value(current_origin_value):
+        return
+    extracted = _find_supported_origin_in_answer(current_answer)
+    if extracted is None:
+        return
+    updated_state.wine_questionnaire = replace_questionnaire_field_value(
+        updated_state.wine_questionnaire,
+        6,
+        extracted,
+    )
+    updated_state.questionnaire = replace_questionnaire_field_value(
+        updated_state.questionnaire,
+        6,
+        extracted,
+    )
 
 
 def _normalize_origin_lookup_value(value: str) -> str:

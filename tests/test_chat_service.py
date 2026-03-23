@@ -1188,6 +1188,66 @@ def test_ask_cretskens_supported_origin_fills_field_when_notulist_misses_it():
     assert len(notulist_llm.calls) == 1
 
 
+def test_ask_cretskens_supported_origin_overrides_unsupported_when_answer_contains_supported_country():
+    question_llm = FakeLLM(["Welke geur of smaak zoek je?"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): Bulgarije\n"
+            "7. Maximum budget in euro: 20\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt rode wijn rond 20 euro."])
+    unsupported_origin_llm = FakeLLM(["should not be called"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        unsupported_origin_follow_up=_make_unsupported_origin_follow_up(
+            unsupported_origin_llm
+        ),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="20 euro, liefst Frankrijk",
+            state={
+                "questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): Bulgarije\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "wine_questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): Bulgarije\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "summary": "",
+                "last_question": "Wat is je maximum budget?",
+                "intake_route": "general_wine",
+                "intake_stage": "wine",
+                "wine_follow_up_count": "2",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Welke geur of smaak zoek je?"
+    assert (
+        "6. Herkomst (land en/of regio): Frankrijk"
+        in result.state["wine_questionnaire"]
+    )
+    assert "6. Herkomst (land en/of regio): Frankrijk" in result.state["questionnaire"]
+    assert unsupported_origin_llm.calls == []
+    assert len(notulist_llm.calls) == 1
+
+
 def test_ask_cretskens_general_wine_unsupported_origin_still_triggers_after_explicit_origin_question():
     """Regression: when origin was explicitly asked and user names an unsupported country,
     the unsupported-origin follow-up must still fire (field 6 must not be pre-marked).
@@ -4142,3 +4202,58 @@ def test_aroma_taste_fallback_when_notulist_leaves_field_8_blank():
     assert "fris en fruitig" in result.state.get("wine_questionnaire", "")
     # Question asker must NOT have been called
     assert question_llm.calls == []
+
+
+def test_ask_uses_deterministic_fallback_when_question_asker_returns_non_question():
+    question_llm = FakeLLM(["Dank u, dat helpt ons goed verder"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): Frankrijk\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt rode wijn uit Frankrijk."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="20 euro",
+            state={
+                "questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): Frankrijk\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "wine_questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): Frankrijk\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "summary": "",
+                "last_question": "Wat is je maximum budget?",
+                "intake_route": "general_wine",
+                "intake_stage": "wine",
+                "wine_follow_up_count": "2",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Kun je je voorkeur delen voor: Maximum budget in euro?"
+    assert (
+        result.state["last_question"]
+        == "Kun je je voorkeur delen voor: Maximum budget in euro?"
+    )
+    assert result.state["phase"] == "intake"
+    assert len(question_llm.calls) == 1
