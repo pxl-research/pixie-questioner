@@ -57,9 +57,12 @@ class QuestionAsker:
         system_prompt = (
             f"{system_prompt}{self.language.build_instruction(conversation_language)}"
         )
-        response = await resolve_llm_client(self.llm).ainvoke(
-            [{"role": "system", "content": system_prompt}]
-        )
+        try:
+            response = await resolve_llm_client(self.llm).ainvoke(
+                [{"role": "system", "content": system_prompt}]
+            )
+        except Exception as exc:
+            raise RuntimeError("Question asker invocation failed.") from exc
         content = extract_llm_content(response)
         if (
             self.completion_token

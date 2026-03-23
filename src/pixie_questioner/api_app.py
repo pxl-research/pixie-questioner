@@ -287,6 +287,7 @@ async def _handle_chat_request(
             "Cretskens service unavailable for session %s: %s",
             request.session_id,
             exc,
+            exc_info=True,
         )
         return _build_cretskens_unavailable_response(
             request,
