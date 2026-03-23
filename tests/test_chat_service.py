@@ -4068,3 +4068,77 @@ def test_question_asker_omits_last_response_on_initial_turn():
     system_prompt = question_llm.calls[-1][0]["content"]
     assert "Initial question:" not in system_prompt
     assert "Your previous response" not in system_prompt
+
+
+def test_aroma_taste_fallback_when_notulist_leaves_field_8_blank():
+    """Regression: when the notulist fails to fill field 8 (aroma/taste) after the user
+    answered, the fallback must fill it verbatim and complete the intake — instead of
+    crashing with 'Question asker returned an empty question'.
+
+    This reproduces the scenario where:
+    - All wine fields (5-7) are filled, field 8 is the last blank wine field
+    - The notulist returns the questionnaire with field 8 still []
+    - Without the fallback, the question asker would refuse to re-ask and return empty
+    """
+    _fully_filled_except_field_8 = (
+        "0. Dish description (free text from customer): gegrilde kip\n"
+        "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+        "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
+        "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
+        "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+        "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+        "6. Herkomst (land en/of regio): Frankrijk\n"
+        "7. Maximum budget in euro: 20\n"
+        "8. Gewenste geur/smaak (vrije tekst): []"
+    )
+    # Notulist returns the questionnaire with field 8 still blank (simulates LLM failure
+    # to capture the aroma/taste answer).
+    notulist_llm = FakeLLM([_fully_filled_except_field_8])
+    summarizer_llm = FakeLLM(["Klant wil een frisse wijn bij gegrilde kip."])
+    handoff_llm = FakeLLM(['{"foodpair_witvlees_gevogelte":true,"kleur":"wit"}'])
+    question_llm = FakeLLM(["Should not be called"])
+
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        handoff_classifier=_make_handoff_classifier(handoff_llm),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="fris en fruitig",
+            state={
+                "questionnaire": _fully_filled_except_field_8,
+                "dish_questionnaire": (
+                    "0. Dish description (free text from customer): gegrilde kip\n"
+                    "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+                    "2. Main protein (fish or seafood, poultry, red meat, wild, or none): poultry\n"
+                    "3. Cooking method (BBQ or grill, stew, or none): BBQ or grill\n"
+                    "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none"
+                ),
+                "wine_questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    "6. Herkomst (land en/of regio): Frankrijk\n"
+                    "7. Maximum budget in euro: 20\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "summary": "Klant wil wijn bij gegrilde kip.",
+                "last_question": "Welke geur of smaak zoek je?",
+                "intake_route": "food_pairing",
+                "intake_stage": "wine",
+                "wine_follow_up_count": "3",
+            },
+        )
+    )
+
+    # Intake must complete (not crash and not re-ask field 8)
+    assert result.state["phase"] == "completed"
+    # Field 8 must be filled with the verbatim user answer via fallback
+    assert "fris en fruitig" in result.state["questionnaire"]
+    assert "fris en fruitig" in result.state.get("wine_questionnaire", "")
+    # Question asker must NOT have been called
+    assert question_llm.calls == []
