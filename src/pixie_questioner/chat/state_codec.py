@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 from .language import SUPPORTED_RESPONSE_LANGUAGES, detect_language
@@ -56,6 +57,47 @@ def _is_blank_value(value: str) -> bool:
     """Return True when *value* is empty or bracket-only (e.g. ``[]``)."""
     stripped = value.strip().strip("[]").strip()
     return not stripped
+
+
+def _is_legacy_machine_coded_field_8_value(value: str) -> bool:
+    stripped = value.strip()
+    if not stripped:
+        return False
+    try:
+        parsed = json.loads(stripped)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(parsed, dict) or not parsed:
+        return False
+    return all(
+        isinstance(key, str) and key.casefold().startswith(("smaak_", "geur_"))
+        for key in parsed
+    )
+
+
+def _replace_field_value(questionnaire: str, index: int, value: str) -> str:
+    pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:[^\S\n]*).*$")
+    updated, _ = pattern.subn(
+        lambda match: f"{match.group(1)}{value}", questionnaire, 1
+    )
+    return updated
+
+
+def _sanitize_legacy_machine_coded_field_8(
+    questionnaire: str,
+    fallback_questionnaire: str = "",
+) -> str:
+    field_8_value = _extract_field_value(questionnaire, 8)
+    if not _is_legacy_machine_coded_field_8_value(field_8_value):
+        return questionnaire
+    fallback_value = _extract_field_value(fallback_questionnaire, 8)
+    replacement = "[]"
+    if not (
+        _is_blank_value(fallback_value)
+        or _is_legacy_machine_coded_field_8_value(fallback_value)
+    ):
+        replacement = fallback_value
+    return _replace_field_value(questionnaire, 8, replacement)
 
 
 def _prevent_field_regression(
@@ -302,6 +344,8 @@ def parse_state(
         _read_state_string(state, "questionnaire", ""),
         questionnaire_template,
     )
+    if split_questionnaire_field_groups is not None:
+        questionnaire = _sanitize_legacy_machine_coded_field_8(questionnaire)
     summary = _read_state_string(state, "summary", "")
     last_question = _read_state_string(state, "last_question", INITIAL_QUESTION)
     conversation_language = _read_state_string(state, "conversation_language", "")
@@ -330,17 +374,29 @@ def parse_state(
     )
     if split_questionnaire_field_groups is not None:
         dish_indices, wine_indices = split_questionnaire_field_groups
-        raw_dish_questionnaire = _read_state_string(state, "dish_questionnaire", "")
-        raw_wine_questionnaire = _read_state_string(state, "wine_questionnaire", "")
+        fallback_dish_questionnaire = select_questionnaire_fields(
+            questionnaire, dish_indices
+        )
+        fallback_wine_questionnaire = select_questionnaire_fields(
+            questionnaire, wine_indices
+        )
+        raw_dish_questionnaire = _sanitize_legacy_machine_coded_field_8(
+            _read_state_string(state, "dish_questionnaire", ""),
+            fallback_dish_questionnaire,
+        )
+        raw_wine_questionnaire = _sanitize_legacy_machine_coded_field_8(
+            _read_state_string(state, "wine_questionnaire", ""),
+            fallback_wine_questionnaire,
+        )
         dish_questionnaire = (
             raw_dish_questionnaire
             if raw_dish_questionnaire.strip()
-            else select_questionnaire_fields(questionnaire, dish_indices)
+            else fallback_dish_questionnaire
         )
         wine_questionnaire = (
             raw_wine_questionnaire
             if raw_wine_questionnaire.strip()
-            else select_questionnaire_fields(questionnaire, wine_indices)
+            else fallback_wine_questionnaire
         )
         questionnaire = (
             combine_questionnaire_sections(dish_questionnaire, wine_questionnaire)

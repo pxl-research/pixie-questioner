@@ -32,7 +32,6 @@ class ChatService:
     domain_policy: ChatDomainPolicy
     answer_relevance_classifier: AnswerRelevanceClassifierProtocol | None = None
     intake_route_classifier: IntakeRouteClassifierProtocol | None = None
-    aroma_taste_classifier: LLMPromptInvoker | None = None
     handoff_classifier: LLMPromptInvoker | None = None
     unsupported_origin_follow_up: LLMPromptInvoker | None = None
     off_topic_redirect_invoker: LLMPromptInvoker | None = None
@@ -62,7 +61,6 @@ class ChatService:
         )
         self._categorized_handoff = CategorizedHandoffBuilder(
             handoff_classifier=self.handoff_classifier,
-            aroma_taste_classifier=self.aroma_taste_classifier,
         )
         self._turn_handler = ChatTurnHandler(
             llm=self.llm,

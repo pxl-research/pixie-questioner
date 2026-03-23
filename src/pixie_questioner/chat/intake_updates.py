@@ -51,16 +51,6 @@ async def apply_intake_updates(
         current_state,
         current_answer,
     )
-    if categorized_handoff_mode:
-        updated_questionnaire = (
-            await handler.categorized_handoff.normalize_questionnaire(
-                updated_questionnaire
-            )
-        )
-        (
-            dish_questionnaire,
-            wine_questionnaire,
-        ) = _split_stage_questionnaires(updated_questionnaire)
     if (
         current_state.last_question.strip() == INITIAL_QUESTION
         and current_state.intake_route != INTAKE_ROUTE_GENERAL_WINE

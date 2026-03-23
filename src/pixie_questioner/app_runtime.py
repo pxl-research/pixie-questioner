@@ -121,11 +121,6 @@ def _build_chat_service(
         domain_policy=profile.chat_domain_policy,
         answer_relevance_classifier=relevance_classifier,
         intake_route_classifier=intake_route_classifier,
-        aroma_taste_classifier=_build_optional_prompt_invoker(
-            llm_client=llm_client,
-            prompt_template=profile.aroma_taste_classifier_prompt,
-            error_label="Aroma taste classifier",
-        ),
         handoff_classifier=_build_optional_prompt_invoker(
             llm_client=llm_client,
             prompt_template=profile.handoff_classifier_prompt,

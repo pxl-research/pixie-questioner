@@ -153,7 +153,6 @@ def test_get_settings_loads_brooklyn_domain_profile(
     assert profile.off_topic_termination_threshold == 3
     assert profile.completion_token == "READY"
     assert profile.completion_mode == "summary_feedback"
-    assert profile.aroma_taste_classifier_prompt == ""
     assert profile.handoff_classifier_prompt == ""
     assert profile.intake_route_classifier_prompt == ""
     assert profile.language_codes == ("nl", "en", "fr", "de")
@@ -556,15 +555,13 @@ def test_cretskens_domain_profile_loads_intake_route_classifier_prompt() -> None
     assert "GENERAL_WINE" in profile.intake_route_classifier_prompt
 
 
-def test_cretskens_aroma_taste_prompt_formats_with_named_placeholders() -> None:
+def test_cretskens_domain_profile_loads_without_aroma_prompt() -> None:
     profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
 
-    formatted = profile.aroma_taste_classifier_prompt.format(
-        summary="- smaak_fruitig",
-        current_question="Classify aroma and taste preferences.",
-        current_answer="Ik weet het niet.",
-    )
-    assert "return {}." in formatted
+    assert profile.completion_mode == "categorized_handoff"
+    assert "Return exactly one label" in profile.intake_route_classifier_prompt
+    assert profile.handoff_classifier_prompt
+    assert profile.unsupported_origin_follow_up_prompt
 
 
 def test_cretskens_domain_profile_loads_unsupported_origin_follow_up_prompt() -> None:

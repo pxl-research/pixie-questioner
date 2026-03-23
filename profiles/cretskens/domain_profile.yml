@@ -34,7 +34,6 @@ prompts:
   unsupported_origin_follow_up_path: unsupported_origin_follow_up.txt
   questionnaire_template_path: questionnaire_template.txt
   intake_route_classifier_path: intake_route_classifier.txt
-  aroma_taste_classifier_path: aroma_taste_classifier.txt
   handoff_classifier_path: handoff_classifier.txt
   off_topic_redirect_path: sommelier_redirect.txt
 
