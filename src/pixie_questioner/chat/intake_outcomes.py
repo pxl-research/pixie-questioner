@@ -19,13 +19,105 @@ from .intake_routing import (
     WINE_FIELD_INDICES,
     determine_next_question_track,
 )
-from .questionnaire import focus_questionnaire_for_route, mask_later_blank_fields
+from .questionnaire import (
+    first_blank_field_index,
+    focus_questionnaire_for_route,
+    mask_later_blank_fields,
+)
 from .types import INITIAL_QUESTION, INTAKE_ROUTE_FOOD_PAIRING, ChatResult, ChatState
 
 if TYPE_CHECKING:
     from .turn_handler import ChatTurnHandler
 
 logger = logging.getLogger(__name__)
+
+_QUESTION_PREFIXES = (
+    "what",
+    "which",
+    "where",
+    "when",
+    "why",
+    "how",
+    "do ",
+    "does ",
+    "did ",
+    "is ",
+    "are ",
+    "can ",
+    "could ",
+    "would ",
+    "will ",
+    "have ",
+    "has ",
+    "wat",
+    "welk",
+    "welke",
+    "waar",
+    "wanneer",
+    "waarom",
+    "hoe",
+    "heb",
+    "heeft",
+    "ben ",
+    "is ",
+    "zijn ",
+    "kan ",
+    "kun ",
+    "mag ",
+    "zou ",
+    "wil ",
+    "wilt ",
+    "quel",
+    "quelle",
+    "quels",
+    "quelles",
+    "ou ",
+    "où",
+    "quand",
+    "pourquoi",
+    "comment",
+    "avez",
+    "voulez",
+    "souhaitez",
+    "pouvez",
+    "est-ce",
+)
+
+_FALLBACK_QUESTIONS = {
+    "nl": {
+        0: "Welk gerecht of welke maaltijd wil je met wijn combineren?",
+        1: "Gaat het om een aperitief, hoofdgerecht, kaasgang of dessert?",
+        2: "Wat is de hoofdproteïne van het gerecht?",
+        3: "Welke bereidingsmethode past het best bij het gerecht?",
+        4: "Als het om kaas gaat: blauwe, zachte of harde kaas?",
+        5: "Welke kleur wijn heeft je voorkeur: wit, rood of rosé?",
+        6: "Heb je een voorkeur voor een land of regio waar de wijn vandaan komt?",
+        7: "Wat is je maximale budget in euro?",
+        8: "Welke geur of smaak zoek je in de wijn?",
+    },
+    "en": {
+        0: "Which dish or meal would you like to pair with wine?",
+        1: "Is it an aperitif, main course, cheese course, or dessert?",
+        2: "What is the main protein of the dish?",
+        3: "Which cooking method fits best for the dish?",
+        4: "If it is a cheese course: blue, soft, or hard cheese?",
+        5: "Which wine color do you prefer: white, red, or rosé?",
+        6: "Do you have a preferred country or region of origin?",
+        7: "What is your maximum budget in euro?",
+        8: "Which aroma or taste profile are you looking for?",
+    },
+    "fr": {
+        0: "Quel plat ou quel repas souhaitez-vous accorder avec un vin ?",
+        1: "S'agit-il d'un apéritif, d'un plat principal, d'un plateau de fromages ou d'un dessert ?",
+        2: "Quelle est la protéine principale du plat ?",
+        3: "Quel mode de cuisson correspond le mieux au plat ?",
+        4: "Si c'est un plateau de fromages : bleu, pâte molle ou pâte dure ?",
+        5: "Quelle couleur de vin préférez-vous : blanc, rouge ou rosé ?",
+        6: "Avez-vous une préférence pour un pays ou une région d'origine ?",
+        7: "Quel est votre budget maximum en euros ?",
+        8: "Quel profil d'arôme ou de goût recherchez-vous ?",
+    },
+}
 
 
 async def handle_off_topic_intake(
@@ -184,7 +276,27 @@ async def build_next_question_result(
         conversation_language,
         last_response=last_response,
     )
-    if not next_question.strip():
+    normalized_question = next_question.strip()
+    if handler.is_categorized_handoff_mode() and not _is_question_like(
+        normalized_question
+    ):
+        fallback_question = _build_deterministic_fallback_question(
+            current_state=current_state,
+            updated_questionnaire=updated_questionnaire,
+            next_question_track=next_question_track,
+            conversation_language=conversation_language,
+            questionnaire_indices=handler.questionnaire_indices,
+        )
+        if fallback_question is None:
+            raise RuntimeError(
+                "Question asker returned an invalid follow-up while intake still has "
+                "unanswered fields."
+            )
+        logger.warning(
+            "Question asker returned a non-question follow-up; using deterministic fallback."
+        )
+        normalized_question = fallback_question
+    if not normalized_question:
         raise RuntimeError(
             "Question asker returned an empty question while intake still has "
             "unanswered fields. This is a transient LLM failure."
@@ -193,7 +305,7 @@ async def build_next_question_result(
         state=current_state,
         updated_questionnaire=updated_questionnaire,
         updated_summary=updated_summary,
-        next_question=next_question,
+        next_question=normalized_question,
     )
     if next_question_track == "dish":
         next_state = replace(
@@ -205,7 +317,48 @@ async def build_next_question_result(
             next_state,
             wine_follow_up_count=current_state.wine_follow_up_count + 1,
         )
-    return handler.answer_result(next_question, next_state, None, None, None)
+    return handler.answer_result(normalized_question, next_state, None, None, None)
+
+
+def _is_question_like(text: str) -> bool:
+    normalized = text.strip()
+    if not normalized:
+        return False
+    if "?" in normalized:
+        return True
+    lowered = normalized.lstrip(" .,!;:-").casefold()
+    return lowered.startswith(_QUESTION_PREFIXES)
+
+
+def _build_deterministic_fallback_question(
+    *,
+    current_state: ChatState,
+    updated_questionnaire: str,
+    next_question_track: str,
+    conversation_language: str,
+    questionnaire_indices: list[int],
+) -> str | None:
+    field_index: int | None
+    if next_question_track == "dish":
+        field_index = first_blank_field_index(
+            current_state.dish_questionnaire,
+            DISH_FIELD_INDICES,
+        )
+    elif next_question_track == "wine":
+        field_index = first_blank_field_index(
+            current_state.wine_questionnaire,
+            WINE_FIELD_INDICES,
+        )
+    else:
+        field_index = first_blank_field_index(
+            updated_questionnaire, questionnaire_indices
+        )
+    if field_index is None:
+        return None
+
+    language_code = conversation_language.casefold().split("-")[0]
+    localized = _FALLBACK_QUESTIONS.get(language_code) or _FALLBACK_QUESTIONS["en"]
+    return localized.get(field_index)
 
 
 async def _build_categorized_completion_result(
