@@ -198,6 +198,13 @@ async def _handle_on_topic_intake(
             None,
             None,
         )
+    # Fallback: if field 8 (aroma/taste) was the targeted question but the notulist
+    # left it blank, fill it verbatim with the user's answer so the intake can
+    # complete instead of re-asking — which the question asker will refuse to do
+    # because of the "no extra clarification" rule in its prompt.
+    _maybe_apply_aroma_taste_fallback(
+        handler, current_state, updated_state, current_answer
+    )
     # Use the (possibly mutated) state questionnaire so that origin
     # "geen voorkeur" markers set by the unsupported-origin check persist.
     effective_questionnaire = updated_state.questionnaire
@@ -292,6 +299,43 @@ def _find_supported_origin_in_answer(answer: str) -> str | None:
         if re.search(pattern, normalized_answer):
             return canonical
     return None
+
+
+def _maybe_apply_aroma_taste_fallback(
+    handler: ChatTurnHandler,
+    current_state: ChatState,
+    updated_state: ChatState,
+    current_answer: str,
+) -> None:
+    """Fallback: fill field 8 verbatim when the notulist failed to capture the answer.
+
+    When field 8 (aroma/taste) was the first blank wine field and the notulist
+    left it blank after the user answered, fill it directly with the user's
+    verbatim answer. This prevents a crash where the question asker refuses to
+    re-ask because its prompt instructs it not to follow up on aroma/taste.
+    """
+    if not handler.is_categorized_handoff_mode():
+        return
+    previous_blank_field = first_blank_field_index(
+        current_state.wine_questionnaire,
+        WINE_FIELD_INDICES,
+    )
+    if previous_blank_field != 8:
+        return
+    current_field_8_value = extract_questionnaire_field_value(
+        updated_state.wine_questionnaire, 8
+    )
+    if not is_blank_questionnaire_value(current_field_8_value):
+        return
+    answer_value = current_answer.strip()
+    if not answer_value:
+        return
+    updated_state.wine_questionnaire = replace_questionnaire_field_value(
+        updated_state.wine_questionnaire, 8, answer_value
+    )
+    updated_state.questionnaire = replace_questionnaire_field_value(
+        updated_state.questionnaire, 8, answer_value
+    )
 
 
 async def _maybe_generate_unsupported_origin_follow_up(
