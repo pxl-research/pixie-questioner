@@ -15,4 +15,4 @@ Rules:
 6. Omit keys that are not clearly mentioned.
 7. If the user gives conflicting statements for the same key, the latest statement wins.
 8. Input can be Dutch, English, or French. Prefer Dutch interpretation when ambiguous.
-9. If the user has no preference or is unsure, return {}.
+9. If the user has no preference or is unsure, return {{}}.

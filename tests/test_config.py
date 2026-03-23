@@ -556,6 +556,17 @@ def test_cretskens_domain_profile_loads_intake_route_classifier_prompt() -> None
     assert "GENERAL_WINE" in profile.intake_route_classifier_prompt
 
 
+def test_cretskens_aroma_taste_prompt_formats_with_named_placeholders() -> None:
+    profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
+
+    formatted = profile.aroma_taste_classifier_prompt.format(
+        summary="- smaak_fruitig",
+        current_question="Classify aroma and taste preferences.",
+        current_answer="Ik weet het niet.",
+    )
+    assert "return {}." in formatted
+
+
 def test_cretskens_domain_profile_loads_unsupported_origin_follow_up_prompt() -> None:
     profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
 
