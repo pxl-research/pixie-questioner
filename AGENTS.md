@@ -50,6 +50,10 @@ Live LLM smoke test (only when LLM behavior changes):
 RUN_LIVE_LLM_TESTS=1 docker compose -f docker-compose.dev.yml run --rm api pytest tests/test_live_llm_smoke.py
 ```
 
+CI policy (for `.github/workflows/ci.yml`):
+- PRs and pushes to `main` run the live-enabled suite with Azure secret validation first
+- Local development keeps live tests opt-in unless LLM behavior changes
+
 If blocked by credentials or external service, report the exact blocker.
 
 ---

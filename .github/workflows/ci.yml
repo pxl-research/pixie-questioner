@@ -20,6 +20,27 @@ jobs:
       - name: Prepare CI env file
         run: cp .env.example .env.dev
 
+      - name: Start API for health check
+        run: docker compose -f docker-compose.dev.yml up -d api
+
+      - name: Wait for /health endpoint
+        run: |
+          for attempt in {1..30}; do
+            response="$(curl --silent --show-error --fail http://localhost:8000/health || true)"
+            if [[ "${response}" == *'"status":"ok"'* ]]; then
+              echo "Health check passed."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Health check failed after waiting for API startup."
+          docker compose -f docker-compose.dev.yml logs api
+          exit 1
+
+      - name: Stop API health-check container
+        if: always()
+        run: docker compose -f docker-compose.dev.yml down --remove-orphans
+
       - name: Build and run format check
         run: docker compose -f docker-compose.dev.yml run --rm api black --check .
 
@@ -82,15 +103,6 @@ jobs:
             done
             exit 1
           fi
-
-      - name: Run test suite
-        if: github.event_name != 'pull_request' && github.ref != 'refs/heads/main'
-        env:
-          RUN_LIVE_LLM_TESTS: "0"
-        run: |
-          docker compose -f docker-compose.dev.yml run --rm \
-            -e RUN_LIVE_LLM_TESTS \
-            api pytest
 
       - name: Run live-enabled test suite
         if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'

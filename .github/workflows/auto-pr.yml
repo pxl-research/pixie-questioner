@@ -15,6 +15,17 @@ permissions:
 jobs:
   ensure-pr:
     runs-on: ubuntu-latest
+    env:
+      PROJECT_V2_ID: ${{ vars.PROJECT_V2_ID || 'PVT_kwDOB2OsP84BRN75' }}
+      PROJECT_FIELD_STATUS_ID: ${{ vars.PROJECT_FIELD_STATUS_ID || 'PVTSSF_lADOB2OsP84BRN75zg_HBVU' }}
+      PROJECT_STATUS_OPTION_REVIEW_ID: ${{ vars.PROJECT_STATUS_OPTION_REVIEW_ID || '883cdec6' }}
+      PROJECT_FIELD_WORK_TYPE_ID: ${{ vars.PROJECT_FIELD_WORK_TYPE_ID || 'PVTSSF_lADOB2OsP84BRN75zg_HEFM' }}
+      PROJECT_WORK_TYPE_OPTION_BUG_ID: ${{ vars.PROJECT_WORK_TYPE_OPTION_BUG_ID || '29b7e082' }}
+      PROJECT_WORK_TYPE_OPTION_FEATURE_ID: ${{ vars.PROJECT_WORK_TYPE_OPTION_FEATURE_ID || '3e6662c5' }}
+      PROJECT_WORK_TYPE_OPTION_REFACTOR_ID: ${{ vars.PROJECT_WORK_TYPE_OPTION_REFACTOR_ID || 'a60aa747' }}
+      PROJECT_WORK_TYPE_OPTION_CHORE_ID: ${{ vars.PROJECT_WORK_TYPE_OPTION_CHORE_ID || '748f009e' }}
+      PROJECT_FIELD_SHIPPED_ID: ${{ vars.PROJECT_FIELD_SHIPPED_ID || 'PVTSSF_lADOB2OsP84BRN75zg_HET4' }}
+      PROJECT_SHIPPED_OPTION_NO_ID: ${{ vars.PROJECT_SHIPPED_OPTION_NO_ID || 'ef0a02b7' }}
     steps:
       - name: Ensure PR exists and add to project
         uses: actions/github-script@v7
@@ -94,13 +105,27 @@ jobs:
             }
 
             // Project configuration
-            const projectId = 'PVT_kwDOB2OsP84BRN75';
-            const fieldStatus = 'PVTSSF_lADOB2OsP84BRN75zg_HBVU';
-            const optionStatusReview = '883cdec6';
-            const fieldWorkType = 'PVTSSF_lADOB2OsP84BRN75zg_HEFM';
-            const workTypeOptions = { bug: '29b7e082', fix: '29b7e082', feature: '3e6662c5', refactor: 'a60aa747', chore: '748f009e', test: '748f009e' };
-            const fieldShipped = 'PVTSSF_lADOB2OsP84BRN75zg_HET4';
-            const optionShippedNo = 'ef0a02b7';
+            function requiredEnv(name) {
+              const value = (process.env[name] || '').trim();
+              if (!value) {
+                throw new Error(`Missing required workflow environment variable: ${name}`);
+              }
+              return value;
+            }
+            const projectId = requiredEnv('PROJECT_V2_ID');
+            const fieldStatus = requiredEnv('PROJECT_FIELD_STATUS_ID');
+            const optionStatusReview = requiredEnv('PROJECT_STATUS_OPTION_REVIEW_ID');
+            const fieldWorkType = requiredEnv('PROJECT_FIELD_WORK_TYPE_ID');
+            const workTypeOptions = {
+              bug: requiredEnv('PROJECT_WORK_TYPE_OPTION_BUG_ID'),
+              fix: requiredEnv('PROJECT_WORK_TYPE_OPTION_BUG_ID'),
+              feature: requiredEnv('PROJECT_WORK_TYPE_OPTION_FEATURE_ID'),
+              refactor: requiredEnv('PROJECT_WORK_TYPE_OPTION_REFACTOR_ID'),
+              chore: requiredEnv('PROJECT_WORK_TYPE_OPTION_CHORE_ID'),
+              test: requiredEnv('PROJECT_WORK_TYPE_OPTION_CHORE_ID'),
+            };
+            const fieldShipped = requiredEnv('PROJECT_FIELD_SHIPPED_ID');
+            const optionShippedNo = requiredEnv('PROJECT_SHIPPED_OPTION_NO_ID');
 
             // Add PR to project (idempotent)
             const contentId = pr.node_id;

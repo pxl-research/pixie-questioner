@@ -198,6 +198,10 @@ cython_debug/
 # Local git worktrees
 .worktrees/
 
+# Local workflow tooling artifacts
+.dual-graph/
+.dual-graph-context/
+
 # PyPI configuration file
 .pypirc
 
@@ -219,4 +223,6 @@ __marimo__/
 docs/plans/*
 !docs/plans/.gitkeep
 
-.worktrees/
+# Local analysis reports
+docs/reports/*
+!docs/reports/.gitkeep

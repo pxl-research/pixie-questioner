@@ -38,6 +38,15 @@ def _workflow_step() -> dict[str, Any]:
     return ensure_pr["steps"][0]
 
 
+def _workflow_job_env() -> dict[str, Any]:
+    workflow = _load_workflow()
+    jobs = workflow["jobs"]
+    ensure_pr = jobs["ensure-pr"]
+    env = ensure_pr["env"]
+    assert isinstance(env, dict)
+    return cast(dict[str, Any], env)
+
+
 def _branch_pattern(script: str) -> re.Pattern[str]:
     match = re.search(r"branch\.match\(/(.+?)/\);", script)
     assert match is not None
@@ -79,3 +88,15 @@ def test_auto_pr_workflow_does_not_enable_auto_merge_eagerly() -> None:
     script = _workflow_script()
 
     assert "enablePullRequestAutoMerge" not in script
+
+
+def test_auto_pr_workflow_uses_env_driven_project_configuration() -> None:
+    env = _workflow_job_env()
+    script = _workflow_script()
+
+    assert "PROJECT_V2_ID" in env
+    assert "PROJECT_FIELD_STATUS_ID" in env
+    assert "PROJECT_FIELD_WORK_TYPE_ID" in env
+    assert "PROJECT_FIELD_SHIPPED_ID" in env
+    assert "requiredEnv('PROJECT_V2_ID')" in script
+    assert "requiredEnv('PROJECT_STATUS_OPTION_REVIEW_ID')" in script
