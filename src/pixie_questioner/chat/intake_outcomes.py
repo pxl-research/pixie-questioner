@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import logging
 
 from dataclasses import replace
@@ -30,93 +31,10 @@ if TYPE_CHECKING:
     from .turn_handler import ChatTurnHandler
 
 logger = logging.getLogger(__name__)
-
-_QUESTION_PREFIXES = (
-    "what",
-    "which",
-    "where",
-    "when",
-    "why",
-    "how",
-    "do ",
-    "does ",
-    "did ",
-    "is ",
-    "are ",
-    "can ",
-    "could ",
-    "would ",
-    "will ",
-    "have ",
-    "has ",
-    "wat",
-    "welk",
-    "welke",
-    "waar",
-    "wanneer",
-    "waarom",
-    "hoe",
-    "heb",
-    "heeft",
-    "ben ",
-    "is ",
-    "zijn ",
-    "kan ",
-    "kun ",
-    "mag ",
-    "zou ",
-    "wil ",
-    "wilt ",
-    "quel",
-    "quelle",
-    "quels",
-    "quelles",
-    "ou ",
-    "où",
-    "quand",
-    "pourquoi",
-    "comment",
-    "avez",
-    "voulez",
-    "souhaitez",
-    "pouvez",
-    "est-ce",
-)
-
-_FALLBACK_QUESTIONS = {
-    "nl": {
-        0: "Welk gerecht of welke maaltijd wil je met wijn combineren?",
-        1: "Gaat het om een aperitief, hoofdgerecht, kaasgang of dessert?",
-        2: "Wat is de hoofdproteïne van het gerecht?",
-        3: "Welke bereidingsmethode past het best bij het gerecht?",
-        4: "Als het om kaas gaat: blauwe, zachte of harde kaas?",
-        5: "Welke kleur wijn heeft je voorkeur: wit, rood of rosé?",
-        6: "Heb je een voorkeur voor een land of regio waar de wijn vandaan komt?",
-        7: "Wat is je maximale budget in euro?",
-        8: "Welke geur of smaak zoek je in de wijn?",
-    },
-    "en": {
-        0: "Which dish or meal would you like to pair with wine?",
-        1: "Is it an aperitif, main course, cheese course, or dessert?",
-        2: "What is the main protein of the dish?",
-        3: "Which cooking method fits best for the dish?",
-        4: "If it is a cheese course: blue, soft, or hard cheese?",
-        5: "Which wine color do you prefer: white, red, or rosé?",
-        6: "Do you have a preferred country or region of origin?",
-        7: "What is your maximum budget in euro?",
-        8: "Which aroma or taste profile are you looking for?",
-    },
-    "fr": {
-        0: "Quel plat ou quel repas souhaitez-vous accorder avec un vin ?",
-        1: "S'agit-il d'un apéritif, d'un plat principal, d'un plateau de fromages ou d'un dessert ?",
-        2: "Quelle est la protéine principale du plat ?",
-        3: "Quel mode de cuisson correspond le mieux au plat ?",
-        4: "Si c'est un plateau de fromages : bleu, pâte molle ou pâte dure ?",
-        5: "Quelle couleur de vin préférez-vous : blanc, rouge ou rosé ?",
-        6: "Avez-vous une préférence pour un pays ou une région d'origine ?",
-        7: "Quel est votre budget maximum en euros ?",
-        8: "Quel profil d'arôme ou de goût recherchez-vous ?",
-    },
+_FALLBACK_QUESTION_TEMPLATES = {
+    "nl": "Kun je je voorkeur delen voor: {label}?",
+    "en": "Could you share your preference for: {label}?",
+    "fr": "Pouvez-vous préciser votre préférence pour : {label} ?",
 }
 
 
@@ -324,10 +242,7 @@ def _is_question_like(text: str) -> bool:
     normalized = text.strip()
     if not normalized:
         return False
-    if "?" in normalized:
-        return True
-    lowered = normalized.lstrip(" .,!;:-").casefold()
-    return lowered.startswith(_QUESTION_PREFIXES)
+    return normalized.endswith(("?", "？"))
 
 
 def _build_deterministic_fallback_question(
@@ -339,16 +254,19 @@ def _build_deterministic_fallback_question(
     questionnaire_indices: list[int],
 ) -> str | None:
     field_index: int | None
+    label_source = updated_questionnaire
     if next_question_track == "dish":
         field_index = first_blank_field_index(
             current_state.dish_questionnaire,
             DISH_FIELD_INDICES,
         )
+        label_source = current_state.dish_questionnaire
     elif next_question_track == "wine":
         field_index = first_blank_field_index(
             current_state.wine_questionnaire,
             WINE_FIELD_INDICES,
         )
+        label_source = current_state.wine_questionnaire
     else:
         field_index = first_blank_field_index(
             updated_questionnaire, questionnaire_indices
@@ -357,8 +275,24 @@ def _build_deterministic_fallback_question(
         return None
 
     language_code = conversation_language.casefold().split("-")[0]
-    localized = _FALLBACK_QUESTIONS.get(language_code) or _FALLBACK_QUESTIONS["en"]
-    return localized.get(field_index)
+    template = _FALLBACK_QUESTION_TEMPLATES.get(
+        language_code,
+        _FALLBACK_QUESTION_TEMPLATES["en"],
+    )
+    label = _extract_field_label(label_source, field_index)
+    if label is None:
+        label = f"field {field_index}"
+    return template.format(label=label)
+
+
+def _extract_field_label(questionnaire: str, field_index: int) -> str | None:
+    match = re.search(
+        rf"(?m)^\s*{field_index}\.\s*([^:\n]+):",
+        questionnaire,
+    )
+    if match is None:
+        return None
+    return " ".join(match.group(1).split()).strip()
 
 
 async def _build_categorized_completion_result(

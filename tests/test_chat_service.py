@@ -4250,7 +4250,10 @@ def test_ask_uses_deterministic_fallback_when_question_asker_returns_non_questio
     )
 
     assert result.response_type == "answer"
-    assert result.text == "Wat is je maximale budget in euro?"
-    assert result.state["last_question"] == "Wat is je maximale budget in euro?"
+    assert result.text == "Kun je je voorkeur delen voor: Maximum budget in euro?"
+    assert (
+        result.state["last_question"]
+        == "Kun je je voorkeur delen voor: Maximum budget in euro?"
+    )
     assert result.state["phase"] == "intake"
     assert len(question_llm.calls) == 1

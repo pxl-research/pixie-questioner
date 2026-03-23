@@ -255,15 +255,15 @@ def _maybe_apply_supported_origin_fallback(
         and updated_state.intake_route != INTAKE_ROUTE_GENERAL_WINE
     ):
         return
-    extracted = _find_supported_origin_in_answer(current_answer)
-    if extracted is None:
-        return
     current_origin_value = extract_questionnaire_field_value(
         updated_state.wine_questionnaire, 6
     )
     if not is_blank_questionnaire_value(
         current_origin_value
     ) and _is_supported_origin_value(current_origin_value):
+        return
+    extracted = _find_supported_origin_in_answer(current_answer)
+    if extracted is None:
         return
     updated_state.wine_questionnaire = replace_questionnaire_field_value(
         updated_state.wine_questionnaire,
