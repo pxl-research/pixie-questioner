@@ -1894,7 +1894,49 @@ def test_ask_cretskens_food_pairing_stops_dish_followups_after_budget():
     assert len(question_llm.calls) == 1
 
 
-def test_ask_cretskens_general_wine_skips_dish_questions_in_prompt_focus():
+def test_ask_cretskens_next_question_prompt_includes_updated_field_values():
+    """The focused questionnaire sent to the question-asker must reflect the
+    current turn's updates so the LLM knows which fields are already filled.
+
+    Scenario: user's answer fills field 5 (wine colour).  The question-asker
+    prompt must contain the updated value ("wit"), not the pre-update blank.
+    """
+    question_llm = FakeLLM(["Uit welk land of regio?"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant zoekt een witte wijn."])
+    route_classifier = StubIntakeRouteClassifier(["general_wine"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Een witte wijn graag",
+            state=None,
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert len(question_llm.calls) == 1
+    prompt_content = question_llm.calls[0][0]["content"]
+    assert (
+        "5. Kleur van de wijn (wit, rood, rosé): wit" in prompt_content
+    ), "Question-asker prompt must include the updated field value from the current turn"
+    assert "6. Herkomst (land en/of regio): []" in prompt_content
+
     question_llm = FakeLLM(["Welke kleur wijn heb je in gedachten?"])
     notulist_llm = FakeLLM(
         [
