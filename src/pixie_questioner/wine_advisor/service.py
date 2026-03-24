@@ -71,7 +71,8 @@ _ORIGIN_VALUE_PATTERN = re.compile(
 )
 _ANSWER_ORIGIN_PATTERN = re.compile(
     r"(?i)(?:\b(?:uit|from)\s+(?P<origin>[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,60})"
-    r"|\bd['’](?P<origin_d>[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,60}))"
+    r"|\bd['’](?P<origin_d>[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,60})"
+    r"|\bvin\s+de\s+(?P<origin_de>[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,60}))"
 )
 _ORIGIN_PHRASE_PATTERN = re.compile(
     r"(?:\b(?:uit|from|de)\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,40}"
@@ -82,8 +83,12 @@ _NO_PREFERENCE_ORIGIN_VALUES = frozenset(
     {
         "geen voorkeur",
         "maakt niet uit",
+        "niet gespecificeerd",
         "no preference",
+        "not specified",
         "peu importe",
+        "non spécifié",
+        "non specifie",
     }
 )
 
@@ -120,7 +125,12 @@ def _extract_requested_origin_from_answer(current_answer: str) -> str | None:
     match = _ANSWER_ORIGIN_PATTERN.search(current_answer)
     if match is None:
         return None
-    requested_origin = (match.group("origin") or match.group("origin_d") or "").strip()
+    requested_origin = (
+        match.group("origin")
+        or match.group("origin_d")
+        or match.group("origin_de")
+        or ""
+    ).strip()
     requested_origin = " ".join(requested_origin.split()).strip(".,;:")
     if not requested_origin:
         return None

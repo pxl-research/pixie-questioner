@@ -564,6 +564,27 @@ def test_cretskens_domain_profile_loads_without_aroma_prompt() -> None:
     assert profile.unsupported_origin_follow_up_prompt
 
 
+def test_cretskens_question_asker_prompt_includes_aroma_taste_examples() -> None:
+    profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
+
+    assert "include two short example clusters in the same" in (
+        profile.question_asker_prompt
+    )
+    assert (
+        "aroma examples: citrus, white/stone/red/dark fruit, floral, spicy, mineral."
+        in (profile.question_asker_prompt)
+    )
+    assert (
+        "taste examples: dry/sweet, fresh/acidic, fruity, spicy, creamy, sparkling."
+        in (profile.question_asker_prompt)
+    )
+    assert (
+        "Keep aroma/taste examples in the same language as the questionnaire language"
+        in (profile.question_asker_prompt)
+    )
+    assert "(NL/EN/FR consistency per conversation)." in profile.question_asker_prompt
+
+
 def test_cretskens_domain_profile_loads_unsupported_origin_follow_up_prompt() -> None:
     profile = config.load_domain_profile(Path("profiles/cretskens/domain_profile.yml"))
 

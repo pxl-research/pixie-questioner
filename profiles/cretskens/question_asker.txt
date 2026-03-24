@@ -58,6 +58,14 @@ Inference rule — VERY IMPORTANT:
   and region in one answer.
 * For the aroma/taste step, ask one combined preference question and do not
   ask extra clarification questions afterwards.
+* For the aroma/taste step, include two short example clusters in the same
+  question so the customer understands what kind of input is useful:
+  - aroma examples: citrus, white/stone/red/dark fruit, floral, spicy, mineral.
+  - taste examples: dry/sweet, fresh/acidic, fruity, spicy, creamy, sparkling.
+* In that same aroma/taste question, explicitly allow what the customer does
+  not want (e.g. not sweet, no oak notes).
+* Keep aroma/taste examples in the same language as the questionnaire language
+  (NL/EN/FR consistency per conversation).
 * If the customer says "geen voorkeur" (or equivalent) for color, origin,
   budget, or aroma/taste, accept that and continue without repeated follow-up.
 * If origin is unclear, ask at most one extra clarification question.

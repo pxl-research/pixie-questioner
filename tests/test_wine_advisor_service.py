@@ -760,6 +760,43 @@ def test_ask_prefers_latest_answer_origin_for_relax_notice() -> None:
     assert "geen wijnen uit Frankrijk" not in result.text
 
 
+def test_ask_prefers_latest_answer_origin_for_relax_notice_with_french_de() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="witte wijn",
+            )
+        ]
+    )
+    ranker = StubRanker([[], [], [], ["w1"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        candidate_limit=1,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Je veux un vin de France",
+            state={
+                "working_context": (
+                    "Questionnaire:\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    "6. Herkomst (land en/of regio): Spanje"
+                )
+            },
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert "geen wijnen uit France" in result.text
+    assert "geen wijnen uit Spanje" not in result.text
+
+
 def test_ask_truncates_specific_origin_in_relax_notice() -> None:
     long_origin = "X" * 120
     controller = StubController(
@@ -873,6 +910,47 @@ def test_ask_uses_generic_notice_for_no_preference_origin_on_relax_path() -> Non
         "landen/regio's die goed matchen."
     )
     assert "uit geen voorkeur" not in result.text
+
+
+def test_ask_uses_generic_notice_for_unspecified_origin_on_relax_path() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="witte wijn",
+            )
+        ]
+    )
+    ranker = StubRanker([[], [], [], ["w1"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        candidate_limit=1,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Doe maar suggesties",
+            state={
+                "working_context": (
+                    "Questionnaire:\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    "6. Herkomst (land en/of regio): niet gespecificeerd"
+                )
+            },
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert result.text.startswith(
+        "Helaas konden we geen wijnen vinden die aan uw herkomstcriteria "
+        "voldoen, maar hier zijn enkele mooie alternatieven uit andere "
+        "landen/regio's die goed matchen."
+    )
+    assert "uit niet gespecificeerd" not in result.text
 
 
 def test_recommend_from_context_forces_recommendation_after_completed_intake() -> None:
