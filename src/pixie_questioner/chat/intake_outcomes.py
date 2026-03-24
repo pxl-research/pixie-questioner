@@ -20,6 +20,7 @@ from .intake_routing import (
     determine_next_question_track,
 )
 from .questionnaire import (
+    first_blank_field_index,
     focus_questionnaire_for_route,
     mask_later_blank_fields,
 )
@@ -29,6 +30,33 @@ if TYPE_CHECKING:
     from .turn_handler import ChatTurnHandler
 
 logger = logging.getLogger(__name__)
+
+# Pre-crafted aroma/taste questions per language.  Field 8 has fixed question
+# requirements (example clusters + negation allowance) that don't vary per
+# conversation, so LLM generation is unnecessary and error-prone.
+_AROMA_TASTE_QUESTIONS: dict[str, str] = {
+    "nl": (
+        "Welke geuren of smaken spreken je aan bij wijn? "
+        "Denk bijvoorbeeld aan citrus, wit of rood fruit, bloemig of kruidig "
+        "qua geur, en droog, fris, fruitig of romig qua smaak. "
+        "Je mag ook aangeven wat je liever niet hebt, "
+        "zoals niet zoet of geen houttoetsen?"
+    ),
+    "en": (
+        "What aromas or tastes do you enjoy in wine? "
+        "For example, citrus, white or red fruit, floral, or spicy for aroma, "
+        "and dry, fresh, fruity, or creamy for taste. "
+        "Feel free to mention what you'd prefer to avoid, "
+        "like not sweet or no oak notes?"
+    ),
+    "fr": (
+        "Quels arômes ou saveurs appréciez-vous dans un vin ? "
+        "Par exemple, agrumes, fruits blancs ou rouges, floral ou épicé "
+        "pour l'arôme, et sec, frais, fruité ou crémeux pour le goût. "
+        "N'hésitez pas à mentionner ce que vous préférez éviter, "
+        "comme pas trop sucré ou sans notes boisées ?"
+    ),
+}
 
 
 async def handle_off_topic_intake(
@@ -182,6 +210,29 @@ async def build_next_question_result(
     last_response = current_state.last_question
     if last_response.strip() == INITIAL_QUESTION:
         last_response = ""
+    # Field 8 (aroma/taste): use a static question to avoid LLM generation
+    # failures caused by conflicting prompt constraints for this field.
+    if (
+        handler.is_categorized_handoff_mode()
+        and next_question_track == "wine"
+        and first_blank_field_index(
+            current_state.wine_questionnaire, WINE_FIELD_INDICES
+        )
+        == 8
+    ):
+        lang = conversation_language.casefold().split("-")[0]
+        static_question = _AROMA_TASTE_QUESTIONS.get(lang, _AROMA_TASTE_QUESTIONS["nl"])
+        next_state = to_intake_state_with_next_question(
+            state=current_state,
+            updated_questionnaire=updated_questionnaire,
+            updated_summary=updated_summary,
+            next_question=static_question,
+        )
+        next_state = replace(
+            next_state,
+            wine_follow_up_count=current_state.wine_follow_up_count + 1,
+        )
+        return handler.answer_result(static_question, next_state, None, None, None)
     next_question = await handler.question_asker.ask(
         focused_questionnaire,
         conversation_language,
