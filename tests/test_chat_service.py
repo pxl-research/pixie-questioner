@@ -4261,17 +4261,9 @@ def test_ask_retries_question_asker_when_first_response_is_not_a_question():
     assert "Do not use internal field labels." in second_prompt
 
 
-def test_ask_retries_question_asker_for_aroma_taste_without_field_label():
-    question_llm = FakeLLM(
-        [
-            "Dank u, dat helpt ons goed verder",
-            (
-                "Welke geur of smaak zoek je? Bijvoorbeeld citrus of rood fruit in "
-                "de geur, en droog of fris in de smaak. Je mag ook zeggen wat je "
-                "niet wil, zoals niet zoet of geen houttoetsen?"
-            ),
-        ]
-    )
+def test_ask_uses_static_question_for_aroma_taste_field():
+    """Field 8 bypasses the question_asker LLM and uses a static question."""
+    question_llm = FakeLLM([])
     notulist_llm = FakeLLM(
         [
             "5. Kleur van de wijn (wit, rood, rosé): rood\n"
@@ -4321,11 +4313,10 @@ def test_ask_retries_question_asker_for_aroma_taste_without_field_label():
     )
 
     assert result.response_type == "answer"
-    assert result.text.startswith("Welke geur of smaak zoek je?")
-    assert "citrus of rood fruit" in result.text
-    assert "niet wil" in result.text
+    assert result.text.startswith("Welke geuren of smaken spreken je aan bij wijn?")
+    assert "citrus" in result.text
+    assert "niet" in result.text
     assert "Gewenste geur/smaak" not in result.text
-    assert "Kun je je voorkeur delen voor:" not in result.text
     assert result.state["last_question"] == result.text
     assert result.state["phase"] == "intake"
-    assert len(question_llm.calls) == 2
+    assert len(question_llm.calls) == 0
