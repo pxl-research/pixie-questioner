@@ -542,6 +542,8 @@ def test_cretskens_profile_loads_runtime_prompt_text() -> None:
     assert "Mirror the customer's language (NL/EN/FR)" in (
         profile.turn_controller_prompt
     )
+    assert "which wine color typically fits the dish" in profile.turn_controller_prompt
+    assert "template, not text" in profile.turn_controller_prompt
     assert "Select the best candidate barcodes" in profile.ranker_prompt
     assert "selection_explanation" in profile.ranker_prompt
     assert profile.recommendation_intro
@@ -583,6 +585,10 @@ def test_cretskens_question_asker_prompt_includes_aroma_taste_examples() -> None
         in (profile.question_asker_prompt)
     )
     assert "(NL/EN/FR consistency per conversation)." in profile.question_asker_prompt
+    assert "which wine color typically fits that dish" in (
+        profile.question_asker_prompt
+    )
+    assert "templates, not text to copy verbatim." in profile.question_asker_prompt
 
 
 def test_cretskens_domain_profile_loads_unsupported_origin_follow_up_prompt() -> None:
