@@ -350,6 +350,8 @@ def parse_state(
     )
     if split_questionnaire_field_groups is not None:
         dish_indices, wine_indices = split_questionnaire_field_groups
+        # Sanitize the combined questionnaire first so that its field-8 value
+        # serves as a clean fallback when sanitizing the raw split fields below.
         questionnaire = _sanitize_legacy_machine_coded_field_8(questionnaire)
     summary = _read_state_string(state, "summary", "")
     last_question = _read_state_string(state, "last_question", INITIAL_QUESTION)
@@ -384,6 +386,10 @@ def parse_state(
         fallback_wine_questionnaire = select_questionnaire_fields(
             questionnaire, wine_indices
         )
+        # Sanitize machine-coded field 8 in the raw split fields.  The
+        # fallbacks come from the already-sanitized combined questionnaire so
+        # that a free-text field-8 value in the combined state is preserved
+        # while a JSON-encoded legacy value is replaced.
         raw_dish_questionnaire = _sanitize_legacy_machine_coded_field_8(
             _read_state_string(state, "dish_questionnaire", ""),
             fallback_dish_questionnaire,
@@ -402,13 +408,12 @@ def parse_state(
             if raw_wine_questionnaire.strip()
             else fallback_wine_questionnaire
         )
-        canonical_questionnaire = (
+        # Recombine the sanitized splits into the canonical questionnaire.
+        # No additional field-8 sanitization is needed: both splits were
+        # individually cleaned above.
+        questionnaire = (
             combine_questionnaire_sections(dish_questionnaire, wine_questionnaire)
             or questionnaire
-        )
-        questionnaire = _sanitize_legacy_machine_coded_field_8(
-            canonical_questionnaire,
-            questionnaire,
         )
         dish_questionnaire = select_questionnaire_fields(questionnaire, dish_indices)
         wine_questionnaire = select_questionnaire_fields(questionnaire, wine_indices)
@@ -471,17 +476,23 @@ def serialize_state(state: ChatState) -> dict[str, str]:
         or state.dish_questionnaire.strip()
         or state.wine_questionnaire.strip()
     )
+    # Re-derive split questionnaires from the canonical source.  The field
+    # indices are inferred from the state's existing split fields (populated
+    # during parse_state for split-aware cases) so no case-specific constants
+    # are needed here.
     derived_dish_questionnaire = ""
     derived_wine_questionnaire = ""
     if should_emit_split_questionnaires:
-        derived_wine_questionnaire = select_questionnaire_fields(
-            questionnaire,
-            _CRETSKENS_WINE_FIELD_INDICES,
-        )
-        derived_dish_questionnaire = select_questionnaire_fields(
-            questionnaire,
-            _CRETSKENS_DISH_FIELD_INDICES,
-        )
+        if state.wine_questionnaire.strip():
+            wine_indices = extract_questionnaire_indices(state.wine_questionnaire)
+            derived_wine_questionnaire = select_questionnaire_fields(
+                questionnaire, wine_indices
+            )
+        if state.dish_questionnaire.strip():
+            dish_indices = extract_questionnaire_indices(state.dish_questionnaire)
+            derived_dish_questionnaire = select_questionnaire_fields(
+                questionnaire, dish_indices
+            )
 
     serialized = {
         "questionnaire": questionnaire,

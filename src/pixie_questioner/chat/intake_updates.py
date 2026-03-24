@@ -160,13 +160,12 @@ async def _update_questionnaire(
             merged = current_state.questionnaire
         return merged, "", ""
 
+    # Derive splits from the canonical questionnaire.  After parse_state the
+    # state's split fields are already projections of questionnaire, so the
+    # canonical source is authoritative.
     dish_questionnaire, wine_questionnaire = _split_stage_questionnaires(
         current_state.questionnaire
     )
-    if current_state.dish_questionnaire.strip():
-        dish_questionnaire = current_state.dish_questionnaire
-    if current_state.wine_questionnaire.strip():
-        wine_questionnaire = current_state.wine_questionnaire
 
     if _should_skip_general_wine_routing_update(current_state):
         combined = combine_questionnaire_sections(
