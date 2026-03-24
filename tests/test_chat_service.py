@@ -4204,8 +4204,10 @@ def test_aroma_taste_fallback_when_notulist_leaves_field_8_blank():
     assert question_llm.calls == []
 
 
-def test_ask_uses_deterministic_fallback_when_question_asker_returns_non_question():
-    question_llm = FakeLLM(["Dank u, dat helpt ons goed verder"])
+def test_ask_retries_question_asker_when_first_response_is_not_a_question():
+    question_llm = FakeLLM(
+        ["Dank u, dat helpt ons goed verder", "Wat is je maximum budget in euro?"]
+    )
     notulist_llm = FakeLLM(
         [
             "5. Kleur van de wijn (wit, rood, rosé): rood\n"
@@ -4253,11 +4255,23 @@ def test_ask_uses_deterministic_fallback_when_question_asker_returns_non_questio
     assert result.text == "Wat is je maximum budget in euro?"
     assert result.state["last_question"] == "Wat is je maximum budget in euro?"
     assert result.state["phase"] == "intake"
-    assert len(question_llm.calls) == 1
+    assert len(question_llm.calls) == 2
+    second_prompt = question_llm.calls[1][0]["content"]
+    assert "not a valid customer question" in second_prompt
+    assert "Do not use internal field labels." in second_prompt
 
 
-def test_ask_uses_deterministic_fallback_for_aroma_taste_without_field_label():
-    question_llm = FakeLLM(["Dank u, dat helpt ons goed verder"])
+def test_ask_retries_question_asker_for_aroma_taste_without_field_label():
+    question_llm = FakeLLM(
+        [
+            "Dank u, dat helpt ons goed verder",
+            (
+                "Welke geur of smaak zoek je? Bijvoorbeeld citrus of rood fruit in "
+                "de geur, en droog of fris in de smaak. Je mag ook zeggen wat je "
+                "niet wil, zoals niet zoet of geen houttoetsen?"
+            ),
+        ]
+    )
     notulist_llm = FakeLLM(
         [
             "5. Kleur van de wijn (wit, rood, rosé): rood\n"
@@ -4307,11 +4321,11 @@ def test_ask_uses_deterministic_fallback_for_aroma_taste_without_field_label():
     )
 
     assert result.response_type == "answer"
-    assert result.text.startswith("Welke geur- of smaakstijl zoek je?")
+    assert result.text.startswith("Welke geur of smaak zoek je?")
     assert "citrus of rood fruit" in result.text
     assert "niet wil" in result.text
     assert "Gewenste geur/smaak" not in result.text
     assert "Kun je je voorkeur delen voor:" not in result.text
     assert result.state["last_question"] == result.text
     assert result.state["phase"] == "intake"
-    assert len(question_llm.calls) == 1
+    assert len(question_llm.calls) == 2
