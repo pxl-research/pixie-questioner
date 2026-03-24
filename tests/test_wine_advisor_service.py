@@ -682,6 +682,199 @@ def test_ask_relaxes_origin_filtered_context_after_empty_ranker_results() -> Non
     assert "bulgarie" not in str(ranker.calls[-1]["working_context"]).casefold()
 
 
+def test_ask_adds_specific_origin_notice_when_relax_path_is_used() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="spaanse witte wijn",
+            )
+        ]
+    )
+    ranker = StubRanker([[], [], [], ["w1"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        candidate_limit=1,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Doe maar suggesties",
+            state={
+                "working_context": (
+                    "Questionnaire:\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    "6. Herkomst (land en/of regio): Spanje"
+                )
+            },
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert result.text.startswith(
+        "Helaas konden we geen wijnen uit Spanje vinden die aan uw criteria "
+        "voldoen, maar hier zijn enkele mooie alternatieven uit andere "
+        "landen/regio's die goed matchen."
+    )
+    assert result.text.splitlines()[2] == service.recommendation_intro
+
+
+def test_ask_prefers_latest_answer_origin_for_relax_notice() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="witte wijn",
+            )
+        ]
+    )
+    ranker = StubRanker([[], [], [], ["w1"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        candidate_limit=1,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik wil liever een wijn uit Spanje",
+            state={
+                "working_context": (
+                    "Questionnaire:\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    "6. Herkomst (land en/of regio): Frankrijk"
+                )
+            },
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert "geen wijnen uit Spanje" in result.text
+    assert "geen wijnen uit Frankrijk" not in result.text
+
+
+def test_ask_truncates_specific_origin_in_relax_notice() -> None:
+    long_origin = "X" * 120
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="witte wijn",
+            )
+        ]
+    )
+    ranker = StubRanker([[], [], [], ["w1"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        candidate_limit=1,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Doe maar suggesties",
+            state={
+                "working_context": (
+                    "Questionnaire:\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    f"6. Herkomst (land en/of regio): {long_origin}"
+                )
+            },
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert f"geen wijnen uit {long_origin[:80]} vinden" in result.text
+    assert f"geen wijnen uit {long_origin} vinden" not in result.text
+
+
+def test_ask_does_not_add_origin_notice_outside_relax_path() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="rioja",
+            )
+        ]
+    )
+    ranker = StubRanker([["w4", "w1", "w2"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek suggesties",
+            state={
+                "working_context": (
+                    "Questionnaire:\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): Spanje"
+                )
+            },
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert result.text.splitlines()[0] == service.recommendation_intro
+    assert "Helaas konden we geen wijnen" not in result.text
+
+
+def test_ask_uses_generic_notice_for_no_preference_origin_on_relax_path() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="witte wijn",
+            )
+        ]
+    )
+    ranker = StubRanker([[], [], [], ["w1"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        candidate_limit=1,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Doe maar suggesties",
+            state={
+                "working_context": (
+                    "Questionnaire:\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    "6. Herkomst (land en/of regio): geen voorkeur"
+                )
+            },
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert result.text.startswith(
+        "Helaas konden we geen wijnen vinden die aan uw herkomstcriteria "
+        "voldoen, maar hier zijn enkele mooie alternatieven uit andere "
+        "landen/regio's die goed matchen."
+    )
+    assert "uit geen voorkeur" not in result.text
+
+
 def test_recommend_from_context_forces_recommendation_after_completed_intake() -> None:
     controller = StubController(
         [
