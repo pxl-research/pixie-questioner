@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from .intake_routing import intake_complete_for_state
 from .intake_routing import is_routing_question
-from .intake_routing import resolve_intake_stage
+from .intake_routing import resolve_intake_stage_for_questionnaire
 from .intake_routing import DISH_FIELD_INDICES, WINE_FIELD_INDICES
 from .questionnaire import combine_questionnaire_sections
 from .questionnaire import ensure_initial_question_field
@@ -111,7 +111,10 @@ def _state_with_updated_questionnaires(
         wine_questionnaire=wine_questionnaire,
     )
     if resolve_stage:
-        updated_state.intake_stage = resolve_intake_stage(updated_state)
+        updated_state.intake_stage = resolve_intake_stage_for_questionnaire(
+            updated_state,
+            questionnaire,
+        )
     return updated_state
 
 

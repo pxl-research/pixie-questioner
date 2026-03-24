@@ -24,7 +24,7 @@ from .intake_routing import build_routing_question_result
 from .intake_routing import initial_intake_stage_for_route
 from .intake_routing import intake_complete_for_state
 from .intake_routing import is_routing_question
-from .intake_routing import resolve_intake_stage
+from .intake_routing import resolve_intake_stage_for_questionnaire
 from .intake_routing import WINE_FIELD_INDICES
 from .intake_outcomes import (
     build_completion_result,
@@ -32,7 +32,7 @@ from .intake_outcomes import (
     handle_off_topic_intake,
 )
 from .intake_updates import apply_intake_updates
-from .questionnaire import first_blank_field_index
+from .questionnaire import first_blank_field_index, select_questionnaire_fields
 from .relevance import ClassificationLabel
 from .types import (
     INITIAL_QUESTION,
@@ -174,7 +174,10 @@ async def _handle_on_topic_intake(
         summary=updates.summary,
     )
     if handler.is_categorized_handoff_mode():
-        updated_state.intake_stage = resolve_intake_stage(updated_state)
+        updated_state.intake_stage = resolve_intake_stage_for_questionnaire(
+            updated_state,
+            updated_state.questionnaire,
+        )
     _maybe_apply_supported_origin_fallback(
         handler,
         updated_state,
@@ -246,6 +249,10 @@ def _parse_follow_up_flag(value: object) -> bool:
     return False
 
 
+def _wine_questionnaire_view(questionnaire: str) -> str:
+    return select_questionnaire_fields(questionnaire, WINE_FIELD_INDICES)
+
+
 def _maybe_apply_supported_origin_fallback(
     handler: ChatTurnHandler,
     updated_state: ChatState,
@@ -258,9 +265,8 @@ def _maybe_apply_supported_origin_fallback(
         and updated_state.intake_route != INTAKE_ROUTE_GENERAL_WINE
     ):
         return
-    current_origin_value = extract_questionnaire_field_value(
-        updated_state.wine_questionnaire, 6
-    )
+    wine_questionnaire = _wine_questionnaire_view(updated_state.questionnaire)
+    current_origin_value = extract_questionnaire_field_value(wine_questionnaire, 6)
     if not is_blank_questionnaire_value(
         current_origin_value
     ) and _is_supported_origin_value(current_origin_value):
@@ -268,11 +274,6 @@ def _maybe_apply_supported_origin_fallback(
     extracted = _find_supported_origin_in_answer(current_answer)
     if extracted is None:
         return
-    updated_state.wine_questionnaire = replace_questionnaire_field_value(
-        updated_state.wine_questionnaire,
-        6,
-        extracted,
-    )
     updated_state.questionnaire = replace_questionnaire_field_value(
         updated_state.questionnaire,
         6,
@@ -344,23 +345,22 @@ def _maybe_apply_aroma_taste_fallback(
     """
     if not handler.is_categorized_handoff_mode():
         return
+    previous_wine_questionnaire = _wine_questionnaire_view(current_state.questionnaire)
     previous_blank_field = first_blank_field_index(
-        current_state.wine_questionnaire,
+        previous_wine_questionnaire,
         WINE_FIELD_INDICES,
     )
     if previous_blank_field != 8:
         return
+    updated_wine_questionnaire = _wine_questionnaire_view(updated_state.questionnaire)
     current_field_8_value = extract_questionnaire_field_value(
-        updated_state.wine_questionnaire, 8
+        updated_wine_questionnaire, 8
     )
     if not is_blank_questionnaire_value(current_field_8_value):
         return
     answer_value = current_answer.strip()
     if not answer_value:
         return
-    updated_state.wine_questionnaire = replace_questionnaire_field_value(
-        updated_state.wine_questionnaire, 8, answer_value
-    )
     updated_state.questionnaire = replace_questionnaire_field_value(
         updated_state.questionnaire, 8, answer_value
     )
@@ -382,8 +382,9 @@ async def _maybe_generate_unsupported_origin_follow_up(
     ):
         return None
 
+    previous_wine_questionnaire = _wine_questionnaire_view(current_state.questionnaire)
     previous_blank_field = first_blank_field_index(
-        current_state.wine_questionnaire,
+        previous_wine_questionnaire,
         WINE_FIELD_INDICES,
     )
     opening_general_wine_turn = (
@@ -396,19 +397,15 @@ async def _maybe_generate_unsupported_origin_follow_up(
     if previous_blank_field != 6 and not opening_general_wine_turn:
         return None
 
+    updated_wine_questionnaire = _wine_questionnaire_view(updated_state.questionnaire)
     origin_value = extract_questionnaire_field_value(
-        updated_state.wine_questionnaire, 6
+        updated_wine_questionnaire, 6
     )
     origin_is_blank = is_blank_questionnaire_value(origin_value)
     if not origin_is_blank and _is_supported_origin_value(origin_value):
         return None
 
     if not origin_is_blank:
-        updated_state.wine_questionnaire = replace_questionnaire_field_value(
-            updated_state.wine_questionnaire,
-            6,
-            "[]",
-        )
         updated_state.questionnaire = replace_questionnaire_field_value(
             updated_state.questionnaire,
             6,
@@ -420,20 +417,18 @@ async def _maybe_generate_unsupported_origin_follow_up(
     if origin_is_blank:
         extracted = _find_supported_origin_in_answer(current_answer)
         if extracted is not None:
-            updated_state.wine_questionnaire = replace_questionnaire_field_value(
-                updated_state.wine_questionnaire, 6, extracted
-            )
             updated_state.questionnaire = replace_questionnaire_field_value(
                 updated_state.questionnaire, 6, extracted
             )
             return None
 
+    updated_wine_questionnaire = _wine_questionnaire_view(updated_state.questionnaire)
     follow_up_context = (
         f"Conversation language: {updated_state.conversation_language}\n"
         f"Intake route: {updated_state.intake_route}\n"
         f"Intake stage: {updated_state.intake_stage}\n\n"
         "Updated wine questionnaire:\n"
-        f"{updated_state.wine_questionnaire}\n\n"
+        f"{updated_wine_questionnaire}\n\n"
         "Full questionnaire:\n"
         f"{updated_state.questionnaire}"
     )
@@ -458,9 +453,6 @@ async def _maybe_generate_unsupported_origin_follow_up(
         # non-supported value (e.g. "geen voorkeur"), origin_is_blank is False
         # before we clear it, which previously prevented marking.
         if _parse_follow_up_flag(parsed.get("no_preference_expressed")):
-            updated_state.wine_questionnaire = replace_questionnaire_field_value(
-                updated_state.wine_questionnaire, 6, "geen voorkeur"
-            )
             updated_state.questionnaire = replace_questionnaire_field_value(
                 updated_state.questionnaire, 6, "geen voorkeur"
             )
