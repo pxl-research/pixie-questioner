@@ -400,7 +400,9 @@ def test_state_codec_roundtrip_sanitizes_machine_coded_field8_from_legacy_combin
     assert "8. Gewenste geur/smaak (vrije tekst): []" in parsed.questionnaire
     assert "8. Gewenste geur/smaak (vrije tekst): []" in parsed.wine_questionnaire
     assert "8. Gewenste geur/smaak (vrije tekst): []" in serialized["questionnaire"]
-    assert "8. Gewenste geur/smaak (vrije tekst): []" in serialized["wine_questionnaire"]
+    assert (
+        "8. Gewenste geur/smaak (vrije tekst): []" in serialized["wine_questionnaire"]
+    )
     assert "smaak_fruitig" not in serialized["questionnaire"]
 
 

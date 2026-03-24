@@ -327,8 +327,12 @@ def parse_state(
             intake_stage = INTAKE_STAGE_ROUTING
         questionnaire = _normalize_questionnaire("", questionnaire_template)
         if split_questionnaire_field_groups is not None:
-            dish_questionnaire = select_questionnaire_fields(questionnaire, dish_indices)
-            wine_questionnaire = select_questionnaire_fields(questionnaire, wine_indices)
+            dish_questionnaire = select_questionnaire_fields(
+                questionnaire, dish_indices
+            )
+            wine_questionnaire = select_questionnaire_fields(
+                questionnaire, wine_indices
+            )
         else:
             dish_questionnaire = ""
             wine_questionnaire = ""

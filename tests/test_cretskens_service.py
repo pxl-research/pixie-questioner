@@ -155,7 +155,7 @@ def test_ask_completed_intake_calls_recommendation_with_built_context_and_meal_m
     assert meal_mode == "pairing"
     assert "Summary:\nKlant zoekt wijn bij vis." in working_context
     assert "Questionnaire:\n5. Kleur van de wijn" in working_context
-    assert "Handoff categories:\n{\"foodpair_vis_zeevruchten\":true}" in working_context
+    assert 'Handoff categories:\n{"foodpair_vis_zeevruchten":true}' in working_context
 
 
 def test_ask_uses_legacy_advisor_state_shape_as_advisor_flow() -> None:
@@ -188,9 +188,7 @@ def test_ask_uses_legacy_advisor_state_shape_as_advisor_flow() -> None:
         "chat_history": [{"role": "assistant", "text": "Welke kleur?"}],
     }
 
-    result = asyncio.run(
-        service.ask(current_answer="Wit", state=legacy_advisor_state)
-    )
+    result = asyncio.run(service.ask(current_answer="Wit", state=legacy_advisor_state))
 
     assert intake_service.calls == []
     assert recommendation_service.ask_calls == [("Wit", legacy_advisor_state)]

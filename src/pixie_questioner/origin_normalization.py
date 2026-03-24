@@ -26,4 +26,3 @@ def build_normalized_origin_lookup(values: Iterable[str]) -> frozenset[str]:
         for raw in values
         if (normalized := normalize_origin_lookup_value(raw))
     )
-

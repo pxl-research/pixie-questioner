@@ -418,9 +418,7 @@ async def _maybe_generate_unsupported_origin_follow_up(
         return None
 
     updated_wine_questionnaire = _wine_questionnaire_view(updated_state.questionnaire)
-    origin_value = extract_questionnaire_field_value(
-        updated_wine_questionnaire, 6
-    )
+    origin_value = extract_questionnaire_field_value(updated_wine_questionnaire, 6)
     origin_is_blank = is_blank_questionnaire_value(origin_value)
     if not origin_is_blank and _is_supported_origin_value(origin_value):
         return None
