@@ -66,10 +66,21 @@ def _truncate_text(value: str, max_chars: int) -> str:
 
 
 _ORIGIN_LINE_PATTERN = re.compile(r"(?im)^\s*6\.\s*Herkomst\s*\(land en/of regio\):.*$")
+_ORIGIN_VALUE_PATTERN = re.compile(
+    r"(?i)6\.\s*Herkomst\s*\(land en/of regio\):\s*(?P<value>.*?)(?=(?:\s+\d+\.\s)|$)"
+)
 _ORIGIN_PHRASE_PATTERN = re.compile(
     r"(?:\b(?:uit|from|de)\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,40}"
     r"|\bd['’][A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,40})",
     flags=re.IGNORECASE,
+)
+_NO_PREFERENCE_ORIGIN_VALUES = frozenset(
+    {
+        "geen voorkeur",
+        "maakt niet uit",
+        "no preference",
+        "peu importe",
+    }
 )
 
 
@@ -87,6 +98,33 @@ def _relax_origin_constraints(working_context: str) -> str:
     relaxed = re.sub(r"\n{3,}", "\n\n", relaxed)
     relaxed = re.sub(r"[ \t]{2,}", " ", relaxed)
     return relaxed.strip()
+
+
+def _extract_requested_origin_from_context(working_context: str) -> str | None:
+    match = _ORIGIN_VALUE_PATTERN.search(working_context)
+    if match is None:
+        return None
+    raw_value = " ".join(match.group("value").split()).strip().strip(".,;:")
+    if not raw_value or raw_value == "[]":
+        return None
+    if raw_value.casefold() in _NO_PREFERENCE_ORIGIN_VALUES:
+        return None
+    return raw_value
+
+
+def _build_origin_relax_notice(working_context: str) -> str:
+    requested_origin = _extract_requested_origin_from_context(working_context)
+    if requested_origin is None:
+        return (
+            "Helaas konden we geen wijnen vinden die aan uw herkomstcriteria "
+            "voldoen, maar hier zijn enkele mooie alternatieven uit andere "
+            "landen/regio's die goed matchen."
+        )
+    return (
+        f"Helaas konden we geen wijnen uit {requested_origin} vinden die aan uw "
+        "criteria voldoen, maar hier zijn enkele mooie alternatieven uit andere "
+        "landen/regio's die goed matchen."
+    )
 
 
 def _to_string_list(value: Any) -> list[str]:
@@ -180,11 +218,18 @@ class WineAdvisorService:
         self,
         recommendations: list[WineCatalogRecommendation],
         intro_text: str = "",
+        fallback_notice: str = "",
     ) -> str:
         effective_intro = intro_text.strip() or self.recommendation_intro
+        normalized_notice = fallback_notice.strip()
         if not recommendations:
+            if normalized_notice:
+                return "\n\n".join((normalized_notice, effective_intro))
             return effective_intro
-        lines = [effective_intro, ""]
+        lines: list[str] = []
+        if normalized_notice:
+            lines.extend([normalized_notice, ""])
+        lines.extend([effective_intro, ""])
         for index, recommendation in enumerate(recommendations, start=1):
             lines.append(
                 f"{index}. {recommendation.name} "
@@ -447,6 +492,7 @@ class WineAdvisorService:
         normalized: list[str] | None = None
         intro_text: str = ""
         last_error: RuntimeError | None = None
+        origin_relax_applied = False
         for min_count in _min_count_attempts_for(candidate_barcodes):
             try:
                 selection = await self.ranker.select_with_explanation(
@@ -526,6 +572,7 @@ class WineAdvisorService:
                         candidate_records = relaxed_records
                         candidate_barcodes = relaxed_barcodes
                         state_candidate_barcodes = relaxed_barcodes
+                        origin_relax_applied = True
                     except RuntimeError as exc:
                         last_error = exc
 
@@ -554,9 +601,16 @@ class WineAdvisorService:
             candidate_barcodes=state_candidate_barcodes,
             selected_barcodes=[item.barcode for item in recommendations],
         )
+        fallback_notice = ""
+        if origin_relax_applied:
+            fallback_notice = _build_origin_relax_notice(
+                parsed_state.working_context or working_context
+            )
         return WineAdvisorResult(
             text=self._format_recommendation_text(
-                recommendations, intro_text=intro_text
+                recommendations,
+                intro_text=intro_text,
+                fallback_notice=fallback_notice,
             ),
             response_type="recommendations",
             state=self._serialize_state(completed),
