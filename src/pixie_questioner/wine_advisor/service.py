@@ -67,7 +67,11 @@ def _truncate_text(value: str, max_chars: int) -> str:
 
 _ORIGIN_LINE_PATTERN = re.compile(r"(?im)^\s*6\.\s*Herkomst\s*\(land en/of regio\):.*$")
 _ORIGIN_VALUE_PATTERN = re.compile(
-    r"(?i)6\.\s*Herkomst\s*\(land en/of regio\):\s*(?P<value>.*?)(?=(?:\s+\d+\.\s)|$)"
+    r"(?i)6\.\s*Herkomst\s*\(land en/of regio\):\s*(?P<value>[^\n]*)"
+)
+_ANSWER_ORIGIN_PATTERN = re.compile(
+    r"(?i)(?:\b(?:uit|from)\s+(?P<origin>[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,60})"
+    r"|\bd['’](?P<origin_d>[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,60}))"
 )
 _ORIGIN_PHRASE_PATTERN = re.compile(
     r"(?:\b(?:uit|from|de)\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’ -]{1,40}"
@@ -112,16 +116,32 @@ def _extract_requested_origin_from_context(working_context: str) -> str | None:
     return raw_value
 
 
-def _build_origin_relax_notice(working_context: str) -> str:
-    requested_origin = _extract_requested_origin_from_context(working_context)
+def _extract_requested_origin_from_answer(current_answer: str) -> str | None:
+    match = _ANSWER_ORIGIN_PATTERN.search(current_answer)
+    if match is None:
+        return None
+    requested_origin = (match.group("origin") or match.group("origin_d") or "").strip()
+    requested_origin = " ".join(requested_origin.split()).strip(".,;:")
+    if not requested_origin:
+        return None
+    if requested_origin.casefold() in _NO_PREFERENCE_ORIGIN_VALUES:
+        return None
+    return requested_origin
+
+
+def _build_origin_relax_notice(working_context: str, current_answer: str) -> str:
+    requested_origin = _extract_requested_origin_from_answer(current_answer)
+    if requested_origin is None:
+        requested_origin = _extract_requested_origin_from_context(working_context)
     if requested_origin is None:
         return (
             "Helaas konden we geen wijnen vinden die aan uw herkomstcriteria "
             "voldoen, maar hier zijn enkele mooie alternatieven uit andere "
             "landen/regio's die goed matchen."
         )
+    safe_origin = _truncate_text(requested_origin, 80)
     return (
-        f"Helaas konden we geen wijnen uit {requested_origin} vinden die aan uw "
+        f"Helaas konden we geen wijnen uit {safe_origin} vinden die aan uw "
         "criteria voldoen, maar hier zijn enkele mooie alternatieven uit andere "
         "landen/regio's die goed matchen."
     )
@@ -604,7 +624,8 @@ class WineAdvisorService:
         fallback_notice = ""
         if origin_relax_applied:
             fallback_notice = _build_origin_relax_notice(
-                parsed_state.working_context or working_context
+                working_context,
+                normalized_answer,
             )
         return WineAdvisorResult(
             text=self._format_recommendation_text(

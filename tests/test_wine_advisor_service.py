@@ -723,6 +723,81 @@ def test_ask_adds_specific_origin_notice_when_relax_path_is_used() -> None:
     assert result.text.splitlines()[2] == service.recommendation_intro
 
 
+def test_ask_prefers_latest_answer_origin_for_relax_notice() -> None:
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="witte wijn",
+            )
+        ]
+    )
+    ranker = StubRanker([[], [], [], ["w1"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        candidate_limit=1,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Ik wil liever een wijn uit Spanje",
+            state={
+                "working_context": (
+                    "Questionnaire:\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    "6. Herkomst (land en/of regio): Frankrijk"
+                )
+            },
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert "geen wijnen uit Spanje" in result.text
+    assert "geen wijnen uit Frankrijk" not in result.text
+
+
+def test_ask_truncates_specific_origin_in_relax_notice() -> None:
+    long_origin = "X" * 120
+    controller = StubController(
+        [
+            TurnDecision(
+                action="recommend",
+                question_text="",
+                meal_mode="pairing",
+                query_hints="witte wijn",
+            )
+        ]
+    )
+    ranker = StubRanker([[], [], [], ["w1"]])
+    service = WineAdvisorService(
+        catalog_records=_catalog(),
+        turn_controller=controller,
+        ranker=ranker,
+        candidate_limit=1,
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Doe maar suggesties",
+            state={
+                "working_context": (
+                    "Questionnaire:\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    f"6. Herkomst (land en/of regio): {long_origin}"
+                )
+            },
+        )
+    )
+
+    assert result.response_type == "recommendations"
+    assert f"geen wijnen uit {long_origin[:80]} vinden" in result.text
+    assert f"geen wijnen uit {long_origin} vinden" not in result.text
+
+
 def test_ask_does_not_add_origin_notice_outside_relax_path() -> None:
     controller = StubController(
         [
