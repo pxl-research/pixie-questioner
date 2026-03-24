@@ -4250,10 +4250,68 @@ def test_ask_uses_deterministic_fallback_when_question_asker_returns_non_questio
     )
 
     assert result.response_type == "answer"
-    assert result.text == "Kun je je voorkeur delen voor: Maximum budget in euro?"
-    assert (
-        result.state["last_question"]
-        == "Kun je je voorkeur delen voor: Maximum budget in euro?"
+    assert result.text == "Wat is je maximum budget in euro?"
+    assert result.state["last_question"] == "Wat is je maximum budget in euro?"
+    assert result.state["phase"] == "intake"
+    assert len(question_llm.calls) == 1
+
+
+def test_ask_uses_deterministic_fallback_for_aroma_taste_without_field_label():
+    question_llm = FakeLLM(["Dank u, dat helpt ons goed verder"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): Frankrijk\n"
+            "7. Maximum budget in euro: 20\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
     )
+    summarizer_llm = FakeLLM(["Klant zoekt rode wijn uit Frankrijk rond 20 euro."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="20 euro",
+            state={
+                "questionnaire": (
+                    "0. Dish description (free text from customer): [pending later]\n"
+                    "1. Course type (aperitif, main course, cheese course, or dessert): [pending later]\n"
+                    "2. Main protein (fish or seafood, poultry, red meat, wild, or none): [pending later]\n"
+                    "3. Cooking method (BBQ or grill, stew, or none): [pending later]\n"
+                    "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): [pending later]\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): Frankrijk\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "wine_questionnaire": (
+                    "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+                    "6. Herkomst (land en/of regio): Frankrijk\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "summary": "",
+                "last_question": "Wat is je maximum budget?",
+                "intake_route": "general_wine",
+                "intake_stage": "wine",
+                "wine_follow_up_count": "2",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text.startswith("Welke geur- of smaakstijl zoek je?")
+    assert "citrus of rood fruit" in result.text
+    assert "niet wil" in result.text
+    assert "Gewenste geur/smaak" not in result.text
+    assert "Kun je je voorkeur delen voor:" not in result.text
+    assert result.state["last_question"] == result.text
     assert result.state["phase"] == "intake"
     assert len(question_llm.calls) == 1
