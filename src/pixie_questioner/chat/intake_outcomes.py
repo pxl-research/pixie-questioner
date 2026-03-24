@@ -23,6 +23,7 @@ from .questionnaire import (
     first_blank_field_index,
     focus_questionnaire_for_route,
     mask_later_blank_fields,
+    select_questionnaire_fields,
 )
 from .types import INITIAL_QUESTION, INTAKE_ROUTE_FOOD_PAIRING, ChatResult, ChatState
 
@@ -184,20 +185,26 @@ async def build_next_question_result(
         raise RuntimeError(
             "No follow-up question remains for the current intake state."
         )
+    dish_questionnaire = select_questionnaire_fields(
+        updated_questionnaire,
+        DISH_FIELD_INDICES,
+    )
+    wine_questionnaire = select_questionnaire_fields(
+        updated_questionnaire,
+        WINE_FIELD_INDICES,
+    )
     if handler.is_categorized_handoff_mode() and next_question_track == "dish":
         focused_questionnaire = mask_later_blank_fields(
-            current_state.dish_questionnaire,
+            dish_questionnaire,
             DISH_FIELD_INDICES,
         )
     elif handler.is_categorized_handoff_mode() and next_question_track == "wine":
         wine_focused = mask_later_blank_fields(
-            current_state.wine_questionnaire,
+            wine_questionnaire,
             WINE_FIELD_INDICES,
         )
         if current_state.intake_route == INTAKE_ROUTE_FOOD_PAIRING:
-            focused_questionnaire = (
-                current_state.dish_questionnaire + "\n" + wine_focused
-            )
+            focused_questionnaire = dish_questionnaire + "\n" + wine_focused
         else:
             focused_questionnaire = wine_focused
     else:
@@ -215,10 +222,7 @@ async def build_next_question_result(
     if (
         handler.is_categorized_handoff_mode()
         and next_question_track == "wine"
-        and first_blank_field_index(
-            current_state.wine_questionnaire, WINE_FIELD_INDICES
-        )
-        == 8
+        and first_blank_field_index(wine_questionnaire, WINE_FIELD_INDICES) == 8
     ):
         lang = conversation_language.casefold().split("-")[0]
         static_question = _AROMA_TASTE_QUESTIONS.get(lang, _AROMA_TASTE_QUESTIONS["nl"])

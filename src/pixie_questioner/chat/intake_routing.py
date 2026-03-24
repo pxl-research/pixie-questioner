@@ -5,14 +5,18 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from .questionnaire import has_blank_fields, questionnaire_complete
+from .questionnaire import (
+    has_blank_fields,
+    questionnaire_complete,
+    select_questionnaire_fields,
+)
 from .types import (
     INTAKE_ROUTE_FOOD_PAIRING,
     INTAKE_ROUTE_GENERAL_WINE,
+    INTAKE_ROUTE_UNKNOWN,
     INTAKE_STAGE_DISH,
     INTAKE_STAGE_ROUTING,
     INTAKE_STAGE_WINE,
-    INTAKE_ROUTE_UNKNOWN,
     ChatResult,
     ChatState,
 )
@@ -65,7 +69,18 @@ def initial_intake_stage_for_route(intake_route: str) -> str:
     return INTAKE_STAGE_ROUTING
 
 
-def resolve_intake_stage(current_state: ChatState) -> str:
+def _has_blank_fields_in_questionnaire(
+    questionnaire: str,
+    field_indices: list[int],
+) -> bool:
+    focused = select_questionnaire_fields(questionnaire, field_indices)
+    return has_blank_fields(focused, field_indices)
+
+
+def resolve_intake_stage_for_questionnaire(
+    current_state: ChatState,
+    questionnaire: str,
+) -> str:
     if current_state.intake_route == INTAKE_ROUTE_GENERAL_WINE:
         return INTAKE_STAGE_WINE
     if current_state.intake_route != INTAKE_ROUTE_FOOD_PAIRING:
@@ -74,15 +89,31 @@ def resolve_intake_stage(current_state: ChatState) -> str:
         return INTAKE_STAGE_WINE
     if current_state.dish_follow_up_count >= MAX_DISH_FOLLOW_UPS:
         return INTAKE_STAGE_WINE
-    if has_blank_fields(current_state.dish_questionnaire, DISH_FIELD_INDICES):
+    if _has_blank_fields_in_questionnaire(questionnaire, DISH_FIELD_INDICES):
         return INTAKE_STAGE_DISH
     return INTAKE_STAGE_WINE
+
+
+def resolve_intake_stage(current_state: ChatState) -> str:
+    return resolve_intake_stage_for_questionnaire(
+        current_state,
+        current_state.questionnaire,
+    )
 
 
 def determine_next_question_track(
     current_state: ChatState,
     questionnaire: str,
 ) -> str | None:
+    dish_has_blanks = _has_blank_fields_in_questionnaire(
+        questionnaire,
+        DISH_FIELD_INDICES,
+    )
+    wine_has_blanks = _has_blank_fields_in_questionnaire(
+        questionnaire,
+        WINE_FIELD_INDICES,
+    )
+
     if current_state.intake_route == INTAKE_ROUTE_UNKNOWN:
         if questionnaire_complete(questionnaire):
             return None
@@ -91,20 +122,19 @@ def determine_next_question_track(
     if current_state.intake_route == INTAKE_ROUTE_GENERAL_WINE:
         if current_state.wine_follow_up_count == 0:
             return "wine"
-        if (
-            current_state.wine_follow_up_count < MAX_WINE_FOLLOW_UPS
-            and has_blank_fields(current_state.wine_questionnaire, WINE_FIELD_INDICES)
-        ):
+        if current_state.wine_follow_up_count < MAX_WINE_FOLLOW_UPS and wine_has_blanks:
             return "wine"
         return None
 
-    stage = resolve_intake_stage(current_state)
+    stage = resolve_intake_stage_for_questionnaire(current_state, questionnaire)
+    if (
+        stage == INTAKE_STAGE_DISH
+        and current_state.dish_follow_up_count < MAX_DISH_FOLLOW_UPS
+        and dish_has_blanks
+    ):
+        return "dish"
+
     if stage == INTAKE_STAGE_DISH:
-        if (
-            current_state.dish_follow_up_count < MAX_DISH_FOLLOW_UPS
-            and has_blank_fields(current_state.dish_questionnaire, DISH_FIELD_INDICES)
-        ):
-            return "dish"
         if (
             current_state.dish_follow_up_count == 0
             and current_state.wine_follow_up_count == 0
@@ -112,9 +142,7 @@ def determine_next_question_track(
             return "wine"
         return None
 
-    if current_state.wine_follow_up_count < MAX_WINE_FOLLOW_UPS and has_blank_fields(
-        current_state.wine_questionnaire, WINE_FIELD_INDICES
-    ):
+    if current_state.wine_follow_up_count < MAX_WINE_FOLLOW_UPS and wine_has_blanks:
         return "wine"
     if (
         current_state.dish_follow_up_count == 0

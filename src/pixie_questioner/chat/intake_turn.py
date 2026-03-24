@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import logging
 import re
-import unicodedata
 
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from ..origin_normalization import (
+    build_normalized_origin_lookup,
+    normalize_origin_lookup_value,
+)
 from .categorized_handoff import (
     WINE_COUNTRY_VALUES,
     WINE_REGION_VALUES,
@@ -21,7 +24,7 @@ from .intake_routing import build_routing_question_result
 from .intake_routing import initial_intake_stage_for_route
 from .intake_routing import intake_complete_for_state
 from .intake_routing import is_routing_question
-from .intake_routing import resolve_intake_stage
+from .intake_routing import resolve_intake_stage_for_questionnaire
 from .intake_routing import WINE_FIELD_INDICES
 from .intake_outcomes import (
     build_completion_result,
@@ -29,7 +32,7 @@ from .intake_outcomes import (
     handle_off_topic_intake,
 )
 from .intake_updates import apply_intake_updates
-from .questionnaire import first_blank_field_index
+from .questionnaire import first_blank_field_index, select_questionnaire_fields
 from .relevance import ClassificationLabel
 from .types import (
     INITIAL_QUESTION,
@@ -171,13 +174,11 @@ async def _handle_on_topic_intake(
         summary=updates.summary,
     )
     if handler.is_categorized_handoff_mode():
-        updated_state.intake_stage = resolve_intake_stage(updated_state)
-    _maybe_apply_supported_origin_fallback(
-        handler,
-        updated_state,
-        current_answer,
-    )
-    unsupported_origin_follow_up = await _maybe_generate_unsupported_origin_follow_up(
+        updated_state.intake_stage = resolve_intake_stage_for_questionnaire(
+            updated_state,
+            updated_state.questionnaire,
+        )
+    unsupported_origin_follow_up = await _maybe_process_origin_pipeline(
         handler,
         current_state,
         updated_state,
@@ -243,6 +244,35 @@ def _parse_follow_up_flag(value: object) -> bool:
     return False
 
 
+async def _maybe_process_origin_pipeline(
+    handler: ChatTurnHandler,
+    current_state: ChatState,
+    updated_state: ChatState,
+    current_answer: str,
+) -> str | None:
+    """Apply origin logic in one explicit sequence.
+
+    Order:
+    1) Supported-origin deterministic fallback from the user's answer.
+    2) Unsupported-origin follow-up decision (LLM) + no-preference marking.
+    """
+    _maybe_apply_supported_origin_fallback(
+        handler,
+        updated_state,
+        current_answer,
+    )
+    return await _maybe_generate_unsupported_origin_follow_up(
+        handler,
+        current_state,
+        updated_state,
+        current_answer,
+    )
+
+
+def _wine_questionnaire_view(questionnaire: str) -> str:
+    return select_questionnaire_fields(questionnaire, WINE_FIELD_INDICES)
+
+
 def _maybe_apply_supported_origin_fallback(
     handler: ChatTurnHandler,
     updated_state: ChatState,
@@ -255,9 +285,8 @@ def _maybe_apply_supported_origin_fallback(
         and updated_state.intake_route != INTAKE_ROUTE_GENERAL_WINE
     ):
         return
-    current_origin_value = extract_questionnaire_field_value(
-        updated_state.wine_questionnaire, 6
-    )
+    wine_questionnaire = _wine_questionnaire_view(updated_state.questionnaire)
+    current_origin_value = extract_questionnaire_field_value(wine_questionnaire, 6)
     if not is_blank_questionnaire_value(
         current_origin_value
     ) and _is_supported_origin_value(current_origin_value):
@@ -265,11 +294,6 @@ def _maybe_apply_supported_origin_fallback(
     extracted = _find_supported_origin_in_answer(current_answer)
     if extracted is None:
         return
-    updated_state.wine_questionnaire = replace_questionnaire_field_value(
-        updated_state.wine_questionnaire,
-        6,
-        extracted,
-    )
     updated_state.questionnaire = replace_questionnaire_field_value(
         updated_state.questionnaire,
         6,
@@ -277,27 +301,13 @@ def _maybe_apply_supported_origin_fallback(
     )
 
 
-def _normalize_origin_lookup_value(value: str) -> str:
-    lowered = " ".join(value.strip().split()).casefold()
-    decomposed = unicodedata.normalize("NFKD", lowered)
-    without_accents = "".join(
-        character for character in decomposed if not unicodedata.combining(character)
-    )
-    # Collapse hyphens, slashes, and similar punctuation to spaces so that
-    # user variants like "Zuid Afrika" match the catalog "Zuid-Afrika".
-    collapsed = re.sub(r"[-/''\"]+", " ", without_accents)
-    return re.sub(r"\s+", " ", collapsed).strip()
-
-
-_SUPPORTED_ORIGIN_LOOKUP = frozenset(
-    _normalized
-    for _raw in (*WINE_COUNTRY_VALUES, *WINE_REGION_VALUES)
-    if (_normalized := _normalize_origin_lookup_value(_raw))
+_SUPPORTED_ORIGIN_LOOKUP = build_normalized_origin_lookup(
+    (*WINE_COUNTRY_VALUES, *WINE_REGION_VALUES)
 )
 
 
 def _is_supported_origin_value(value: str) -> bool:
-    normalized = _normalize_origin_lookup_value(value)
+    normalized = normalize_origin_lookup_value(value)
     if not normalized:
         return False
     if normalized in _SUPPORTED_ORIGIN_LOOKUP:
@@ -313,9 +323,9 @@ def _is_supported_origin_value(value: str) -> bool:
 # (e.g. "haut medoc, bordeaux" before "bordeaux").
 _SUPPORTED_ORIGIN_CANONICAL: list[tuple[str, str]] = sorted(
     (
-        (_normalize_origin_lookup_value(raw), raw)
+        (normalize_origin_lookup_value(raw), raw)
         for raw in (*WINE_COUNTRY_VALUES, *WINE_REGION_VALUES)
-        if _normalize_origin_lookup_value(raw)
+        if normalize_origin_lookup_value(raw)
     ),
     key=lambda pair: (-len(pair[0]), pair[0]),
 )
@@ -328,7 +338,7 @@ def _find_supported_origin_in_answer(answer: str) -> str | None:
     Checks exact full-answer match first, then word-boundary substring.
     Only used as a fallback when the notulist failed to fill field 6.
     """
-    normalized_answer = _normalize_origin_lookup_value(answer)
+    normalized_answer = normalize_origin_lookup_value(answer)
     if not normalized_answer:
         return None
     if normalized_answer in _SUPPORTED_ORIGIN_CANONICAL_DICT:
@@ -355,23 +365,22 @@ def _maybe_apply_aroma_taste_fallback(
     """
     if not handler.is_categorized_handoff_mode():
         return
+    previous_wine_questionnaire = _wine_questionnaire_view(current_state.questionnaire)
     previous_blank_field = first_blank_field_index(
-        current_state.wine_questionnaire,
+        previous_wine_questionnaire,
         WINE_FIELD_INDICES,
     )
     if previous_blank_field != 8:
         return
+    updated_wine_questionnaire = _wine_questionnaire_view(updated_state.questionnaire)
     current_field_8_value = extract_questionnaire_field_value(
-        updated_state.wine_questionnaire, 8
+        updated_wine_questionnaire, 8
     )
     if not is_blank_questionnaire_value(current_field_8_value):
         return
     answer_value = current_answer.strip()
     if not answer_value:
         return
-    updated_state.wine_questionnaire = replace_questionnaire_field_value(
-        updated_state.wine_questionnaire, 8, answer_value
-    )
     updated_state.questionnaire = replace_questionnaire_field_value(
         updated_state.questionnaire, 8, answer_value
     )
@@ -393,8 +402,9 @@ async def _maybe_generate_unsupported_origin_follow_up(
     ):
         return None
 
+    previous_wine_questionnaire = _wine_questionnaire_view(current_state.questionnaire)
     previous_blank_field = first_blank_field_index(
-        current_state.wine_questionnaire,
+        previous_wine_questionnaire,
         WINE_FIELD_INDICES,
     )
     opening_general_wine_turn = (
@@ -407,44 +417,26 @@ async def _maybe_generate_unsupported_origin_follow_up(
     if previous_blank_field != 6 and not opening_general_wine_turn:
         return None
 
-    origin_value = extract_questionnaire_field_value(
-        updated_state.wine_questionnaire, 6
-    )
+    updated_wine_questionnaire = _wine_questionnaire_view(updated_state.questionnaire)
+    origin_value = extract_questionnaire_field_value(updated_wine_questionnaire, 6)
     origin_is_blank = is_blank_questionnaire_value(origin_value)
     if not origin_is_blank and _is_supported_origin_value(origin_value):
         return None
 
     if not origin_is_blank:
-        updated_state.wine_questionnaire = replace_questionnaire_field_value(
-            updated_state.wine_questionnaire,
-            6,
-            "[]",
-        )
         updated_state.questionnaire = replace_questionnaire_field_value(
             updated_state.questionnaire,
             6,
             "[]",
         )
 
-    # When the notulist left field 6 blank but the user's answer contains a
-    # supported origin, fill it directly to prevent an endless re-ask loop.
-    if origin_is_blank:
-        extracted = _find_supported_origin_in_answer(current_answer)
-        if extracted is not None:
-            updated_state.wine_questionnaire = replace_questionnaire_field_value(
-                updated_state.wine_questionnaire, 6, extracted
-            )
-            updated_state.questionnaire = replace_questionnaire_field_value(
-                updated_state.questionnaire, 6, extracted
-            )
-            return None
-
+    updated_wine_questionnaire = _wine_questionnaire_view(updated_state.questionnaire)
     follow_up_context = (
         f"Conversation language: {updated_state.conversation_language}\n"
         f"Intake route: {updated_state.intake_route}\n"
         f"Intake stage: {updated_state.intake_stage}\n\n"
         "Updated wine questionnaire:\n"
-        f"{updated_state.wine_questionnaire}\n\n"
+        f"{updated_wine_questionnaire}\n\n"
         "Full questionnaire:\n"
         f"{updated_state.questionnaire}"
     )
@@ -469,9 +461,6 @@ async def _maybe_generate_unsupported_origin_follow_up(
         # non-supported value (e.g. "geen voorkeur"), origin_is_blank is False
         # before we clear it, which previously prevented marking.
         if _parse_follow_up_flag(parsed.get("no_preference_expressed")):
-            updated_state.wine_questionnaire = replace_questionnaire_field_value(
-                updated_state.wine_questionnaire, 6, "geen voorkeur"
-            )
             updated_state.questionnaire = replace_questionnaire_field_value(
                 updated_state.questionnaire, 6, "geen voorkeur"
             )

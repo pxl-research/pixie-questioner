@@ -369,6 +369,43 @@ def test_state_codec_prefers_combined_free_text_over_legacy_machine_coded_split(
     assert serialized["questionnaire"] == questionnaire
 
 
+def test_state_codec_roundtrip_sanitizes_machine_coded_field8_from_legacy_combined_state() -> (
+    None
+):
+    legacy_combined = (
+        _CRETSKENS_DISH_QUESTIONNAIRE
+        + "\n"
+        + (
+            "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+            "6. Herkomst (land en/of regio): Loire (AOC Cheverny)\n"
+            "7. Maximum budget in euro: 25\n"
+            '8. Gewenste geur/smaak (vrije tekst): {"smaak_fruitig":true}'
+        )
+    )
+    parsed = parse_state(
+        state={
+            "questionnaire": legacy_combined,
+            "summary": "Summary text",
+            "last_question": "Welke geur of smaak zoek je?",
+            "intake_route": "food_pairing",
+            "wine_follow_up_count": "1",
+        },
+        questionnaire_template=legacy_combined,
+        default_language="nl",
+        split_questionnaire_field_groups=_CRETSKENS_SPLIT_GROUPS,
+    )
+
+    serialized = serialize_state(parsed)
+
+    assert "8. Gewenste geur/smaak (vrije tekst): []" in parsed.questionnaire
+    assert "8. Gewenste geur/smaak (vrije tekst): []" in parsed.wine_questionnaire
+    assert "8. Gewenste geur/smaak (vrije tekst): []" in serialized["questionnaire"]
+    assert (
+        "8. Gewenste geur/smaak (vrije tekst): []" in serialized["wine_questionnaire"]
+    )
+    assert "smaak_fruitig" not in serialized["questionnaire"]
+
+
 def test_combine_questionnaire_sections_reconstructs_original_order() -> None:
     combined = combine_questionnaire_sections(
         _CRETSKENS_WINE_QUESTIONNAIRE,
@@ -405,6 +442,38 @@ def test_state_codec_defaults_new_cretskens_route_fields_for_legacy_state() -> N
     assert serialized["dish_follow_up_count"] == "0"
     assert serialized["wine_follow_up_count"] == "0"
     assert serialized["routing_question_asked"] == "false"
+
+
+def test_state_codec_does_not_emit_split_fields_without_cretskens_stage_context() -> (
+    None
+):
+    questionnaire_template = (
+        "0. Field 0: []\n"
+        "1. Field 1: []\n"
+        "2. Field 2: []\n"
+        "3. Field 3: []\n"
+        "4. Field 4: []\n"
+        "5. Field 5: []\n"
+        "6. Field 6: []\n"
+        "7. Field 7: []\n"
+        "8. Field 8: []"
+    )
+    parsed = parse_state(
+        state={
+            "questionnaire": questionnaire_template,
+            "summary": "Summary text",
+            "last_question": "Vraag?",
+        },
+        questionnaire_template=questionnaire_template,
+        default_language="nl",
+        split_questionnaire_field_groups=None,
+    )
+
+    serialized = serialize_state(parsed)
+
+    assert "dish_questionnaire" not in serialized
+    assert "wine_questionnaire" not in serialized
+    assert "intake_stage" not in serialized
 
 
 def test_state_codec_preserves_conversation_language_and_recent_user_turns() -> None:
