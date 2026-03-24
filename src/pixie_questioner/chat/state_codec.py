@@ -27,6 +27,9 @@ from .types import (
     INITIAL_QUESTION,
 )
 
+_CRETSKENS_DISH_FIELD_INDICES = [0, 1, 2, 3, 4]
+_CRETSKENS_WINE_FIELD_INDICES = [5, 6, 7, 8]
+
 
 def extract_questionnaire_indices(questionnaire: str) -> list[int]:
     indices = set()
