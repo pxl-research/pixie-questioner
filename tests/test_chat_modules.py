@@ -369,6 +369,41 @@ def test_state_codec_prefers_combined_free_text_over_legacy_machine_coded_split(
     assert serialized["questionnaire"] == questionnaire
 
 
+def test_state_codec_roundtrip_sanitizes_machine_coded_field8_from_legacy_combined_state() -> (
+    None
+):
+    legacy_combined = (
+        _CRETSKENS_DISH_QUESTIONNAIRE
+        + "\n"
+        + (
+            "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+            "6. Herkomst (land en/of regio): Loire (AOC Cheverny)\n"
+            "7. Maximum budget in euro: 25\n"
+            '8. Gewenste geur/smaak (vrije tekst): {"smaak_fruitig":true}'
+        )
+    )
+    parsed = parse_state(
+        state={
+            "questionnaire": legacy_combined,
+            "summary": "Summary text",
+            "last_question": "Welke geur of smaak zoek je?",
+            "intake_route": "food_pairing",
+            "wine_follow_up_count": "1",
+        },
+        questionnaire_template=legacy_combined,
+        default_language="nl",
+        split_questionnaire_field_groups=_CRETSKENS_SPLIT_GROUPS,
+    )
+
+    serialized = serialize_state(parsed)
+
+    assert "8. Gewenste geur/smaak (vrije tekst): []" in parsed.questionnaire
+    assert "8. Gewenste geur/smaak (vrije tekst): []" in parsed.wine_questionnaire
+    assert "8. Gewenste geur/smaak (vrije tekst): []" in serialized["questionnaire"]
+    assert "8. Gewenste geur/smaak (vrije tekst): []" in serialized["wine_questionnaire"]
+    assert "smaak_fruitig" not in serialized["questionnaire"]
+
+
 def test_combine_questionnaire_sections_reconstructs_original_order() -> None:
     combined = combine_questionnaire_sections(
         _CRETSKENS_WINE_QUESTIONNAIRE,

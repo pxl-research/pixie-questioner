@@ -1467,6 +1467,91 @@ def test_ask_cretskens_no_preference_origin_marks_field_to_prevent_reask():
     assert len(unsupported_origin_llm.calls) == 1
 
 
+def test_ask_cretskens_unsupported_origin_then_no_preference_moves_to_next_field():
+    """Characterization: unsupported origin follow-up can resolve to no-preference.
+
+    Sequence:
+    1) Opening general-wine turn names an unsupported country => follow-up question.
+    2) User answers "geen voorkeur" => origin is marked and flow continues to field 7.
+    """
+    question_llm = FakeLLM(["Wat is je maximale budget?"])
+    notulist_llm = FakeLLM(
+        [
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []",
+            "5. Kleur van de wijn (wit, rood, rosé): rood\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []",
+        ]
+    )
+    summarizer_llm = FakeLLM(
+        [
+            "Klant zoekt rode wijn uit Bulgarije.",
+            "Klant heeft geen voorkeur voor herkomst.",
+        ]
+    )
+    unsupported_origin_llm = FakeLLM(
+        [
+            (
+                '{"should_follow_up":true,"question":"Bulgarije hebben we nu niet '
+                'in het aanbod. Is een andere herkomst ook goed?"}'
+            ),
+            '{"should_follow_up":false,"no_preference_expressed":true,"question":""}',
+        ]
+    )
+    route_classifier = StubIntakeRouteClassifier(["general_wine"])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+        intake_route_classifier=route_classifier,
+        unsupported_origin_follow_up=_make_unsupported_origin_follow_up(
+            unsupported_origin_llm
+        ),
+    )
+
+    first_turn = asyncio.run(
+        service.ask(
+            current_answer="Ik zoek een rode wijn uit Bulgarije",
+            state=None,
+        )
+    )
+
+    assert first_turn.response_type == "answer"
+    assert (
+        first_turn.text
+        == "Bulgarije hebben we nu niet in het aanbod. Is een andere herkomst ook goed?"
+    )
+    assert first_turn.state["wine_follow_up_count"] == "1"
+
+    second_turn = asyncio.run(
+        service.ask(
+            current_answer="Geen voorkeur dan",
+            state=first_turn.state,
+        )
+    )
+
+    assert second_turn.response_type == "answer"
+    assert second_turn.text == "Wat is je maximale budget?"
+    assert (
+        "6. Herkomst (land en/of regio): geen voorkeur"
+        in second_turn.state["wine_questionnaire"]
+    )
+    assert (
+        "6. Herkomst (land en/of regio): geen voorkeur"
+        in second_turn.state["questionnaire"]
+    )
+    assert second_turn.state["wine_follow_up_count"] == "2"
+    assert len(unsupported_origin_llm.calls) == 2
+    assert len(question_llm.calls) == 1
+
+
 def test_ask_cretskens_no_preference_origin_marks_field_when_notulist_fills_value():
     """Regression: when user says 'zonder voorkeur dan' after an unsupported-origin
     follow-up and the notulist LLM fills field 6 with a non-supported value like
