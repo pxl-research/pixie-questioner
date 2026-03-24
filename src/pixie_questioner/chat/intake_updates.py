@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from .intake_routing import intake_complete_for_state
 from .intake_routing import is_routing_question
-from .intake_routing import resolve_intake_stage
+from .intake_routing import resolve_intake_stage_for_questionnaire
 from .intake_routing import DISH_FIELD_INDICES, WINE_FIELD_INDICES
 from .questionnaire import combine_questionnaire_sections
 from .questionnaire import ensure_initial_question_field
@@ -104,28 +104,17 @@ def _state_with_updated_questionnaires(
     wine_questionnaire: str,
     resolve_stage: bool,
 ) -> ChatState:
-    updated_state = ChatState(
+    updated_state = replace(
+        current_state,
         questionnaire=questionnaire,
         dish_questionnaire=dish_questionnaire,
         wine_questionnaire=wine_questionnaire,
-        summary=current_state.summary,
-        last_question=current_state.last_question,
-        conversation_language=current_state.conversation_language,
-        recent_user_turns=current_state.recent_user_turns,
-        phase=current_state.phase,
-        feedback_status=current_state.feedback_status,
-        final_summary=current_state.final_summary,
-        post_summary_language=current_state.post_summary_language,
-        boundary_violation_count=current_state.boundary_violation_count,
-        handoff_categories_v1=current_state.handoff_categories_v1,
-        intake_route=current_state.intake_route,
-        intake_stage=current_state.intake_stage,
-        dish_follow_up_count=current_state.dish_follow_up_count,
-        wine_follow_up_count=current_state.wine_follow_up_count,
-        routing_question_asked=current_state.routing_question_asked,
     )
     if resolve_stage:
-        updated_state.intake_stage = resolve_intake_stage(updated_state)
+        updated_state.intake_stage = resolve_intake_stage_for_questionnaire(
+            updated_state,
+            questionnaire,
+        )
     return updated_state
 
 
@@ -171,13 +160,12 @@ async def _update_questionnaire(
             merged = current_state.questionnaire
         return merged, "", ""
 
+    # Derive splits from the canonical questionnaire.  After parse_state the
+    # state's split fields are already projections of questionnaire, so the
+    # canonical source is authoritative.
     dish_questionnaire, wine_questionnaire = _split_stage_questionnaires(
         current_state.questionnaire
     )
-    if current_state.dish_questionnaire.strip():
-        dish_questionnaire = current_state.dish_questionnaire
-    if current_state.wine_questionnaire.strip():
-        wine_questionnaire = current_state.wine_questionnaire
 
     if _should_skip_general_wine_routing_update(current_state):
         combined = combine_questionnaire_sections(

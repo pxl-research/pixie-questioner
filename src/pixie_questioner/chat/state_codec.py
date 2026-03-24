@@ -27,6 +27,9 @@ from .types import (
     INITIAL_QUESTION,
 )
 
+_CRETSKENS_DISH_FIELD_INDICES = [0, 1, 2, 3, 4]
+_CRETSKENS_WINE_FIELD_INDICES = [5, 6, 7, 8]
+
 
 def extract_questionnaire_indices(questionnaire: str) -> list[int]:
     indices = set()
@@ -315,25 +318,26 @@ def parse_state(
 ) -> ChatState:
     dish_questionnaire = ""
     wine_questionnaire = ""
+    dish_indices: list[int] = []
+    wine_indices: list[int] = []
     intake_stage = ""
-    if split_questionnaire_field_groups is not None:
-        dish_indices, wine_indices = split_questionnaire_field_groups
-        dish_questionnaire = select_questionnaire_fields(
-            questionnaire_template,
-            dish_indices,
-        )
-        wine_questionnaire = select_questionnaire_fields(
-            questionnaire_template,
-            wine_indices,
-        )
-        intake_stage = INTAKE_STAGE_ROUTING
     if not state:
-        return ChatState(
-            questionnaire=combine_questionnaire_sections(
-                dish_questionnaire,
-                wine_questionnaire,
+        if split_questionnaire_field_groups is not None:
+            dish_indices, wine_indices = split_questionnaire_field_groups
+            intake_stage = INTAKE_STAGE_ROUTING
+        questionnaire = _normalize_questionnaire("", questionnaire_template)
+        if split_questionnaire_field_groups is not None:
+            dish_questionnaire = select_questionnaire_fields(
+                questionnaire, dish_indices
             )
-            or questionnaire_template,
+            wine_questionnaire = select_questionnaire_fields(
+                questionnaire, wine_indices
+            )
+        else:
+            dish_questionnaire = ""
+            wine_questionnaire = ""
+        return ChatState(
+            questionnaire=questionnaire,
             dish_questionnaire=dish_questionnaire,
             wine_questionnaire=wine_questionnaire,
             conversation_language=default_language,
@@ -345,6 +349,9 @@ def parse_state(
         questionnaire_template,
     )
     if split_questionnaire_field_groups is not None:
+        dish_indices, wine_indices = split_questionnaire_field_groups
+        # Sanitize the combined questionnaire first so that its field-8 value
+        # serves as a clean fallback when sanitizing the raw split fields below.
         questionnaire = _sanitize_legacy_machine_coded_field_8(questionnaire)
     summary = _read_state_string(state, "summary", "")
     last_question = _read_state_string(state, "last_question", INITIAL_QUESTION)
@@ -373,13 +380,16 @@ def parse_state(
         _read_state_string(state, "routing_question_asked", "false")
     )
     if split_questionnaire_field_groups is not None:
-        dish_indices, wine_indices = split_questionnaire_field_groups
         fallback_dish_questionnaire = select_questionnaire_fields(
             questionnaire, dish_indices
         )
         fallback_wine_questionnaire = select_questionnaire_fields(
             questionnaire, wine_indices
         )
+        # Sanitize machine-coded field 8 in the raw split fields.  The
+        # fallbacks come from the already-sanitized combined questionnaire so
+        # that a free-text field-8 value in the combined state is preserved
+        # while a JSON-encoded legacy value is replaced.
         raw_dish_questionnaire = _sanitize_legacy_machine_coded_field_8(
             _read_state_string(state, "dish_questionnaire", ""),
             fallback_dish_questionnaire,
@@ -398,10 +408,15 @@ def parse_state(
             if raw_wine_questionnaire.strip()
             else fallback_wine_questionnaire
         )
+        # Recombine the sanitized splits into the canonical questionnaire.
+        # No additional field-8 sanitization is needed: both splits were
+        # individually cleaned above.
         questionnaire = (
             combine_questionnaire_sections(dish_questionnaire, wine_questionnaire)
             or questionnaire
         )
+        dish_questionnaire = select_questionnaire_fields(questionnaire, dish_indices)
+        wine_questionnaire = select_questionnaire_fields(questionnaire, wine_indices)
         intake_stage = _infer_intake_stage(
             intake_route,
             _normalize_intake_stage(_read_state_string(state, "intake_stage", "")),
@@ -446,13 +461,39 @@ def parse_state(
 
 
 def serialize_state(state: ChatState) -> dict[str, str]:
-    questionnaire = (
-        combine_questionnaire_sections(
-            state.dish_questionnaire,
-            state.wine_questionnaire,
+    questionnaire = state.questionnaire
+    if not questionnaire.strip():
+        questionnaire = (
+            combine_questionnaire_sections(
+                state.dish_questionnaire,
+                state.wine_questionnaire,
+            )
+            or state.questionnaire
         )
-        or state.questionnaire
+
+    should_emit_split_questionnaires = bool(
+        state.intake_stage.strip()
+        or state.dish_questionnaire.strip()
+        or state.wine_questionnaire.strip()
     )
+    # Re-derive split questionnaires from the canonical source.  The field
+    # indices are inferred from the state's existing split fields (populated
+    # during parse_state for split-aware cases) so no case-specific constants
+    # are needed here.
+    derived_dish_questionnaire = ""
+    derived_wine_questionnaire = ""
+    if should_emit_split_questionnaires:
+        if state.wine_questionnaire.strip():
+            wine_indices = extract_questionnaire_indices(state.wine_questionnaire)
+            derived_wine_questionnaire = select_questionnaire_fields(
+                questionnaire, wine_indices
+            )
+        if state.dish_questionnaire.strip():
+            dish_indices = extract_questionnaire_indices(state.dish_questionnaire)
+            derived_dish_questionnaire = select_questionnaire_fields(
+                questionnaire, dish_indices
+            )
+
     serialized = {
         "questionnaire": questionnaire,
         "summary": state.summary,
@@ -472,10 +513,10 @@ def serialize_state(state: ChatState) -> dict[str, str]:
         "wine_follow_up_count": str(state.wine_follow_up_count),
         "routing_question_asked": ("true" if state.routing_question_asked else "false"),
     }
-    if state.dish_questionnaire.strip():
-        serialized["dish_questionnaire"] = state.dish_questionnaire
-    if state.wine_questionnaire.strip():
-        serialized["wine_questionnaire"] = state.wine_questionnaire
+    if derived_dish_questionnaire.strip():
+        serialized["dish_questionnaire"] = derived_dish_questionnaire
+    if derived_wine_questionnaire.strip():
+        serialized["wine_questionnaire"] = derived_wine_questionnaire
     if state.intake_stage.strip():
         serialized["intake_stage"] = state.intake_stage
     return serialized

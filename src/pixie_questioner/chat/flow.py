@@ -14,48 +14,25 @@ from .types import (
 
 
 def to_terminated_state(state: ChatState, language: str) -> ChatState:
-    return ChatState(
-        questionnaire=state.questionnaire,
-        dish_questionnaire=state.dish_questionnaire,
-        wine_questionnaire=state.wine_questionnaire,
-        summary=state.summary,
-        last_question=state.last_question,
+    return replace(
+        state,
         conversation_language=language,
-        recent_user_turns=state.recent_user_turns,
         phase=PHASE_TERMINATED,
         feedback_status=FEEDBACK_PENDING,
         final_summary="",
         post_summary_language=language,
-        boundary_violation_count=state.boundary_violation_count,
         handoff_categories_v1="",
-        intake_route=state.intake_route,
-        intake_stage=state.intake_stage,
-        dish_follow_up_count=state.dish_follow_up_count,
-        wine_follow_up_count=state.wine_follow_up_count,
-        routing_question_asked=state.routing_question_asked,
     )
 
 
 def to_off_topic_redirect_state(state: ChatState) -> ChatState:
-    return ChatState(
-        questionnaire=state.questionnaire,
-        dish_questionnaire=state.dish_questionnaire,
-        wine_questionnaire=state.wine_questionnaire,
-        summary=state.summary,
-        last_question=state.last_question,
-        conversation_language=state.conversation_language,
-        recent_user_turns=state.recent_user_turns,
+    return replace(
+        state,
         phase=PHASE_INTAKE,
         feedback_status=FEEDBACK_PENDING,
         final_summary="",
         post_summary_language=state.conversation_language,
-        boundary_violation_count=state.boundary_violation_count,
         handoff_categories_v1="",
-        intake_route=state.intake_route,
-        intake_stage=state.intake_stage,
-        dish_follow_up_count=state.dish_follow_up_count,
-        wine_follow_up_count=state.wine_follow_up_count,
-        routing_question_asked=state.routing_question_asked,
     )
 
 
@@ -65,25 +42,16 @@ def to_feedback_state(
     updated_summary: str,
     language: str,
 ) -> ChatState:
-    return ChatState(
+    return replace(
+        state,
         questionnaire=updated_questionnaire,
-        dish_questionnaire=state.dish_questionnaire,
-        wine_questionnaire=state.wine_questionnaire,
         summary=updated_summary,
-        last_question=state.last_question,
         conversation_language=language,
-        recent_user_turns=state.recent_user_turns,
         phase=PHASE_AWAITING_FEEDBACK,
         feedback_status=FEEDBACK_PENDING,
         final_summary=updated_summary,
         post_summary_language=language,
-        boundary_violation_count=state.boundary_violation_count,
         handoff_categories_v1="",
-        intake_route=state.intake_route,
-        intake_stage=state.intake_stage,
-        dish_follow_up_count=state.dish_follow_up_count,
-        wine_follow_up_count=state.wine_follow_up_count,
-        routing_question_asked=state.routing_question_asked,
     )
 
 
@@ -93,24 +61,16 @@ def to_intake_state_with_next_question(
     updated_summary: str,
     next_question: str,
 ) -> ChatState:
-    return ChatState(
+    return replace(
+        state,
         questionnaire=updated_questionnaire,
-        dish_questionnaire=state.dish_questionnaire,
-        wine_questionnaire=state.wine_questionnaire,
         summary=updated_summary,
         last_question=next_question,
-        conversation_language=state.conversation_language,
-        recent_user_turns=state.recent_user_turns,
         phase=PHASE_INTAKE,
         feedback_status=FEEDBACK_PENDING,
+        final_summary="",
         post_summary_language=state.conversation_language,
-        boundary_violation_count=state.boundary_violation_count,
         handoff_categories_v1="",
-        intake_route=state.intake_route,
-        intake_stage=state.intake_stage,
-        dish_follow_up_count=state.dish_follow_up_count,
-        wine_follow_up_count=state.wine_follow_up_count,
-        routing_question_asked=state.routing_question_asked,
     )
 
 
@@ -120,25 +80,16 @@ def to_categorized_handoff_completed_state(
     updated_summary: str,
     handoff_categories_v1: str,
 ) -> ChatState:
-    return ChatState(
+    return replace(
+        state,
         questionnaire=updated_questionnaire,
-        dish_questionnaire=state.dish_questionnaire,
-        wine_questionnaire=state.wine_questionnaire,
         summary=updated_summary,
-        last_question=state.last_question,
-        conversation_language=state.conversation_language,
-        recent_user_turns=state.recent_user_turns,
         phase=PHASE_COMPLETED,
         feedback_status=FEEDBACK_PENDING,
         final_summary="",
         post_summary_language=state.conversation_language,
         boundary_violation_count=0,
         handoff_categories_v1=handoff_categories_v1,
-        intake_route=state.intake_route,
-        intake_stage=state.intake_stage,
-        dish_follow_up_count=state.dish_follow_up_count,
-        wine_follow_up_count=state.wine_follow_up_count,
-        routing_question_asked=state.routing_question_asked,
     )
 
 

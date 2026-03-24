@@ -8,6 +8,8 @@ from collections.abc import Awaitable
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
+from ..origin_normalization import build_normalized_origin_lookup
+from ..origin_normalization import normalize_origin_lookup_value
 from .catalog_models import WineCatalogRecord
 from .llm_controller import TurnDecision
 from .retrieval import rank_catalog_records
@@ -91,6 +93,9 @@ _NO_PREFERENCE_ORIGIN_VALUES = frozenset(
         "non specifie",
     }
 )
+_NO_PREFERENCE_ORIGIN_LOOKUP = build_normalized_origin_lookup(
+    _NO_PREFERENCE_ORIGIN_VALUES
+)
 
 
 def _to_int(value: Any, default: int = 0) -> int:
@@ -99,6 +104,11 @@ def _to_int(value: Any, default: int = 0) -> int:
     except (TypeError, ValueError):
         return default
     return max(parsed, 0)
+
+
+def _is_no_preference_origin_value(value: str) -> bool:
+    normalized = normalize_origin_lookup_value(value)
+    return bool(normalized) and normalized in _NO_PREFERENCE_ORIGIN_LOOKUP
 
 
 def _relax_origin_constraints(working_context: str) -> str:
@@ -116,7 +126,7 @@ def _extract_requested_origin_from_context(working_context: str) -> str | None:
     raw_value = " ".join(match.group("value").split()).strip().strip(".,;:")
     if not raw_value or raw_value == "[]":
         return None
-    if raw_value.casefold() in _NO_PREFERENCE_ORIGIN_VALUES:
+    if _is_no_preference_origin_value(raw_value):
         return None
     return raw_value
 
@@ -134,7 +144,7 @@ def _extract_requested_origin_from_answer(current_answer: str) -> str | None:
     requested_origin = " ".join(requested_origin.split()).strip(".,;:")
     if not requested_origin:
         return None
-    if requested_origin.casefold() in _NO_PREFERENCE_ORIGIN_VALUES:
+    if _is_no_preference_origin_value(requested_origin):
         return None
     return requested_origin
 
