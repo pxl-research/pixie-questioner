@@ -200,3 +200,53 @@ def test_ask_uses_legacy_advisor_state_shape_as_advisor_flow() -> None:
         "phase": "intake",
         "turn_count": 2,
     }
+
+
+def test_ask_prefers_wrapped_intake_state_payload_over_legacy_like_keys() -> None:
+    intake_service = StubIntakeService(
+        ChatResult(
+            text="Welke stijl zoek je?",
+            response_type="answer",
+            state={"phase": "intake", "last_question": "Welke stijl zoek je?"},
+            summary=None,
+        )
+    )
+    recommendation_service = StubRecommendationService(
+        WineAdvisorResult(
+            text="unused",
+            response_type="question",
+            state={"phase": "intake", "turn_count": 1},
+            recommendations=None,
+        )
+    )
+    service = CretskensService(
+        intake_service=intake_service,
+        recommendation_service=recommendation_service,
+    )
+
+    wrapped_state = {
+        CRETSKENS_FLOW_KEY: CRETSKENS_FLOW_INTAKE,
+        CRETSKENS_INTAKE_STATE_KEY: {
+            "phase": "intake",
+            "last_question": "Vorige intakevraag",
+            "intake_route": "food_pairing",
+        },
+        # These keys should not force advisor flow when wrapped intake payload exists.
+        "phase": "completed",
+        "turn_count": 99,
+    }
+
+    result = asyncio.run(service.ask(current_answer="Verder", state=wrapped_state))
+
+    assert intake_service.calls == [
+        (
+            "Verder",
+            {
+                "phase": "intake",
+                "last_question": "Vorige intakevraag",
+                "intake_route": "food_pairing",
+            },
+        )
+    ]
+    assert recommendation_service.ask_calls == []
+    assert result.state[CRETSKENS_FLOW_KEY] == CRETSKENS_FLOW_INTAKE
