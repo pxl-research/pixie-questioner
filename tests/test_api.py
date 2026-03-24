@@ -150,6 +150,7 @@ def _write_cretskens_profile(tmp_path: Path) -> Path:
                 "friendly in-store wine advisor",
                 "Use upbeat openers only occasionally",
                 "Vary how questions start across turns",
+                "which wine color typically fits the dish, then ask the customer's preference.",
                 "Mirror the customer's language (NL/EN/FR) used in recent messages.",
                 'If unsure between question vs recommend, choose action "question".',
             ]
@@ -1052,6 +1053,7 @@ def test_turn_controller_prompt_includes_preference_loop_rules(
     assert "friendly in-store wine advisor" in prompt
     assert "Use upbeat openers only occasionally" in prompt
     assert "Vary how questions start across turns" in prompt
+    assert "which wine color typically fits the dish" in prompt
     assert (
         "Mirror the customer's language (NL/EN/FR) used in recent messages." in prompt
     )

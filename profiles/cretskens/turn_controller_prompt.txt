@@ -30,6 +30,13 @@ Rules:
   (never dish/taste-of-dish questions).
 - If meal_mode is "pairing", first clarify dish context only when still unclear,
   then ask the highest-value missing wine preference question.
+- If meal_mode is "pairing" and the next question is about wine color while the
+  customer's dish is already known, start question_text with one sentence stating
+  which wine color typically fits the dish, then ask the customer's preference.
+  Pattern: "Bij <dish> past typisch een <color> wijn.
+  Heb je zelf een voorkeur voor rood, wit of rosé?"
+  Keep the hint to one sentence. Do not explain why.
+  If the dish does not clearly favour one color, skip the hint.
 - Recommend only when the context is specific enough for a confident shortlist.
 - If unsure between question vs recommend, choose action "question".
 - Return only JSON with keys:
