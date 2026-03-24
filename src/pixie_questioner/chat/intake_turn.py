@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import logging
 import re
-import unicodedata
 
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from ..origin_normalization import (
+    build_normalized_origin_lookup,
+    normalize_origin_lookup_value,
+)
 from .categorized_handoff import (
     WINE_COUNTRY_VALUES,
     WINE_REGION_VALUES,
@@ -277,27 +280,13 @@ def _maybe_apply_supported_origin_fallback(
     )
 
 
-def _normalize_origin_lookup_value(value: str) -> str:
-    lowered = " ".join(value.strip().split()).casefold()
-    decomposed = unicodedata.normalize("NFKD", lowered)
-    without_accents = "".join(
-        character for character in decomposed if not unicodedata.combining(character)
-    )
-    # Collapse hyphens, slashes, and similar punctuation to spaces so that
-    # user variants like "Zuid Afrika" match the catalog "Zuid-Afrika".
-    collapsed = re.sub(r"[-/''\"]+", " ", without_accents)
-    return re.sub(r"\s+", " ", collapsed).strip()
-
-
-_SUPPORTED_ORIGIN_LOOKUP = frozenset(
-    _normalized
-    for _raw in (*WINE_COUNTRY_VALUES, *WINE_REGION_VALUES)
-    if (_normalized := _normalize_origin_lookup_value(_raw))
+_SUPPORTED_ORIGIN_LOOKUP = build_normalized_origin_lookup(
+    (*WINE_COUNTRY_VALUES, *WINE_REGION_VALUES)
 )
 
 
 def _is_supported_origin_value(value: str) -> bool:
-    normalized = _normalize_origin_lookup_value(value)
+    normalized = normalize_origin_lookup_value(value)
     if not normalized:
         return False
     if normalized in _SUPPORTED_ORIGIN_LOOKUP:
@@ -313,9 +302,9 @@ def _is_supported_origin_value(value: str) -> bool:
 # (e.g. "haut medoc, bordeaux" before "bordeaux").
 _SUPPORTED_ORIGIN_CANONICAL: list[tuple[str, str]] = sorted(
     (
-        (_normalize_origin_lookup_value(raw), raw)
+        (normalize_origin_lookup_value(raw), raw)
         for raw in (*WINE_COUNTRY_VALUES, *WINE_REGION_VALUES)
-        if _normalize_origin_lookup_value(raw)
+        if normalize_origin_lookup_value(raw)
     ),
     key=lambda pair: (-len(pair[0]), pair[0]),
 )
@@ -328,7 +317,7 @@ def _find_supported_origin_in_answer(answer: str) -> str | None:
     Checks exact full-answer match first, then word-boundary substring.
     Only used as a fallback when the notulist failed to fill field 6.
     """
-    normalized_answer = _normalize_origin_lookup_value(answer)
+    normalized_answer = normalize_origin_lookup_value(answer)
     if not normalized_answer:
         return None
     if normalized_answer in _SUPPORTED_ORIGIN_CANONICAL_DICT:
