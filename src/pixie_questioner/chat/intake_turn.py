@@ -178,12 +178,7 @@ async def _handle_on_topic_intake(
             updated_state,
             updated_state.questionnaire,
         )
-    _maybe_apply_supported_origin_fallback(
-        handler,
-        updated_state,
-        current_answer,
-    )
-    unsupported_origin_follow_up = await _maybe_generate_unsupported_origin_follow_up(
+    unsupported_origin_follow_up = await _maybe_process_origin_pipeline(
         handler,
         current_state,
         updated_state,
@@ -247,6 +242,31 @@ def _parse_follow_up_flag(value: object) -> bool:
         if normalized == "false":
             return False
     return False
+
+
+async def _maybe_process_origin_pipeline(
+    handler: ChatTurnHandler,
+    current_state: ChatState,
+    updated_state: ChatState,
+    current_answer: str,
+) -> str | None:
+    """Apply origin logic in one explicit sequence.
+
+    Order:
+    1) Supported-origin deterministic fallback from the user's answer.
+    2) Unsupported-origin follow-up decision (LLM) + no-preference marking.
+    """
+    _maybe_apply_supported_origin_fallback(
+        handler,
+        updated_state,
+        current_answer,
+    )
+    return await _maybe_generate_unsupported_origin_follow_up(
+        handler,
+        current_state,
+        updated_state,
+        current_answer,
+    )
 
 
 def _wine_questionnaire_view(questionnaire: str) -> str:
@@ -411,16 +431,6 @@ async def _maybe_generate_unsupported_origin_follow_up(
             6,
             "[]",
         )
-
-    # When the notulist left field 6 blank but the user's answer contains a
-    # supported origin, fill it directly to prevent an endless re-ask loop.
-    if origin_is_blank:
-        extracted = _find_supported_origin_in_answer(current_answer)
-        if extracted is not None:
-            updated_state.questionnaire = replace_questionnaire_field_value(
-                updated_state.questionnaire, 6, extracted
-            )
-            return None
 
     updated_wine_questionnaire = _wine_questionnaire_view(updated_state.questionnaire)
     follow_up_context = (
