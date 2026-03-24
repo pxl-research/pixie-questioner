@@ -466,12 +466,18 @@ def serialize_state(state: ChatState) -> dict[str, str]:
             or state.questionnaire
         )
 
-    derived_wine_questionnaire = select_questionnaire_fields(
-        questionnaire,
-        _CRETSKENS_WINE_FIELD_INDICES,
+    should_emit_split_questionnaires = bool(
+        state.intake_stage.strip()
+        or state.dish_questionnaire.strip()
+        or state.wine_questionnaire.strip()
     )
     derived_dish_questionnaire = ""
-    if derived_wine_questionnaire.strip():
+    derived_wine_questionnaire = ""
+    if should_emit_split_questionnaires:
+        derived_wine_questionnaire = select_questionnaire_fields(
+            questionnaire,
+            _CRETSKENS_WINE_FIELD_INDICES,
+        )
         derived_dish_questionnaire = select_questionnaire_fields(
             questionnaire,
             _CRETSKENS_DISH_FIELD_INDICES,

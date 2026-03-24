@@ -444,6 +444,38 @@ def test_state_codec_defaults_new_cretskens_route_fields_for_legacy_state() -> N
     assert serialized["routing_question_asked"] == "false"
 
 
+def test_state_codec_does_not_emit_split_fields_without_cretskens_stage_context() -> (
+    None
+):
+    questionnaire_template = (
+        "0. Field 0: []\n"
+        "1. Field 1: []\n"
+        "2. Field 2: []\n"
+        "3. Field 3: []\n"
+        "4. Field 4: []\n"
+        "5. Field 5: []\n"
+        "6. Field 6: []\n"
+        "7. Field 7: []\n"
+        "8. Field 8: []"
+    )
+    parsed = parse_state(
+        state={
+            "questionnaire": questionnaire_template,
+            "summary": "Summary text",
+            "last_question": "Vraag?",
+        },
+        questionnaire_template=questionnaire_template,
+        default_language="nl",
+        split_questionnaire_field_groups=None,
+    )
+
+    serialized = serialize_state(parsed)
+
+    assert "dish_questionnaire" not in serialized
+    assert "wine_questionnaire" not in serialized
+    assert "intake_stage" not in serialized
+
+
 def test_state_codec_preserves_conversation_language_and_recent_user_turns() -> None:
     parsed = parse_state(
         state={
