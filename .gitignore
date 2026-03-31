@@ -213,7 +213,8 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-.codex/
+.codex/*
+!.codex/config.toml
 
 # Temporary planning documents
 docs/plans/*

@@ -1,0 +1,37 @@
+# Team-shared Codex CLI configuration for pixie-questioner.
+# Keep this file focused on safe defaults and repeatable team behavior.
+
+model = "gpt-5.3-codex"
+model_reasoning_effort = "high"
+profile = "development"
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+
+[features]
+multi_agent = true
+
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+
+[profiles.development]
+sandbox_mode = "workspace-write"
+approval_policy = "on-request"
+
+[profiles.conservative]
+sandbox_mode = "read-only"
+approval_policy = "untrusted"
+
+[profiles.review]
+sandbox_mode = "read-only"
+approval_policy = "on-request"
+model_reasoning_effort = "high"
+
+[profiles.ci]
+model = "gpt-5.3-codex"
+sandbox_mode = "read-only"
+approval_policy = "never"
+
+[profiles.trusted]
+sandbox_mode = "danger-full-access"
+approval_policy = "never"

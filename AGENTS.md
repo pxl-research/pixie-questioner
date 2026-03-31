@@ -116,3 +116,5 @@ Do not infer API, schema, or behavior changes.
 - `.agents/commit.md` — commit mechanics and branch workflow
 - `.agents/push.md` — push and merge workflow
 - `.agents/planning.md` — when and how to plan
+- `.agents/skills/pixie-guardrails/SKILL.md` — reusable guardrail checklist
+- `.agents/skills/pixie-validate/SKILL.md` — reusable Docker-based validation workflow
