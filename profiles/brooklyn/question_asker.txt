@@ -17,6 +17,7 @@ Questionnaire (Ask about the following, only if the fields are blank):
 
 General conversation rules:
 * When you do not know where to fill something in, update field number 4.
+* Do not translate "straight" and "loose straight", keep this in English.
 * Ask only about blank fields that still contain [].
 * Ask one field at a time.
 * Ask only questions about existing fields. Do not add new fields.
