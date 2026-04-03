@@ -97,23 +97,28 @@ async def _maybe_route_cretskens_intake(
 
     resolved_route = await _classify_intake_route(handler, current_answer)
     if resolved_route == INTAKE_ROUTE_UNKNOWN:
-        # If the routing question was already asked once and the classifier
-        # still cannot decide, fall back to food_pairing rather than looping.
-        if current_state.routing_question_asked:
-            next_state = replace(
-                current_state,
-                intake_route=INTAKE_ROUTE_FOOD_PAIRING,
-                intake_stage=initial_intake_stage_for_route(INTAKE_ROUTE_FOOD_PAIRING),
-            )
-            return next_state, None
-        language = (
-            current_state.conversation_language
-            or handler.language.default_language_code
-        )
-        return (
+        # Routing question removed: always fall back to food_pairing immediately.
+        # if current_state.routing_question_asked:
+        #     next_state = replace(
+        #         current_state,
+        #         intake_route=INTAKE_ROUTE_FOOD_PAIRING,
+        #         intake_stage=initial_intake_stage_for_route(INTAKE_ROUTE_FOOD_PAIRING),
+        #     )
+        #     return next_state, None
+        # language = (
+        #     current_state.conversation_language
+        #     or handler.language.default_language_code
+        # )
+        # return (
+        #     current_state,
+        #     build_routing_question_result(handler, current_state, language),
+        # )
+        next_state = replace(
             current_state,
-            build_routing_question_result(handler, current_state, language),
+            intake_route=INTAKE_ROUTE_FOOD_PAIRING,
+            intake_stage=initial_intake_stage_for_route(INTAKE_ROUTE_FOOD_PAIRING),
         )
+        return next_state, None
 
     next_state = replace(
         current_state,
