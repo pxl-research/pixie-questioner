@@ -67,6 +67,7 @@ class CretskensFeedbackState:
     ease_of_use: str = ""
     reuse: str = ""
     suggestions_satisfaction: str = ""
+    summary_text: str = ""
 
 
 class CretskensServiceUnavailableError(RuntimeError):
@@ -167,7 +168,22 @@ class CretskensService:
         ):
             advisor_state = state[CRETSKENS_ADVISOR_STATE_KEY]
             if feedback_state is None and self._advisor_is_completed(advisor_state):
-                feedback_state = CretskensFeedbackState()
+                feedback_state = CretskensFeedbackState(
+                    summary_text=self._extract_summary_text(advisor_state)
+                )
+            elif (
+                feedback_state is not None
+                and not feedback_state.summary_text.strip()
+                and self._advisor_is_completed(advisor_state)
+            ):
+                feedback_state = CretskensFeedbackState(
+                    step=feedback_state.step,
+                    prompt_issued=feedback_state.prompt_issued,
+                    ease_of_use=feedback_state.ease_of_use,
+                    reuse=feedback_state.reuse,
+                    suggestions_satisfaction=feedback_state.suggestions_satisfaction,
+                    summary_text=self._extract_summary_text(advisor_state),
+                )
             return CRETSKENS_FLOW_ADVISOR, advisor_state, feedback_state
         if flow == CRETSKENS_FLOW_INTAKE and isinstance(
             state.get(CRETSKENS_INTAKE_STATE_KEY), dict
@@ -175,7 +191,22 @@ class CretskensService:
             return CRETSKENS_FLOW_INTAKE, state[CRETSKENS_INTAKE_STATE_KEY], None
         if _LEGACY_ADVISOR_STATE_KEYS.intersection(state):
             if feedback_state is None and self._advisor_is_completed(state):
-                feedback_state = CretskensFeedbackState()
+                feedback_state = CretskensFeedbackState(
+                    summary_text=self._extract_summary_text(state)
+                )
+            elif (
+                feedback_state is not None
+                and not feedback_state.summary_text.strip()
+                and self._advisor_is_completed(state)
+            ):
+                feedback_state = CretskensFeedbackState(
+                    step=feedback_state.step,
+                    prompt_issued=feedback_state.prompt_issued,
+                    ease_of_use=feedback_state.ease_of_use,
+                    reuse=feedback_state.reuse,
+                    suggestions_satisfaction=feedback_state.suggestions_satisfaction,
+                    summary_text=self._extract_summary_text(state),
+                )
             return CRETSKENS_FLOW_ADVISOR, state, feedback_state
         return CRETSKENS_FLOW_INTAKE, None, None
 
@@ -198,6 +229,7 @@ class CretskensService:
         ease_of_use = raw_value.get("ease_of_use", "")
         reuse = raw_value.get("reuse", "")
         suggestions_satisfaction = raw_value.get("suggestions_satisfaction", "")
+        summary_text = raw_value.get("summary_text", "")
         return CretskensFeedbackState(
             step=step,
             prompt_issued=prompt_issued,
@@ -208,6 +240,7 @@ class CretskensService:
                 if isinstance(suggestions_satisfaction, str)
                 else ""
             ),
+            summary_text=summary_text if isinstance(summary_text, str) else "",
         )
 
     def _advisor_is_completed(self, advisor_state: dict[str, Any]) -> bool:
@@ -254,7 +287,9 @@ class CretskensService:
             and self._advisor_is_completed(advisor_result.state)
             and next_feedback_state is None
         ):
-            next_feedback_state = CretskensFeedbackState()
+            next_feedback_state = CretskensFeedbackState(
+                summary_text=self._extract_summary_text(advisor_result.state)
+            )
         wrapped_state: dict[str, Any] = {
             CRETSKENS_FLOW_KEY: CRETSKENS_FLOW_ADVISOR,
             CRETSKENS_ADVISOR_STATE_KEY: advisor_result.state,
@@ -281,6 +316,7 @@ class CretskensService:
             "ease_of_use": feedback_state.ease_of_use,
             "reuse": feedback_state.reuse,
             "suggestions_satisfaction": feedback_state.suggestions_satisfaction,
+            "summary_text": feedback_state.summary_text,
         }
 
     def _build_feedback_result(
@@ -298,6 +334,7 @@ class CretskensService:
                     ease_of_use=feedback_state.ease_of_use,
                     reuse=feedback_state.reuse,
                     suggestions_satisfaction=feedback_state.suggestions_satisfaction,
+                    summary_text=feedback_state.summary_text,
                 ),
             )
 
@@ -315,6 +352,7 @@ class CretskensService:
                     ease_of_use=normalized_answer,
                     reuse=feedback_state.reuse,
                     suggestions_satisfaction=feedback_state.suggestions_satisfaction,
+                    summary_text=feedback_state.summary_text,
                 ),
             )
 
@@ -331,6 +369,7 @@ class CretskensService:
                     ease_of_use=feedback_state.ease_of_use,
                     reuse=normalized_answer,
                     suggestions_satisfaction=feedback_state.suggestions_satisfaction,
+                    summary_text=feedback_state.summary_text,
                 ),
             )
 
@@ -352,6 +391,7 @@ class CretskensService:
                             ease_of_use=feedback_state.ease_of_use,
                             reuse=feedback_state.reuse,
                             suggestions_satisfaction=normalized_answer,
+                            summary_text=feedback_state.summary_text,
                         )
                     ),
                 },
@@ -375,6 +415,9 @@ class CretskensService:
         else:
             text = _FEEDBACK_QUESTION_SATISFACTION
             quick_replies = _RATING_QUICK_REPLIES
+        summary_text = feedback_state.summary_text.strip()
+        if summary_text:
+            text = f"{summary_text}\n\n{text}"
         return WineAdvisorResult(
             text=text,
             response_type="question",
@@ -388,6 +431,25 @@ class CretskensService:
             recommendations=None,
             quick_replies=quick_replies,
         )
+
+    def _extract_summary_text(self, advisor_state: dict[str, Any]) -> str:
+        working_context = advisor_state.get("working_context")
+        if not isinstance(working_context, str):
+            return ""
+        context = working_context.strip()
+        if not context:
+            return ""
+
+        if context.startswith("Summary:\n"):
+            without_prefix = context[len("Summary:\n") :]
+            marker = "\n\nQuestionnaire:\n"
+            if marker in without_prefix:
+                return without_prefix.split(marker, maxsplit=1)[0].strip()
+            handoff_marker = "\n\nHandoff categories:\n"
+            if handoff_marker in without_prefix:
+                return without_prefix.split(handoff_marker, maxsplit=1)[0].strip()
+            return without_prefix.strip()
+        return ""
 
     def _meal_mode_for_intake_state(self, state: dict[str, Any]) -> str:
         intake_route = state.get("intake_route")

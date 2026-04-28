@@ -157,6 +157,7 @@ def test_ask_completed_intake_calls_recommendation_with_built_context_and_meal_m
         "ease_of_use": "",
         "reuse": "",
         "suggestions_satisfaction": "",
+        "summary_text": "",
     }
     assert len(recommendation_service.recommend_calls) == 1
     working_context, meal_mode = recommendation_service.recommend_calls[0]
@@ -283,7 +284,14 @@ def test_ask_collects_three_feedback_questions_after_recommendations() -> None:
         recommend_result=WineAdvisorResult(
             text="Hier zijn enkele passende opties.",
             response_type="recommendations",
-            state={"phase": "completed", "selected_barcodes": ["w1"]},
+            state={
+                "phase": "completed",
+                "selected_barcodes": ["w1"],
+                "working_context": (
+                    "Summary:\nKlant zoekt wijn.\n\n"
+                    "Questionnaire:\n5. Kleur van de wijn (wit, rood, rosé): wit"
+                ),
+            },
             recommendations=[],
         ),
     )
@@ -299,7 +307,10 @@ def test_ask_collects_three_feedback_questions_after_recommendations() -> None:
 
     second = asyncio.run(service.ask(current_answer="volgende", state=first.state))
     assert second.response_type == "question"
-    assert second.text == "Hoe makkelijk vond je de assistent in gebruik? 1-5"
+    assert (
+        second.text
+        == "Klant zoekt wijn.\n\nHoe makkelijk vond je de assistent in gebruik? 1-5"
+    )
     assert second.quick_replies == [
         {"label": "1", "value": "1"},
         {"label": "2", "value": "2"},
@@ -310,7 +321,7 @@ def test_ask_collects_three_feedback_questions_after_recommendations() -> None:
 
     third = asyncio.run(service.ask(current_answer="4", state=second.state))
     assert third.response_type == "question"
-    assert third.text == "Zou je me nog eens gebruiken? ja/nee"
+    assert third.text == "Klant zoekt wijn.\n\nZou je me nog eens gebruiken? ja/nee"
     assert third.quick_replies == [
         {"label": "ja", "value": "ja"},
         {"label": "nee", "value": "nee"},
@@ -318,7 +329,10 @@ def test_ask_collects_three_feedback_questions_after_recommendations() -> None:
 
     fourth = asyncio.run(service.ask(current_answer="ja", state=third.state))
     assert fourth.response_type == "question"
-    assert fourth.text == "In welke mate ben je tevreden met de wijnsuggesties? 1-5"
+    assert (
+        fourth.text
+        == "Klant zoekt wijn.\n\nIn welke mate ben je tevreden met de wijnsuggesties? 1-5"
+    )
     assert fourth.quick_replies == [
         {"label": "1", "value": "1"},
         {"label": "2", "value": "2"},
@@ -359,6 +373,9 @@ def test_ask_repeats_feedback_question_when_answer_is_invalid() -> None:
         CRETSKENS_ADVISOR_STATE_KEY: {
             "phase": "completed",
             "selected_barcodes": ["w1"],
+            "working_context": (
+                "Summary:\nKlant zoekt een soepele rode wijn.\n\nQuestionnaire:\n..."
+            ),
         },
         CRETSKENS_FEEDBACK_STATE_KEY: {
             "step": "ease_of_use",
@@ -372,5 +389,8 @@ def test_ask_repeats_feedback_question_when_answer_is_invalid() -> None:
     result = asyncio.run(service.ask(current_answer="heel goed", state=state))
 
     assert result.response_type == "question"
-    assert result.text == "Hoe makkelijk vond je de assistent in gebruik? 1-5"
+    assert (
+        result.text
+        == "Klant zoekt een soepele rode wijn.\n\nHoe makkelijk vond je de assistent in gebruik? 1-5"
+    )
     assert result.state[CRETSKENS_FEEDBACK_STATE_KEY]["step"] == "ease_of_use"
