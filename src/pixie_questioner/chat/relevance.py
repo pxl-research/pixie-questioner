@@ -17,8 +17,7 @@ class AnswerRelevanceClassifierProtocol(Protocol):
         current_question: str,
         current_answer: str,
         questionnaire: str,
-    ) -> ClassificationLabel:
-        ...
+    ) -> ClassificationLabel: ...
 
 
 @dataclass

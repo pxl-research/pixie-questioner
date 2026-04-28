@@ -43,8 +43,7 @@ class TurnControllerProtocol(Protocol):
         current_meal_mode: str,
         last_question: str,
         conversation_history: str,
-    ) -> TurnDecision:
-        ...
+    ) -> TurnDecision: ...
 
 
 class WineRankerProtocol(Protocol):
@@ -56,8 +55,7 @@ class WineRankerProtocol(Protocol):
         candidate_barcodes: list[str],
         min_count: int,
         max_count: int,
-    ) -> Awaitable[RankerSelectionProtocol]:
-        ...
+    ) -> Awaitable[RankerSelectionProtocol]: ...
 
 
 def _truncate_text(value: str, max_chars: int) -> str:
@@ -715,9 +713,9 @@ class WineAdvisorService:
         )
         if not normalized_context:
             raise RuntimeError("Working context cannot be empty.")
-        normalized_meal_mode: Literal[
-            "pairing", "drinking_only", "unknown"
-        ] = MEAL_MODE_UNKNOWN
+        normalized_meal_mode: Literal["pairing", "drinking_only", "unknown"] = (
+            MEAL_MODE_UNKNOWN
+        )
         if meal_mode == MEAL_MODE_PAIRING:
             normalized_meal_mode = MEAL_MODE_PAIRING
         elif meal_mode == MEAL_MODE_DRINKING_ONLY:

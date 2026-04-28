@@ -15,8 +15,7 @@ from .types import (
 
 
 class IntakeRouteClassifierProtocol(Protocol):
-    async def classify(self, current_answer: str) -> str:
-        ...
+    async def classify(self, current_answer: str) -> str: ...
 
 
 @dataclass
