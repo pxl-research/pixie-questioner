@@ -149,6 +149,35 @@ def normalize_blank_like_questionnaire_values(
     return normalized_questionnaire
 
 
+def clear_later_blank_field_updates(
+    *,
+    questionnaire: str,
+    previous_questionnaire: str,
+    field_indices: list[int],
+    current_field_index: int | None,
+) -> str:
+    if current_field_index is None:
+        return questionnaire
+
+    normalized_questionnaire = questionnaire
+    for index in field_indices:
+        if index <= current_field_index:
+            continue
+        previous_value = _field_value(previous_questionnaire, index)
+        if previous_value is None or not _is_blank_field_value(previous_value):
+            continue
+        pattern = re.compile(rf"(?m)^(\s*{index}\.\s*[^:\n]*:[^\S\n]*)(.*?)$")
+        match = pattern.search(normalized_questionnaire)
+        if match is None or _is_blank_field_value(match.group(2)):
+            continue
+        normalized_questionnaire = pattern.sub(
+            r"\1[]",
+            normalized_questionnaire,
+            count=1,
+        )
+    return normalized_questionnaire
+
+
 def focus_questionnaire_for_route(
     questionnaire: str,
     questionnaire_indices: list[int],

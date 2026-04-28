@@ -1989,6 +1989,71 @@ def test_ask_cretskens_next_question_prompt_includes_updated_field_values():
     )
 
 
+def test_ask_cretskens_no_preference_for_color_still_asks_remaining_wine_fields():
+    question_llm = FakeLLM(["Uit welk land of welke regio mag de wijn komen?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): pasta met zalm\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): fish or seafood\n"
+            "3. Cooking method (BBQ or grill, stew, or none): none\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+            "5. Kleur van de wijn (wit, rood, rosé): maakt niet uit\n"
+            "6. Herkomst (land en/of regio): geen voorkeur\n"
+            "7. Maximum budget in euro: geen voorkeur\n"
+            "8. Gewenste geur/smaak (vrije tekst): geen voorkeur"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant heeft geen voorkeur voor de kleur."])
+    service = ChatService(
+        llm=question_llm,
+        question_asker_prompt="PROMPT {summary} {completion_token}",
+        notulist=_make_notulist(notulist_llm),
+        summarizer=_make_summarizer(summarizer_llm),
+        questionnaire_template=CRETSKENS_QUESTIONNAIRE_TEMPLATE,
+        domain_policy=_replace_policy(completion_mode="categorized_handoff"),
+    )
+
+    result = asyncio.run(
+        service.ask(
+            current_answer="Maakt niet uit",
+            state={
+                "questionnaire": (
+                    "0. Dish description (free text from customer): pasta met zalm\n"
+                    "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+                    "2. Main protein (fish or seafood, poultry, red meat, wild, or none): fish or seafood\n"
+                    "3. Cooking method (BBQ or grill, stew, or none): none\n"
+                    "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): []\n"
+                    "6. Herkomst (land en/of regio): []\n"
+                    "7. Maximum budget in euro: []\n"
+                    "8. Gewenste geur/smaak (vrije tekst): []"
+                ),
+                "summary": "",
+                "last_question": "Welke kleur wijn heb je in gedachten?",
+                "intake_route": "food_pairing",
+                "intake_stage": "wine",
+                "dish_follow_up_count": "1",
+                "wine_follow_up_count": "1",
+            },
+        )
+    )
+
+    assert result.response_type == "answer"
+    assert result.text == "Uit welk land of welke regio mag de wijn komen?"
+    assert result.state["phase"] == "intake"
+    assert (
+        "5. Kleur van de wijn (wit, rood, rosé): maakt niet uit"
+        in result.state["wine_questionnaire"]
+    )
+    assert "6. Herkomst (land en/of regio): []" in result.state["wine_questionnaire"]
+    assert "7. Maximum budget in euro: []" in result.state["wine_questionnaire"]
+    assert (
+        "8. Gewenste geur/smaak (vrije tekst): []" in result.state["wine_questionnaire"]
+    )
+    assert result.state["wine_follow_up_count"] == "2"
+
+
 def test_ask_cretskens_wine_stage_prompt_includes_dish_context_for_pairing() -> None:
     question_llm = FakeLLM(["Welke herkomst heb je in gedachten?"])
     notulist_llm = FakeLLM(
@@ -2410,7 +2475,7 @@ def test_ask_completed_categorized_handoff_keeps_text_field8_out_of_handoff():
     assert "smaak_kruidig" not in handoff
 
 
-def test_ask_categorized_handoff_omits_unparseable_price():
+def test_ask_categorized_handoff_asks_aroma_after_unclear_budget_answer():
     question_llm = FakeLLM(["Should not be used"])
     notulist_llm = FakeLLM(
         [
@@ -2452,10 +2517,17 @@ def test_ask_categorized_handoff_omits_unparseable_price():
         )
     )
 
-    handoff = json.loads(result.state["handoff_categories_v1"])
-    assert "prijs" not in handoff
-    assert handoff["kleur"] == "rood"
-    assert handoff["land"] == "Italië"
+    assert result.response_type == "answer"
+    assert result.state["phase"] == "intake"
+    assert result.state["handoff_categories_v1"] == ""
+    assert "Welke geuren of smaken spreken je aan bij wijn?" in result.text
+    assert (
+        "7. Maximum budget in euro: niet gespecificeerd"
+        in result.state["wine_questionnaire"]
+    )
+    assert (
+        "8. Gewenste geur/smaak (vrije tekst): []" in result.state["wine_questionnaire"]
+    )
 
 
 def test_ask_completed_phase_sanitizes_legacy_categorized_handoff_answer():

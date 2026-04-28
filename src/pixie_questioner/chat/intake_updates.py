@@ -10,7 +10,9 @@ from .intake_routing import is_routing_question
 from .intake_routing import resolve_intake_stage_for_questionnaire
 from .intake_routing import DISH_FIELD_INDICES, WINE_FIELD_INDICES
 from .questionnaire import combine_questionnaire_sections
+from .questionnaire import clear_later_blank_field_updates
 from .questionnaire import ensure_initial_question_field
+from .questionnaire import first_blank_field_index
 from .questionnaire import normalize_blank_like_questionnaire_values
 from .questionnaire import select_questionnaire_fields
 from .state_codec import merge_partial_questionnaire_update
@@ -21,6 +23,7 @@ from .summary import (
 from .types import (
     INITIAL_QUESTION,
     INTAKE_ROUTE_GENERAL_WINE,
+    INTAKE_STAGE_WINE,
     ChatState,
 )
 
@@ -136,6 +139,44 @@ def _is_opening_general_wine_turn(current_state: ChatState) -> bool:
     return _is_opening_general_wine_question(current_state.last_question)
 
 
+def _wine_field_index_for_question(question: str) -> int | None:
+    normalized = question.casefold()
+    if any(token in normalized for token in ("kleur", "color", "couleur")):
+        return 5
+    if any(
+        token in normalized
+        for token in ("herkomst", "land", "regio", "origin", "country", "region")
+    ):
+        return 6
+    if "budget" in normalized or "maximum" in normalized or "maximale" in normalized:
+        return 7
+    if any(
+        token in normalized
+        for token in ("geur", "smaak", "aroma", "arôme", "arome", "taste", "saveur")
+    ):
+        return 8
+    return None
+
+
+def _current_wine_field_index(current_state: ChatState) -> int | None:
+    if _is_opening_general_wine_turn(current_state):
+        wine_questionnaire = select_questionnaire_fields(
+            current_state.questionnaire,
+            WINE_FIELD_INDICES,
+        )
+        return first_blank_field_index(wine_questionnaire, WINE_FIELD_INDICES)
+    if current_state.intake_stage != INTAKE_STAGE_WINE:
+        return None
+    question_field_index = _wine_field_index_for_question(current_state.last_question)
+    if question_field_index is not None:
+        return question_field_index
+    wine_questionnaire = select_questionnaire_fields(
+        current_state.questionnaire,
+        WINE_FIELD_INDICES,
+    )
+    return first_blank_field_index(wine_questionnaire, WINE_FIELD_INDICES)
+
+
 async def _update_questionnaire(
     handler: ChatTurnHandler,
     current_state: ChatState,
@@ -201,6 +242,12 @@ async def _update_questionnaire(
             merged,
             WINE_FIELD_INDICES,
         )
+    merged = clear_later_blank_field_updates(
+        questionnaire=merged,
+        previous_questionnaire=current_state.questionnaire,
+        field_indices=WINE_FIELD_INDICES,
+        current_field_index=_current_wine_field_index(current_state),
+    )
     dish_questionnaire, wine_questionnaire = _split_stage_questionnaires(merged)
     combined = combine_questionnaire_sections(dish_questionnaire, wine_questionnaire)
     return combined, dish_questionnaire, wine_questionnaire
