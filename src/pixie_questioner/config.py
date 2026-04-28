@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal, cast
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -588,4 +588,5 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
+    settings_factory = cast(Callable[[], Settings], Settings)
+    return settings_factory()
