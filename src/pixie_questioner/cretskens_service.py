@@ -298,7 +298,11 @@ class CretskensService:
             response_type=advisor_result.response_type,
             state=wrapped_state,
             recommendations=advisor_result.recommendations,
-            quick_replies=follow_up_quick_replies,
+            quick_replies=(
+                follow_up_quick_replies
+                if follow_up_question is not None
+                else advisor_result.quick_replies
+            ),
             follow_up_question=follow_up_question,
         )
 
