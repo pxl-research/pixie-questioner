@@ -141,6 +141,12 @@ def _build_cretskens_chat_response(
                 )
                 for item in recommendations
             ],
+            follow_up_question=result.follow_up_question,
+            quick_replies=(
+                [QuickReplyOption(**item) for item in result.quick_replies]
+                if result.quick_replies is not None
+                else None
+            ),
             conversation_id=request.session_id,
             state=signed_state,
         )

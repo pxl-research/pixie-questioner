@@ -40,6 +40,7 @@ class WineAdvisorResult:
     state: dict[str, Any]
     recommendations: list[WineCatalogRecommendation] | None = None
     quick_replies: list[dict[str, str]] | None = None
+    follow_up_question: str | None = None
 
 
 @dataclass

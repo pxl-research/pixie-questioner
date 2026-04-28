@@ -79,6 +79,8 @@ class ChatRecommendationsResponse(BaseModel):
     type: Literal["recommendations"]
     text: str
     recommendations: list[ChatRecommendation] = Field(min_length=1, max_length=5)
+    follow_up_question: str | None = None
+    quick_replies: list[QuickReplyOption] | None = Field(default=None, max_length=6)
     conversation_id: str
     state: dict[str, Any]
 
