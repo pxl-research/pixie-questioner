@@ -270,6 +270,8 @@ class CretskensService:
         if advisor_result.response_type == "recommendations":
             advisor_state[CRETSKENS_FEEDBACK_SUMMARY_TEXT_KEY] = advisor_result.text
         next_feedback_state = feedback_state
+        follow_up_question: str | None = None
+        follow_up_quick_replies: list[dict[str, str]] | None = None
         if (
             advisor_result.response_type == "recommendations"
             and self._advisor_is_completed(advisor_state)
@@ -278,8 +280,11 @@ class CretskensService:
             next_feedback_state = CretskensFeedbackState(
                 summary_text=self._feedback_summary_text_from_advisor_state(
                     advisor_state
-                )
+                ),
+                prompt_issued=True,
             )
+            follow_up_question = _FEEDBACK_QUESTION_EASE_OF_USE
+            follow_up_quick_replies = _RATING_QUICK_REPLIES
         wrapped_state: dict[str, Any] = {
             CRETSKENS_FLOW_KEY: CRETSKENS_FLOW_ADVISOR,
             CRETSKENS_ADVISOR_STATE_KEY: advisor_state,
@@ -293,7 +298,12 @@ class CretskensService:
             response_type=advisor_result.response_type,
             state=wrapped_state,
             recommendations=advisor_result.recommendations,
-            quick_replies=advisor_result.quick_replies,
+            quick_replies=(
+                follow_up_quick_replies
+                if follow_up_question is not None
+                else advisor_result.quick_replies
+            ),
+            follow_up_question=follow_up_question,
         )
 
     def _serialize_feedback_state(
@@ -392,9 +402,6 @@ class CretskensService:
         else:
             text = _FEEDBACK_QUESTION_SATISFACTION
             quick_replies = _RATING_QUICK_REPLIES
-        summary_text = feedback_state.summary_text.strip()
-        if summary_text:
-            text = f"{summary_text}\n\n{text}"
         return WineAdvisorResult(
             text=text,
             response_type="question",

@@ -758,36 +758,45 @@ def test_cretskens_chat_feedback_questions_keep_recommendation_summary_visible(
     first_payload = first.json()
     assert first_payload["type"] == "recommendations"
     assert first_payload["text"] == recommendation_text
+    assert (
+        first_payload["follow_up_question"]
+        == "Hoe makkelijk vond je de assistent in gebruik? 1-5"
+    )
+    assert first_payload["quick_replies"] == [
+        {"label": "1", "value": "1"},
+        {"label": "2", "value": "2"},
+        {"label": "3", "value": "3"},
+        {"label": "4", "value": "4"},
+        {"label": "5", "value": "5"},
+    ]
 
     second = client.post(
         "/cases/cretskens/chat",
         json={
             "session_id": "session-feedback-summary-visible",
-            "current_answer": "volgende",
+            "current_answer": "4",
             "state": first_payload["state"],
         },
     )
     assert second.status_code == 200
     second_payload = second.json()
     assert second_payload["type"] == "question"
-    assert second_payload["text"] == (
-        f"{recommendation_text}\n\n"
-        "Hoe makkelijk vond je de assistent in gebruik? 1-5"
-    )
+    assert second_payload["text"] == "Zou je me nog eens gebruiken? ja/nee"
 
     third = client.post(
         "/cases/cretskens/chat",
         json={
             "session_id": "session-feedback-summary-visible",
-            "current_answer": "4",
+            "current_answer": "ja",
             "state": second_payload["state"],
         },
     )
     assert third.status_code == 200
     third_payload = third.json()
     assert third_payload["type"] == "question"
-    assert third_payload["text"] == (
-        f"{recommendation_text}\n\n" "Zou je me nog eens gebruiken? ja/nee"
+    assert (
+        third_payload["text"]
+        == "In welke mate ben je tevreden met de wijnsuggesties? 1-5"
     )
 
 
