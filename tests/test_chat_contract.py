@@ -62,6 +62,14 @@ def test_chat_question_response_matches_contract_shape() -> None:
     }
     assert schema["properties"]["type"]["const"] == "question"
     assert schema["properties"]["text"]["type"] == "string"
+    quick_replies_schema = schema["properties"]["quick_replies"]
+    assert quick_replies_schema["default"] is None
+    assert quick_replies_schema["anyOf"][0]["type"] == "array"
+    assert quick_replies_schema["anyOf"][0]["items"] == {
+        "$ref": "#/$defs/QuickReplyOption"
+    }
+    assert quick_replies_schema["anyOf"][0]["maxItems"] == 6
+    assert quick_replies_schema["anyOf"][1] == {"type": "null"}
     assert schema["properties"]["conversation_id"]["type"] == "string"
     assert schema["properties"]["state"]["type"] == "object"
     assert _allows_any_additional_properties(schema["properties"]["state"])

@@ -70,6 +70,7 @@ class QuickReplyOption(BaseModel):
 class ChatQuestionResponse(BaseModel):
     type: Literal["question"]
     text: str
+    quick_replies: list[QuickReplyOption] | None = Field(default=None, max_length=6)
     conversation_id: str
     state: dict[str, Any]
 

@@ -20,7 +20,6 @@ from .categorized_handoff import (
     parse_json_object,
     replace_questionnaire_field_value,
 )
-from .intake_routing import build_routing_question_result
 from .intake_routing import initial_intake_stage_for_route
 from .intake_routing import intake_complete_for_state
 from .intake_routing import is_routing_question
@@ -126,7 +125,6 @@ async def _maybe_route_cretskens_intake(
         intake_stage=initial_intake_stage_for_route(resolved_route),
     )
     return next_state, None
-
 
 
 async def _classify_intake_route(
