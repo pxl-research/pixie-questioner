@@ -6,6 +6,7 @@ import asyncio
 from pixie_questioner.chat.types import ChatResult
 from pixie_questioner.cretskens_service import (
     CRETSKENS_ADVISOR_STATE_KEY,
+    CRETSKENS_FEEDBACK_STATE_KEY,
     CRETSKENS_FLOW_ADVISOR,
     CRETSKENS_FLOW_INTAKE,
     CRETSKENS_FLOW_KEY,
@@ -150,6 +151,13 @@ def test_ask_completed_intake_calls_recommendation_with_built_context_and_meal_m
         "phase": "completed",
         "selected_barcodes": ["w1"],
     }
+    assert result.state[CRETSKENS_FEEDBACK_STATE_KEY] == {
+        "step": "ease_of_use",
+        "prompt_issued": False,
+        "ease_of_use": "",
+        "reuse": "",
+        "suggestions_satisfaction": "",
+    }
     assert len(recommendation_service.recommend_calls) == 1
     working_context, meal_mode = recommendation_service.recommend_calls[0]
     assert meal_mode == "pairing"
@@ -248,3 +256,121 @@ def test_ask_prefers_wrapped_intake_state_payload_over_legacy_like_keys() -> Non
     ]
     assert recommendation_service.ask_calls == []
     assert result.state[CRETSKENS_FLOW_KEY] == CRETSKENS_FLOW_INTAKE
+
+
+def test_ask_collects_three_feedback_questions_after_recommendations() -> None:
+    intake_service = StubIntakeService(
+        ChatResult(
+            text="Dank je, ik geef aanbevelingen.",
+            response_type="answer",
+            state={
+                "phase": "completed",
+                "summary": "Klant zoekt wijn.",
+                "questionnaire": "5. Kleur van de wijn (wit, rood, rosé): wit",
+                "handoff_categories_v1": "{}",
+                "intake_route": "food_pairing",
+            },
+            summary=None,
+        )
+    )
+    recommendation_service = StubRecommendationService(
+        ask_result=WineAdvisorResult(
+            text="unused",
+            response_type="recommendations",
+            state={"phase": "completed", "selected_barcodes": ["w1"]},
+            recommendations=[],
+        ),
+        recommend_result=WineAdvisorResult(
+            text="Hier zijn enkele passende opties.",
+            response_type="recommendations",
+            state={"phase": "completed", "selected_barcodes": ["w1"]},
+            recommendations=[],
+        ),
+    )
+    service = CretskensService(
+        intake_service=intake_service,
+        recommendation_service=recommendation_service,
+    )
+
+    first = asyncio.run(
+        service.ask(current_answer="We eten gegrilde zeebaars", state=None)
+    )
+    assert first.response_type == "recommendations"
+
+    second = asyncio.run(service.ask(current_answer="volgende", state=first.state))
+    assert second.response_type == "question"
+    assert second.text == "Hoe makkelijk vond je de assistent in gebruik? 1-5"
+    assert second.quick_replies == [
+        {"label": "1", "value": "1"},
+        {"label": "2", "value": "2"},
+        {"label": "3", "value": "3"},
+        {"label": "4", "value": "4"},
+        {"label": "5", "value": "5"},
+    ]
+
+    third = asyncio.run(service.ask(current_answer="4", state=second.state))
+    assert third.response_type == "question"
+    assert third.text == "Zou je me nog eens gebruiken? ja/nee"
+    assert third.quick_replies == [
+        {"label": "ja", "value": "ja"},
+        {"label": "nee", "value": "nee"},
+    ]
+
+    fourth = asyncio.run(service.ask(current_answer="ja", state=third.state))
+    assert fourth.response_type == "question"
+    assert fourth.text == "In welke mate ben je tevreden met de wijnsuggesties? 1-5"
+    assert fourth.quick_replies == [
+        {"label": "1", "value": "1"},
+        {"label": "2", "value": "2"},
+        {"label": "3", "value": "3"},
+        {"label": "4", "value": "4"},
+        {"label": "5", "value": "5"},
+    ]
+
+    fifth = asyncio.run(service.ask(current_answer="5", state=fourth.state))
+    assert fifth.response_type == "question"
+    assert fifth.text == "Bedankt voor je feedback."
+    assert fifth.quick_replies is None
+    assert fifth.state[CRETSKENS_FEEDBACK_STATE_KEY]["step"] == "done"
+
+
+def test_ask_repeats_feedback_question_when_answer_is_invalid() -> None:
+    service = CretskensService(
+        intake_service=StubIntakeService(
+            ChatResult(
+                text="unused",
+                response_type="answer",
+                state={"phase": "intake"},
+                summary=None,
+            )
+        ),
+        recommendation_service=StubRecommendationService(
+            ask_result=WineAdvisorResult(
+                text="unused",
+                response_type="recommendations",
+                state={"phase": "completed", "selected_barcodes": ["w1"]},
+                recommendations=[],
+            )
+        ),
+    )
+
+    state = {
+        CRETSKENS_FLOW_KEY: CRETSKENS_FLOW_ADVISOR,
+        CRETSKENS_ADVISOR_STATE_KEY: {
+            "phase": "completed",
+            "selected_barcodes": ["w1"],
+        },
+        CRETSKENS_FEEDBACK_STATE_KEY: {
+            "step": "ease_of_use",
+            "prompt_issued": True,
+            "ease_of_use": "",
+            "reuse": "",
+            "suggestions_satisfaction": "",
+        },
+    }
+
+    result = asyncio.run(service.ask(current_answer="heel goed", state=state))
+
+    assert result.response_type == "question"
+    assert result.text == "Hoe makkelijk vond je de assistent in gebruik? 1-5"
+    assert result.state[CRETSKENS_FEEDBACK_STATE_KEY]["step"] == "ease_of_use"

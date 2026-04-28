@@ -39,6 +39,7 @@ class WineAdvisorResult:
     response_type: Literal["question", "recommendations"]
     state: dict[str, Any]
     recommendations: list[WineCatalogRecommendation] | None = None
+    quick_replies: list[dict[str, str]] | None = None
 
 
 @dataclass

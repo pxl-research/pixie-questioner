@@ -568,6 +568,46 @@ def test_cretskens_chat_uses_intake_service_before_wine_advisor(
     assert advisor_stub.calls == []
 
 
+def test_chat_returns_question_with_quick_replies(monkeypatch, tmp_path: Path) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    result = WineAdvisorResult(
+        text="Hoe makkelijk vond je de assistent in gebruik? 1-5",
+        response_type="question",
+        state={"phase": "completed", "turn_count": 6},
+        recommendations=None,
+        quick_replies=[
+            {"label": "1", "value": "1"},
+            {"label": "2", "value": "2"},
+            {"label": "3", "value": "3"},
+            {"label": "4", "value": "4"},
+            {"label": "5", "value": "5"},
+        ],
+    )
+    main.runtime.cretskens_service = StubCretskensService(result)
+    main.runtime.audit_client = None
+
+    client = TestClient(main.app)
+    response = client.post(
+        "/cases/cretskens/chat",
+        json={
+            "session_id": "session-feedback-question",
+            "current_answer": "Verder",
+            "state": {},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["type"] == "question"
+    assert payload["quick_replies"] == [
+        {"label": "1", "value": "1"},
+        {"label": "2", "value": "2"},
+        {"label": "3", "value": "3"},
+        {"label": "4", "value": "4"},
+        {"label": "5", "value": "5"},
+    ]
+
+
 def test_cretskens_chat_completed_intake_returns_recommendations(
     monkeypatch, tmp_path: Path
 ) -> None:
