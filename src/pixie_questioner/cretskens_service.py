@@ -80,7 +80,8 @@ class IntakeServiceProtocol(Protocol):
         self,
         current_answer: str,
         state: dict[str, Any] | None,
-    ) -> ChatResult: ...
+    ) -> ChatResult:
+        ...
 
 
 class RecommendationServiceProtocol(Protocol):
@@ -89,14 +90,16 @@ class RecommendationServiceProtocol(Protocol):
         *,
         current_answer: str,
         state: dict[str, Any] | None,
-    ) -> WineAdvisorResult: ...
+    ) -> WineAdvisorResult:
+        ...
 
     async def recommend_from_context(
         self,
         *,
         working_context: str,
         meal_mode: str,
-    ) -> WineAdvisorResult: ...
+    ) -> WineAdvisorResult:
+        ...
 
 
 @dataclass
@@ -285,9 +288,9 @@ class CretskensService:
             CRETSKENS_ADVISOR_STATE_KEY: advisor_state,
         }
         if next_feedback_state is not None:
-            wrapped_state[CRETSKENS_FEEDBACK_STATE_KEY] = (
-                self._serialize_feedback_state(next_feedback_state)
-            )
+            wrapped_state[
+                CRETSKENS_FEEDBACK_STATE_KEY
+            ] = self._serialize_feedback_state(next_feedback_state)
         return WineAdvisorResult(
             text=advisor_result.text,
             response_type=advisor_result.response_type,

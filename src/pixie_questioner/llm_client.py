@@ -7,7 +7,8 @@ from typing import Protocol, cast
 
 
 class LLMClientProtocol(Protocol):
-    async def ainvoke(self, messages: list[dict[str, str]]): ...
+    async def ainvoke(self, messages: list[dict[str, str]]):
+        ...
 
 
 def resolve_llm_client(llm: object) -> LLMClientProtocol:

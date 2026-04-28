@@ -787,8 +787,7 @@ def test_cretskens_chat_feedback_questions_keep_recommendation_summary_visible(
     third_payload = third.json()
     assert third_payload["type"] == "question"
     assert third_payload["text"] == (
-        f"{recommendation_text}\n\n"
-        "Zou je me nog eens gebruiken? ja/nee"
+        f"{recommendation_text}\n\n" "Zou je me nog eens gebruiken? ja/nee"
     )
 
 
