@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from .chat.types import (
@@ -176,14 +176,7 @@ class CretskensService:
                 and not feedback_state.summary_text.strip()
                 and self._advisor_is_completed(advisor_state)
             ):
-                feedback_state = CretskensFeedbackState(
-                    step=feedback_state.step,
-                    prompt_issued=feedback_state.prompt_issued,
-                    ease_of_use=feedback_state.ease_of_use,
-                    reuse=feedback_state.reuse,
-                    suggestions_satisfaction=feedback_state.suggestions_satisfaction,
-                    summary_text=summary_text,
-                )
+                feedback_state = replace(feedback_state, summary_text=summary_text)
             return CRETSKENS_FLOW_ADVISOR, advisor_state, feedback_state
         if flow == CRETSKENS_FLOW_INTAKE and isinstance(
             state.get(CRETSKENS_INTAKE_STATE_KEY), dict
@@ -198,14 +191,7 @@ class CretskensService:
                 and not feedback_state.summary_text.strip()
                 and self._advisor_is_completed(state)
             ):
-                feedback_state = CretskensFeedbackState(
-                    step=feedback_state.step,
-                    prompt_issued=feedback_state.prompt_issued,
-                    ease_of_use=feedback_state.ease_of_use,
-                    reuse=feedback_state.reuse,
-                    suggestions_satisfaction=feedback_state.suggestions_satisfaction,
-                    summary_text=summary_text,
-                )
+                feedback_state = replace(feedback_state, summary_text=summary_text)
             return CRETSKENS_FLOW_ADVISOR, state, feedback_state
         return CRETSKENS_FLOW_INTAKE, None, None
 
@@ -332,14 +318,7 @@ class CretskensService:
         if not feedback_state.prompt_issued:
             return self._build_feedback_question_result(
                 advisor_state,
-                CretskensFeedbackState(
-                    step=feedback_state.step,
-                    prompt_issued=True,
-                    ease_of_use=feedback_state.ease_of_use,
-                    reuse=feedback_state.reuse,
-                    suggestions_satisfaction=feedback_state.suggestions_satisfaction,
-                    summary_text=feedback_state.summary_text,
-                ),
+                replace(feedback_state, prompt_issued=True),
             )
 
         normalized_answer = current_answer.strip().casefold()
@@ -350,13 +329,11 @@ class CretskensService:
                 )
             return self._build_feedback_question_result(
                 advisor_state,
-                CretskensFeedbackState(
+                replace(
+                    feedback_state,
                     step=_FEEDBACK_STEP_REUSE,
                     prompt_issued=True,
                     ease_of_use=normalized_answer,
-                    reuse=feedback_state.reuse,
-                    suggestions_satisfaction=feedback_state.suggestions_satisfaction,
-                    summary_text=feedback_state.summary_text,
                 ),
             )
 
@@ -367,13 +344,11 @@ class CretskensService:
                 )
             return self._build_feedback_question_result(
                 advisor_state,
-                CretskensFeedbackState(
+                replace(
+                    feedback_state,
                     step=_FEEDBACK_STEP_SATISFACTION,
                     prompt_issued=True,
-                    ease_of_use=feedback_state.ease_of_use,
                     reuse=normalized_answer,
-                    suggestions_satisfaction=feedback_state.suggestions_satisfaction,
-                    summary_text=feedback_state.summary_text,
                 ),
             )
 
@@ -389,13 +364,11 @@ class CretskensService:
                     CRETSKENS_FLOW_KEY: CRETSKENS_FLOW_ADVISOR,
                     CRETSKENS_ADVISOR_STATE_KEY: advisor_state,
                     CRETSKENS_FEEDBACK_STATE_KEY: self._serialize_feedback_state(
-                        CretskensFeedbackState(
+                        replace(
+                            feedback_state,
                             step=_FEEDBACK_STEP_DONE,
                             prompt_issued=True,
-                            ease_of_use=feedback_state.ease_of_use,
-                            reuse=feedback_state.reuse,
                             suggestions_satisfaction=normalized_answer,
-                            summary_text=feedback_state.summary_text,
                         )
                     ),
                 },
