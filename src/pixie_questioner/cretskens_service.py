@@ -436,20 +436,28 @@ class CretskensService:
         working_context = advisor_state.get("working_context")
         if not isinstance(working_context, str):
             return ""
-        context = working_context.strip()
-        if not context:
+        normalized_context = " ".join(working_context.split())
+        if not normalized_context:
+            return ""
+        lower_context = normalized_context.casefold()
+        summary_marker = "summary:"
+        start_index = lower_context.find(summary_marker)
+        if start_index < 0:
+            return ""
+        summary_text = normalized_context[start_index + len(summary_marker) :].strip()
+        if not summary_text:
             return ""
 
-        if context.startswith("Summary:\n"):
-            without_prefix = context[len("Summary:\n") :]
-            marker = "\n\nQuestionnaire:\n"
-            if marker in without_prefix:
-                return without_prefix.split(marker, maxsplit=1)[0].strip()
-            handoff_marker = "\n\nHandoff categories:\n"
-            if handoff_marker in without_prefix:
-                return without_prefix.split(handoff_marker, maxsplit=1)[0].strip()
-            return without_prefix.strip()
-        return ""
+        lower_summary_text = summary_text.casefold()
+        split_markers = ("questionnaire:", "handoff categories:")
+        split_indices = [
+            lower_summary_text.find(marker)
+            for marker in split_markers
+            if lower_summary_text.find(marker) >= 0
+        ]
+        if split_indices:
+            summary_text = summary_text[: min(split_indices)].strip()
+        return summary_text
 
     def _meal_mode_for_intake_state(self, state: dict[str, Any]) -> str:
         intake_route = state.get("intake_route")

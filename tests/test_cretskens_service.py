@@ -132,7 +132,15 @@ def test_ask_completed_intake_calls_recommendation_with_built_context_and_meal_m
         recommend_result=WineAdvisorResult(
             text="Hier zijn enkele passende opties.",
             response_type="recommendations",
-            state={"phase": "completed", "selected_barcodes": ["w1"]},
+            state={
+                "phase": "completed",
+                "selected_barcodes": ["w1"],
+                "working_context": (
+                    "Summary: Klant zoekt wijn bij vis. "
+                    "Questionnaire: 5. Kleur van de wijn (wit, rood, rosé): wit "
+                    "6. Herkomst (land en/of regio): Loire (AOC Cheverny)"
+                ),
+            },
             recommendations=[],
         ),
     )
@@ -147,17 +155,15 @@ def test_ask_completed_intake_calls_recommendation_with_built_context_and_meal_m
 
     assert result.response_type == "recommendations"
     assert result.state[CRETSKENS_FLOW_KEY] == CRETSKENS_FLOW_ADVISOR
-    assert result.state[CRETSKENS_ADVISOR_STATE_KEY] == {
-        "phase": "completed",
-        "selected_barcodes": ["w1"],
-    }
+    assert result.state[CRETSKENS_ADVISOR_STATE_KEY]["phase"] == "completed"
+    assert result.state[CRETSKENS_ADVISOR_STATE_KEY]["selected_barcodes"] == ["w1"]
     assert result.state[CRETSKENS_FEEDBACK_STATE_KEY] == {
         "step": "ease_of_use",
         "prompt_issued": False,
         "ease_of_use": "",
         "reuse": "",
         "suggestions_satisfaction": "",
-        "summary_text": "",
+        "summary_text": "Klant zoekt wijn bij vis.",
     }
     assert len(recommendation_service.recommend_calls) == 1
     working_context, meal_mode = recommendation_service.recommend_calls[0]
