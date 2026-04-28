@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 
 class LLMClientProtocol(Protocol):
@@ -13,7 +13,7 @@ class LLMClientProtocol(Protocol):
 def resolve_llm_client(llm: object) -> LLMClientProtocol:
     """Resolve an LLM wrapper to a client that supports ``ainvoke``."""
     if hasattr(llm, "ainvoke"):
-        return llm  # type: ignore[return-value]
+        return cast(LLMClientProtocol, llm)
     raise RuntimeError("LLM client must support ainvoke().")
 
 

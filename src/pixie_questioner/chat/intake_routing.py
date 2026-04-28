@@ -124,8 +124,6 @@ def determine_next_question_track(
             return "wine"
         if current_state.wine_follow_up_count < MAX_WINE_FOLLOW_UPS and wine_has_blanks:
             return "wine"
-        if _has_blank_fields_in_questionnaire(questionnaire, [7]):  # BUDGET GUARD
-            return "wine"
         return None
 
     stage = resolve_intake_stage_for_questionnaire(current_state, questionnaire)
