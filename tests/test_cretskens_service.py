@@ -7,6 +7,7 @@ from pixie_questioner.chat.types import ChatResult
 from pixie_questioner.cretskens_service import (
     CRETSKENS_ADVISOR_STATE_KEY,
     CRETSKENS_FEEDBACK_STATE_KEY,
+    CRETSKENS_FEEDBACK_SUMMARY_TEXT_KEY,
     CRETSKENS_FLOW_ADVISOR,
     CRETSKENS_FLOW_INTAKE,
     CRETSKENS_FLOW_KEY,
@@ -157,13 +158,17 @@ def test_ask_completed_intake_calls_recommendation_with_built_context_and_meal_m
     assert result.state[CRETSKENS_FLOW_KEY] == CRETSKENS_FLOW_ADVISOR
     assert result.state[CRETSKENS_ADVISOR_STATE_KEY]["phase"] == "completed"
     assert result.state[CRETSKENS_ADVISOR_STATE_KEY]["selected_barcodes"] == ["w1"]
+    assert (
+        result.state[CRETSKENS_ADVISOR_STATE_KEY][CRETSKENS_FEEDBACK_SUMMARY_TEXT_KEY]
+        == "Hier zijn enkele passende opties."
+    )
     assert result.state[CRETSKENS_FEEDBACK_STATE_KEY] == {
         "step": "ease_of_use",
         "prompt_issued": False,
         "ease_of_use": "",
         "reuse": "",
         "suggestions_satisfaction": "",
-        "summary_text": "Klant zoekt wijn bij vis.",
+        "summary_text": "Hier zijn enkele passende opties.",
     }
     assert len(recommendation_service.recommend_calls) == 1
     working_context, meal_mode = recommendation_service.recommend_calls[0]
@@ -315,7 +320,7 @@ def test_ask_collects_three_feedback_questions_after_recommendations() -> None:
     assert second.response_type == "question"
     assert (
         second.text
-        == "Klant zoekt wijn.\n\nHoe makkelijk vond je de assistent in gebruik? 1-5"
+        == "Hier zijn enkele passende opties.\n\nHoe makkelijk vond je de assistent in gebruik? 1-5"
     )
     assert second.quick_replies == [
         {"label": "1", "value": "1"},
@@ -327,7 +332,10 @@ def test_ask_collects_three_feedback_questions_after_recommendations() -> None:
 
     third = asyncio.run(service.ask(current_answer="4", state=second.state))
     assert third.response_type == "question"
-    assert third.text == "Klant zoekt wijn.\n\nZou je me nog eens gebruiken? ja/nee"
+    assert (
+        third.text
+        == "Hier zijn enkele passende opties.\n\nZou je me nog eens gebruiken? ja/nee"
+    )
     assert third.quick_replies == [
         {"label": "ja", "value": "ja"},
         {"label": "nee", "value": "nee"},
@@ -337,7 +345,7 @@ def test_ask_collects_three_feedback_questions_after_recommendations() -> None:
     assert fourth.response_type == "question"
     assert (
         fourth.text
-        == "Klant zoekt wijn.\n\nIn welke mate ben je tevreden met de wijnsuggesties? 1-5"
+        == "Hier zijn enkele passende opties.\n\nIn welke mate ben je tevreden met de wijnsuggesties? 1-5"
     )
     assert fourth.quick_replies == [
         {"label": "1", "value": "1"},

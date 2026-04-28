@@ -24,6 +24,7 @@ CRETSKENS_FLOW_ADVISOR = "advisor"
 CRETSKENS_INTAKE_STATE_KEY = "intake_state"
 CRETSKENS_ADVISOR_STATE_KEY = "advisor_state"
 CRETSKENS_FEEDBACK_STATE_KEY = "feedback_state"
+CRETSKENS_FEEDBACK_SUMMARY_TEXT_KEY = "feedback_summary_text"
 _LEGACY_ADVISOR_STATE_KEYS = frozenset(
     {"phase", "turn_count", "meal_mode", "working_context", "chat_history"}
 )
@@ -167,10 +168,9 @@ class CretskensService:
             state.get(CRETSKENS_ADVISOR_STATE_KEY), dict
         ):
             advisor_state = state[CRETSKENS_ADVISOR_STATE_KEY]
+            summary_text = self._feedback_summary_text_from_advisor_state(advisor_state)
             if feedback_state is None and self._advisor_is_completed(advisor_state):
-                feedback_state = CretskensFeedbackState(
-                    summary_text=self._extract_summary_text(advisor_state)
-                )
+                feedback_state = CretskensFeedbackState(summary_text=summary_text)
             elif (
                 feedback_state is not None
                 and not feedback_state.summary_text.strip()
@@ -182,7 +182,7 @@ class CretskensService:
                     ease_of_use=feedback_state.ease_of_use,
                     reuse=feedback_state.reuse,
                     suggestions_satisfaction=feedback_state.suggestions_satisfaction,
-                    summary_text=self._extract_summary_text(advisor_state),
+                    summary_text=summary_text,
                 )
             return CRETSKENS_FLOW_ADVISOR, advisor_state, feedback_state
         if flow == CRETSKENS_FLOW_INTAKE and isinstance(
@@ -190,10 +190,9 @@ class CretskensService:
         ):
             return CRETSKENS_FLOW_INTAKE, state[CRETSKENS_INTAKE_STATE_KEY], None
         if _LEGACY_ADVISOR_STATE_KEYS.intersection(state):
+            summary_text = self._feedback_summary_text_from_advisor_state(state)
             if feedback_state is None and self._advisor_is_completed(state):
-                feedback_state = CretskensFeedbackState(
-                    summary_text=self._extract_summary_text(state)
-                )
+                feedback_state = CretskensFeedbackState(summary_text=summary_text)
             elif (
                 feedback_state is not None
                 and not feedback_state.summary_text.strip()
@@ -205,7 +204,7 @@ class CretskensService:
                     ease_of_use=feedback_state.ease_of_use,
                     reuse=feedback_state.reuse,
                     suggestions_satisfaction=feedback_state.suggestions_satisfaction,
-                    summary_text=self._extract_summary_text(state),
+                    summary_text=summary_text,
                 )
             return CRETSKENS_FLOW_ADVISOR, state, feedback_state
         return CRETSKENS_FLOW_INTAKE, None, None
@@ -281,18 +280,23 @@ class CretskensService:
         *,
         feedback_state: CretskensFeedbackState | None,
     ) -> WineAdvisorResult:
+        advisor_state = dict(advisor_result.state)
+        if advisor_result.response_type == "recommendations":
+            advisor_state[CRETSKENS_FEEDBACK_SUMMARY_TEXT_KEY] = advisor_result.text
         next_feedback_state = feedback_state
         if (
             advisor_result.response_type == "recommendations"
-            and self._advisor_is_completed(advisor_result.state)
+            and self._advisor_is_completed(advisor_state)
             and next_feedback_state is None
         ):
             next_feedback_state = CretskensFeedbackState(
-                summary_text=self._extract_summary_text(advisor_result.state)
+                summary_text=self._feedback_summary_text_from_advisor_state(
+                    advisor_state
+                )
             )
         wrapped_state: dict[str, Any] = {
             CRETSKENS_FLOW_KEY: CRETSKENS_FLOW_ADVISOR,
-            CRETSKENS_ADVISOR_STATE_KEY: advisor_result.state,
+            CRETSKENS_ADVISOR_STATE_KEY: advisor_state,
         }
         if next_feedback_state is not None:
             wrapped_state[CRETSKENS_FEEDBACK_STATE_KEY] = (
@@ -458,6 +462,14 @@ class CretskensService:
         if split_indices:
             summary_text = summary_text[: min(split_indices)].strip()
         return summary_text
+
+    def _feedback_summary_text_from_advisor_state(
+        self, advisor_state: dict[str, Any]
+    ) -> str:
+        summary_text = advisor_state.get(CRETSKENS_FEEDBACK_SUMMARY_TEXT_KEY)
+        if isinstance(summary_text, str) and summary_text.strip():
+            return summary_text.strip()
+        return self._extract_summary_text(advisor_state)
 
     def _meal_mode_for_intake_state(self, state: dict[str, Any]) -> str:
         intake_route = state.get("intake_route")
