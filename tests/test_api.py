@@ -687,6 +687,110 @@ def test_cretskens_chat_completed_intake_returns_recommendations(
     assert "8. Gewenste geur/smaak (vrije tekst): fris en fruitig" in working_context
 
 
+def test_cretskens_chat_feedback_questions_keep_recommendation_summary_visible(
+    monkeypatch, tmp_path: Path
+) -> None:
+    main = _load_main(monkeypatch, tmp_path)
+    chat_stub = StubChatService(
+        ChatResult(
+            text="Dank je wel, dit geeft een mooi beeld van je gerecht.",
+            response_type="answer",
+            state={
+                "phase": "completed",
+                "summary": "Klant eet pad thai en zoekt een passende wijn.",
+                "questionnaire": (
+                    "0. Dish description (free text from customer): pad thai\n"
+                    "1. Course type (aperitif, main course, cheese course, or dessert): main course\n"
+                    "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+                    "3. Cooking method (BBQ or grill, stew, or none): none\n"
+                    "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): none\n"
+                    "5. Kleur van de wijn (wit, rood, rosé): wit\n"
+                    "6. Herkomst (land en/of regio): niet gespecificeerd\n"
+                    "7. Maximum budget in euro: 20\n"
+                    "8. Gewenste geur/smaak (vrije tekst): fris en fruitig"
+                ),
+                "handoff_categories_v1": "{}",
+                "intake_route": "food_pairing",
+            },
+            summary=None,
+        )
+    )
+    recommendation = WineCatalogRecommendation(
+        barcode="w1",
+        name="Testwijn",
+        country="Frankrijk",
+        region="Bordeaux",
+        aroma_description="Rijp rood fruit",
+        taste_description="Fluweelzacht en rond",
+    )
+    recommendation_text = "Dit zijn passende opties uit de catalogus."
+    advisor_stub = StubWineAdvisorService(
+        result=WineAdvisorResult(
+            text="unused",
+            response_type="question",
+            state={"phase": "intake", "turn_count": 1},
+            recommendations=None,
+        ),
+        recommend_result=WineAdvisorResult(
+            text=recommendation_text,
+            response_type="recommendations",
+            state={"phase": "completed", "selected_barcodes": ["w1"]},
+            recommendations=[recommendation],
+        ),
+    )
+    main.runtime.cretskens_service = CretskensService(
+        intake_service=chat_stub,
+        recommendation_service=advisor_stub,
+    )
+    main.runtime.audit_client = None
+
+    client = TestClient(main.app)
+
+    first = client.post(
+        "/cases/cretskens/chat",
+        json={
+            "session_id": "session-feedback-summary-visible",
+            "current_answer": "We eten vanavond pad thai",
+            "state": {},
+        },
+    )
+    assert first.status_code == 200
+    first_payload = first.json()
+    assert first_payload["type"] == "recommendations"
+    assert first_payload["text"] == recommendation_text
+
+    second = client.post(
+        "/cases/cretskens/chat",
+        json={
+            "session_id": "session-feedback-summary-visible",
+            "current_answer": "volgende",
+            "state": first_payload["state"],
+        },
+    )
+    assert second.status_code == 200
+    second_payload = second.json()
+    assert second_payload["type"] == "question"
+    assert second_payload["text"] == (
+        f"{recommendation_text}\n\n"
+        "Hoe makkelijk vond je de assistent in gebruik? 1-5"
+    )
+
+    third = client.post(
+        "/cases/cretskens/chat",
+        json={
+            "session_id": "session-feedback-summary-visible",
+            "current_answer": "4",
+            "state": second_payload["state"],
+        },
+    )
+    assert third.status_code == 200
+    third_payload = third.json()
+    assert third_payload["type"] == "question"
+    assert third_payload["text"] == (
+        f"{recommendation_text}\n\n" "Zou je me nog eens gebruiken? ja/nee"
+    )
+
+
 def test_chat_returns_recommendations(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     result = WineAdvisorResult(
