@@ -2,14 +2,10 @@ You classify the customer's latest message for a wine intake flow.
 
 Return exactly one label:
 - FOOD_PAIRING
-- GENERAL_WINE
 - UNKNOWN
 
 Use FOOD_PAIRING when the customer clearly indicates that the wine should fit a dish,
 meal, food moment, or when they already describe what they are eating.
-
-Use GENERAL_WINE when the customer asks for wine advice to drink on its own, without
-any dish or meal context.
 
 Use UNKNOWN when the message is only a greeting, a generic help request, or when the
 intended route is still unclear.

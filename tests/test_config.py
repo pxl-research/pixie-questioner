@@ -554,7 +554,6 @@ def test_cretskens_domain_profile_loads_intake_route_classifier_prompt() -> None
 
     assert "Return exactly one label" in profile.intake_route_classifier_prompt
     assert "FOOD_PAIRING" in profile.intake_route_classifier_prompt
-    assert "GENERAL_WINE" in profile.intake_route_classifier_prompt
 
 
 def test_cretskens_domain_profile_loads_without_aroma_prompt() -> None:

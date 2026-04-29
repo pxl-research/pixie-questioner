@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import re
 
-from .types import INTAKE_ROUTE_GENERAL_WINE
-
 _UNSPECIFIED_FIELD_MARKERS = frozenset(
     {
         "niet gespecificeerd",
@@ -185,7 +183,8 @@ def focus_questionnaire_for_route(
     *,
     allow_dish_questions: bool = True,
 ) -> str:
-    if intake_route != INTAKE_ROUTE_GENERAL_WINE and allow_dish_questions:
+    del intake_route
+    if allow_dish_questions:
         return mask_later_blank_fields(questionnaire, questionnaire_indices)
 
     masked = _mask_specific_blank_fields(questionnaire, [0, 1, 2, 3, 4])

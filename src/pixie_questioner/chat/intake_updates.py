@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from .intake_routing import intake_complete_for_state
-from .intake_routing import is_routing_question
 from .intake_routing import resolve_intake_stage_for_questionnaire
 from .intake_routing import DISH_FIELD_INDICES, WINE_FIELD_INDICES
 from .questionnaire import combine_questionnaire_sections
@@ -22,7 +23,6 @@ from .summary import (
 )
 from .types import (
     INITIAL_QUESTION,
-    INTAKE_ROUTE_GENERAL_WINE,
     INTAKE_STAGE_WINE,
     ChatState,
 )
@@ -37,6 +37,20 @@ class IntakeUpdateResult:
     dish_questionnaire: str
     wine_questionnaire: str
     summary: str
+
+
+def _has_non_blank_dish_fields(questionnaire: str) -> bool:
+    for index in DISH_FIELD_INDICES:
+        match = re.search(
+            rf"(?m)^\s*{index}\.\s*[^:\n]*:[^\S\n]*(.*?)$",
+            questionnaire,
+        )
+        if match is None:
+            continue
+        value = match.group(1).strip().strip("[]").strip()
+        if value:
+            return True
+    return False
 
 
 async def apply_intake_updates(
@@ -54,19 +68,22 @@ async def apply_intake_updates(
         current_state,
         current_answer,
     )
-    if (
-        current_state.last_question.strip() == INITIAL_QUESTION
-        and current_state.intake_route != INTAKE_ROUTE_GENERAL_WINE
-    ):
-        updated_questionnaire = ensure_initial_question_field(
-            updated_questionnaire,
-            current_answer,
-        )
-        if categorized_handoff_mode:
-            (
-                dish_questionnaire,
-                wine_questionnaire,
-            ) = _split_stage_questionnaires(updated_questionnaire)
+    if current_state.last_question.strip() == INITIAL_QUESTION:
+        should_backfill_initial_dish = True
+        if categorized_handoff_mode and not _has_non_blank_dish_fields(
+            updated_questionnaire
+        ):
+            should_backfill_initial_dish = False
+        if should_backfill_initial_dish:
+            updated_questionnaire = ensure_initial_question_field(
+                updated_questionnaire,
+                current_answer,
+            )
+            if categorized_handoff_mode:
+                (
+                    dish_questionnaire,
+                    wine_questionnaire,
+                ) = _split_stage_questionnaires(updated_questionnaire)
 
     updated_state = _state_with_updated_questionnaires(
         current_state,
@@ -121,22 +138,8 @@ def _state_with_updated_questionnaires(
     return updated_state
 
 
-def _should_skip_general_wine_routing_update(current_state: ChatState) -> bool:
-    if current_state.intake_route != INTAKE_ROUTE_GENERAL_WINE:
-        return False
-    last_question = current_state.last_question.strip()
-    return is_routing_question(last_question)
-
-
-def _is_opening_general_wine_question(last_question: str) -> bool:
-    stripped = last_question.strip()
-    return stripped == INITIAL_QUESTION or is_routing_question(stripped)
-
-
-def _is_opening_general_wine_turn(current_state: ChatState) -> bool:
-    if current_state.intake_route != INTAKE_ROUTE_GENERAL_WINE:
-        return False
-    return _is_opening_general_wine_question(current_state.last_question)
+def _is_opening_turn(current_state: ChatState) -> bool:
+    return current_state.last_question.strip() == INITIAL_QUESTION
 
 
 def _wine_field_index_for_question(question: str) -> int | None:
@@ -159,7 +162,7 @@ def _wine_field_index_for_question(question: str) -> int | None:
 
 
 def _current_wine_field_index(current_state: ChatState) -> int | None:
-    if _is_opening_general_wine_turn(current_state):
+    if _is_opening_turn(current_state):
         wine_questionnaire = select_questionnaire_fields(
             current_state.questionnaire,
             WINE_FIELD_INDICES,
@@ -208,19 +211,6 @@ async def _update_questionnaire(
         current_state.questionnaire
     )
 
-    if _should_skip_general_wine_routing_update(current_state):
-        combined = combine_questionnaire_sections(
-            dish_questionnaire,
-            wine_questionnaire,
-        )
-        if _is_opening_general_wine_turn(current_state):
-            combined = normalize_blank_like_questionnaire_values(
-                combined,
-                WINE_FIELD_INDICES,
-            )
-        dish_questionnaire, wine_questionnaire = _split_stage_questionnaires(combined)
-        return combined, dish_questionnaire, wine_questionnaire
-
     try:
         updated = await handler.notulist.generate(
             current_question=current_state.last_question,
@@ -237,7 +227,7 @@ async def _update_questionnaire(
     )
     if merged is None:
         merged = current_state.questionnaire
-    if _is_opening_general_wine_turn(current_state):
+    if _is_opening_turn(current_state):
         merged = normalize_blank_like_questionnaire_values(
             merged,
             WINE_FIELD_INDICES,

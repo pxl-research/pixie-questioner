@@ -176,7 +176,7 @@ def _write_cretskens_domain_profile(tmp_path: Path) -> Path:
     )
     _write_prompt(
         tmp_path / "cretskens_intake_route_classifier.txt",
-        "Return exactly one label: FOOD_PAIRING, GENERAL_WINE, or UNKNOWN.\n{current_answer}",
+        "Return exactly one label: FOOD_PAIRING or UNKNOWN.\n{current_answer}",
     )
     return _write_prompt(
         tmp_path / "cretskens_domain_profile.yml",

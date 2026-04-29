@@ -26,9 +26,8 @@ Rules:
   3) Keep asking while the customer still has additional preferences.
   4) Recommend only after the customer says there are no additional
      preferences, or clearly asks to proceed with current constraints.
-- If meal_mode is "drinking_only", ask only wine preference questions
-  (never dish/taste-of-dish questions).
-- If meal_mode is "pairing", first clarify dish context only when still unclear,
+- Always treat the flow as wine pairing with food.
+  First clarify dish context only when still unclear,
   then ask the highest-value missing wine preference question.
 - If meal_mode is "pairing" and the next question is about wine color while the
   customer's dish is already known, start question_text with one sentence stating
@@ -45,7 +44,7 @@ Rules:
 - Return only JSON with keys:
   action: "question" or "recommend"
   question_text: string (required when action is question)
-  meal_mode: "pairing" | "drinking_only" | "unknown"
+  meal_mode: "pairing"
   query_hints: concise search hints
   decision_explanation: short factual reason for this action (no hidden reasoning)
 

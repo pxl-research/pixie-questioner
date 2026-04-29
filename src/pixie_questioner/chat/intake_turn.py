@@ -22,7 +22,6 @@ from .categorized_handoff import (
 )
 from .intake_routing import initial_intake_stage_for_route
 from .intake_routing import intake_complete_for_state
-from .intake_routing import is_routing_question
 from .intake_routing import resolve_intake_stage_for_questionnaire
 from .intake_routing import WINE_FIELD_INDICES
 from .intake_outcomes import (
@@ -36,7 +35,6 @@ from .relevance import ClassificationLabel
 from .types import (
     INITIAL_QUESTION,
     INTAKE_ROUTE_FOOD_PAIRING,
-    INTAKE_ROUTE_GENERAL_WINE,
     INTAKE_ROUTE_UNKNOWN,
     INTAKE_STAGE_WINE,
     ChatResult,
@@ -88,10 +86,7 @@ async def _maybe_route_cretskens_intake(
         return current_state, None
     if current_state.intake_route != INTAKE_ROUTE_UNKNOWN:
         return current_state, None
-    if (
-        current_state.last_question.strip() != INITIAL_QUESTION
-        and not is_routing_question(current_state.last_question)
-    ):
+    if current_state.last_question.strip() != INITIAL_QUESTION:
         return replace(current_state, intake_route=INTAKE_ROUTE_FOOD_PAIRING), None
 
     resolved_route = await _classify_intake_route(handler, current_answer)
@@ -186,10 +181,7 @@ async def _handle_on_topic_intake(
             updated_state,
             last_question=unsupported_origin_follow_up,
         )
-        if (
-            updated_state.intake_stage == INTAKE_STAGE_WINE
-            or updated_state.intake_route == INTAKE_ROUTE_GENERAL_WINE
-        ):
+        if updated_state.intake_stage == INTAKE_STAGE_WINE:
             follow_up_state = replace(
                 follow_up_state,
                 wine_follow_up_count=current_state.wine_follow_up_count + 1,
@@ -277,10 +269,7 @@ def _maybe_apply_supported_origin_fallback(
 ) -> None:
     if not handler.is_categorized_handoff_mode():
         return
-    if (
-        updated_state.intake_stage != INTAKE_STAGE_WINE
-        and updated_state.intake_route != INTAKE_ROUTE_GENERAL_WINE
-    ):
+    if updated_state.intake_stage != INTAKE_STAGE_WINE:
         return
     wine_questionnaire = _wine_questionnaire_view(updated_state.questionnaire)
     current_origin_value = extract_questionnaire_field_value(wine_questionnaire, 6)
@@ -393,10 +382,7 @@ async def _maybe_generate_unsupported_origin_follow_up(
         return None
     if not handler.is_categorized_handoff_mode():
         return None
-    if (
-        updated_state.intake_stage != INTAKE_STAGE_WINE
-        and updated_state.intake_route != INTAKE_ROUTE_GENERAL_WINE
-    ):
+    if updated_state.intake_stage != INTAKE_STAGE_WINE:
         return None
 
     previous_wine_questionnaire = _wine_questionnaire_view(current_state.questionnaire)
@@ -404,14 +390,7 @@ async def _maybe_generate_unsupported_origin_follow_up(
         previous_wine_questionnaire,
         WINE_FIELD_INDICES,
     )
-    opening_general_wine_turn = (
-        current_state.intake_route == INTAKE_ROUTE_GENERAL_WINE
-        and (
-            current_state.last_question.strip() == INITIAL_QUESTION
-            or is_routing_question(current_state.last_question)
-        )
-    )
-    if previous_blank_field != 6 and not opening_general_wine_turn:
+    if previous_blank_field != 6:
         return None
 
     updated_wine_questionnaire = _wine_questionnaire_view(updated_state.questionnaire)
