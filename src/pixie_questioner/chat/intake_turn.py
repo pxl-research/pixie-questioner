@@ -20,7 +20,6 @@ from .categorized_handoff import (
     parse_json_object,
     replace_questionnaire_field_value,
 )
-from .intake_routing import build_routing_question_result
 from .intake_routing import initial_intake_stage_for_route
 from .intake_routing import intake_complete_for_state
 from .intake_routing import is_routing_question
@@ -97,27 +96,18 @@ async def _maybe_route_cretskens_intake(
 
     resolved_route = await _classify_intake_route(handler, current_answer)
     if resolved_route == INTAKE_ROUTE_UNKNOWN:
-        if current_state.routing_question_asked:
-            next_state = replace(
-                current_state,
-                intake_route=INTAKE_ROUTE_FOOD_PAIRING,
-                intake_stage=initial_intake_stage_for_route(INTAKE_ROUTE_FOOD_PAIRING),
-            )
-            return next_state, None
-        language = (
-            current_state.conversation_language
-            or handler.language.default_language_code
-        )
-        return (
-            current_state,
-            build_routing_question_result(handler, current_state, language),
-        )
+        resolved_route = INTAKE_ROUTE_FOOD_PAIRING
 
     next_state = replace(
         current_state,
         intake_route=resolved_route,
         intake_stage=initial_intake_stage_for_route(resolved_route),
     )
+    if current_state.routing_question_asked:
+        next_state = replace(
+            next_state,
+            routing_question_asked=False,
+        )
     return next_state, None
 
 

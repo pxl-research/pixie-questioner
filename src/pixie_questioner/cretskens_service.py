@@ -43,9 +43,7 @@ _FEEDBACK_STEPS = (
 
 _FEEDBACK_QUESTION_EASE_OF_USE = "Hoe makkelijk vond je de assistent in gebruik?"
 _FEEDBACK_QUESTION_REUSE = "Zou je me nog eens gebruiken?"
-_FEEDBACK_QUESTION_SATISFACTION = (
-    "In welke mate ben je tevreden met de wijnsuggesties?"
-)
+_FEEDBACK_QUESTION_SATISFACTION = "In welke mate ben je tevreden met de wijnsuggesties?"
 _FEEDBACK_THANKS = "Bedankt voor je feedback."
 
 _RATING_QUICK_REPLIES: list[dict[str, str]] = [
