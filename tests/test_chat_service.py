@@ -700,10 +700,22 @@ def test_ask_categorized_handoff_does_not_force_cheese_type_when_blank():
     assert len(question_llm.calls) == 1
 
 
-def test_ask_cretskens_vague_first_turn_asks_routing_question():
-    question_llm = FakeLLM(["Should not be used"])
-    notulist_llm = FakeLLM(["Should not be used"])
-    summarizer_llm = FakeLLM(["Should not be used"])
+def test_ask_cretskens_vague_first_turn_defaults_to_food_pairing_question():
+    question_llm = FakeLLM(["Welk gerecht zou je willen combineren met wijn?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): []\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): []\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant groet en vraagt algemeen hulp."])
     route_classifier = StubIntakeRouteClassifier(["unknown"])
     service = ChatService(
         llm=question_llm,
@@ -718,21 +730,16 @@ def test_ask_cretskens_vague_first_turn_asks_routing_question():
     result = asyncio.run(service.ask(current_answer="Hallo", state=None))
 
     assert result.response_type == "answer"
-    assert (
-        result.text
-        == "Zoek je een wijn voor bij een gerecht, of om gewoon zo te drinken?"
-    )
+    assert result.text == "Welk gerecht zou je willen combineren met wijn?"
     assert result.state["phase"] == "intake"
-    assert result.state["intake_route"] == "unknown"
-    assert result.state["routing_question_asked"] == "true"
-    assert result.state["dish_follow_up_count"] == "0"
+    assert result.state["intake_route"] == "food_pairing"
+    assert result.state["routing_question_asked"] == "false"
+    assert result.state["dish_follow_up_count"] == "1"
     assert result.state["wine_follow_up_count"] == "0"
     assert result.state["last_question"] == result.text
-    assert result.state["questionnaire"] == CRETSKENS_QUESTIONNAIRE_TEMPLATE
-    assert result.state["summary"] == ""
-    assert question_llm.calls == []
-    assert notulist_llm.calls == []
-    assert summarizer_llm.calls == []
+    assert len(question_llm.calls) == 1
+    assert len(notulist_llm.calls) == 1
+    assert len(summarizer_llm.calls) == 1
     assert route_classifier.calls == ["Hallo"]
 
 
@@ -1678,9 +1685,21 @@ def test_ask_cretskens_opening_general_wine_no_preference_expressed_marks_origin
 
 
 def test_ask_cretskens_marker_like_opening_does_not_bypass_unknown_route_classifier():
-    question_llm = FakeLLM(["Should not be used"])
-    notulist_llm = FakeLLM(["Should not be used"])
-    summarizer_llm = FakeLLM(["Should not be used"])
+    question_llm = FakeLLM(["Wat voor gerecht heb je in gedachten?"])
+    notulist_llm = FakeLLM(
+        [
+            "0. Dish description (free text from customer): gegrilde zalm\n"
+            "1. Course type (aperitif, main course, cheese course, or dessert): []\n"
+            "2. Main protein (fish or seafood, poultry, red meat, wild, or none): []\n"
+            "3. Cooking method (BBQ or grill, stew, or none): []\n"
+            "4. Cheese type (blue cheese, soft cheese, hard cheese, or none): []\n"
+            "5. Kleur van de wijn (wit, rood, rosé): []\n"
+            "6. Herkomst (land en/of regio): []\n"
+            "7. Maximum budget in euro: []\n"
+            "8. Gewenste geur/smaak (vrije tekst): []"
+        ]
+    )
+    summarizer_llm = FakeLLM(["Klant noemt een mogelijke maaltijd."])
     route_classifier = StubIntakeRouteClassifier(["unknown"])
     service = ChatService(
         llm=question_llm,
@@ -1700,15 +1719,12 @@ def test_ask_cretskens_marker_like_opening_does_not_bypass_unknown_route_classif
     )
 
     assert result.response_type == "answer"
-    assert (
-        result.text
-        == "Zoek je een wijn voor bij een gerecht, of om gewoon zo te drinken?"
-    )
-    assert result.state["intake_route"] == "unknown"
+    assert result.text == "Wat voor gerecht heb je in gedachten?"
+    assert result.state["intake_route"] == "food_pairing"
     assert route_classifier.calls == ["We eten vanavond gegrilde zalm"]
-    assert question_llm.calls == []
-    assert notulist_llm.calls == []
-    assert summarizer_llm.calls == []
+    assert len(question_llm.calls) == 1
+    assert len(notulist_llm.calls) == 1
+    assert len(summarizer_llm.calls) == 1
 
 
 def test_ask_cretskens_food_pairing_stops_dish_followups_after_budget():
