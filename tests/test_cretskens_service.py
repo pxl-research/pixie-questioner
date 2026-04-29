@@ -316,7 +316,7 @@ def test_ask_collects_three_feedback_questions_after_recommendations() -> None:
     )
     assert first.response_type == "recommendations"
     assert (
-        first.follow_up_question == "Hoe makkelijk vond je de assistent in gebruik? 1-5"
+        first.follow_up_question == "Hoe makkelijk vond je de assistent in gebruik?"
     )
     assert first.quick_replies == [
         {"label": "1", "value": "1"},
@@ -329,7 +329,7 @@ def test_ask_collects_three_feedback_questions_after_recommendations() -> None:
 
     second = asyncio.run(service.ask(current_answer="4", state=first.state))
     assert second.response_type == "question"
-    assert second.text == "Zou je me nog eens gebruiken? ja/nee"
+    assert second.text == "Zou je me nog eens gebruiken?"
     assert second.quick_replies == [
         {"label": "ja", "value": "ja"},
         {"label": "nee", "value": "nee"},
@@ -337,7 +337,7 @@ def test_ask_collects_three_feedback_questions_after_recommendations() -> None:
 
     third = asyncio.run(service.ask(current_answer="ja", state=second.state))
     assert third.response_type == "question"
-    assert third.text == "In welke mate ben je tevreden met de wijnsuggesties? 1-5"
+    assert third.text == "In welke mate ben je tevreden met de wijnsuggesties?"
     assert third.quick_replies == [
         {"label": "1", "value": "1"},
         {"label": "2", "value": "2"},
@@ -394,5 +394,5 @@ def test_ask_repeats_feedback_question_when_answer_is_invalid() -> None:
     result = asyncio.run(service.ask(current_answer="heel goed", state=state))
 
     assert result.response_type == "question"
-    assert result.text == "Hoe makkelijk vond je de assistent in gebruik? 1-5"
+    assert result.text == "Hoe makkelijk vond je de assistent in gebruik?"
     assert result.state[CRETSKENS_FEEDBACK_STATE_KEY]["step"] == "ease_of_use"

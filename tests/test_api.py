@@ -571,7 +571,7 @@ def test_cretskens_chat_uses_intake_service_before_wine_advisor(
 def test_chat_returns_question_with_quick_replies(monkeypatch, tmp_path: Path) -> None:
     main = _load_main(monkeypatch, tmp_path)
     result = WineAdvisorResult(
-        text="Hoe makkelijk vond je de assistent in gebruik? 1-5",
+        text="Hoe makkelijk vond je de assistent in gebruik?",
         response_type="question",
         state={"phase": "completed", "turn_count": 6},
         recommendations=None,
@@ -760,7 +760,7 @@ def test_cretskens_chat_feedback_questions_keep_recommendation_summary_visible(
     assert first_payload["text"] == recommendation_text
     assert (
         first_payload["follow_up_question"]
-        == "Hoe makkelijk vond je de assistent in gebruik? 1-5"
+        == "Hoe makkelijk vond je de assistent in gebruik?"
     )
     assert first_payload["quick_replies"] == [
         {"label": "1", "value": "1"},
@@ -781,7 +781,7 @@ def test_cretskens_chat_feedback_questions_keep_recommendation_summary_visible(
     assert second.status_code == 200
     second_payload = second.json()
     assert second_payload["type"] == "question"
-    assert second_payload["text"] == "Zou je me nog eens gebruiken? ja/nee"
+    assert second_payload["text"] == "Zou je me nog eens gebruiken?"
 
     third = client.post(
         "/cases/cretskens/chat",
@@ -796,7 +796,7 @@ def test_cretskens_chat_feedback_questions_keep_recommendation_summary_visible(
     assert third_payload["type"] == "question"
     assert (
         third_payload["text"]
-        == "In welke mate ben je tevreden met de wijnsuggesties? 1-5"
+        == "In welke mate ben je tevreden met de wijnsuggesties?"
     )
 
 

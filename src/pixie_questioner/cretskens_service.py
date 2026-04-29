@@ -41,10 +41,10 @@ _FEEDBACK_STEPS = (
     _FEEDBACK_STEP_DONE,
 )
 
-_FEEDBACK_QUESTION_EASE_OF_USE = "Hoe makkelijk vond je de assistent in gebruik? 1-5"
-_FEEDBACK_QUESTION_REUSE = "Zou je me nog eens gebruiken? ja/nee"
+_FEEDBACK_QUESTION_EASE_OF_USE = "Hoe makkelijk vond je de assistent in gebruik?"
+_FEEDBACK_QUESTION_REUSE = "Zou je me nog eens gebruiken?"
 _FEEDBACK_QUESTION_SATISFACTION = (
-    "In welke mate ben je tevreden met de wijnsuggesties? 1-5"
+    "In welke mate ben je tevreden met de wijnsuggesties?"
 )
 _FEEDBACK_THANKS = "Bedankt voor je feedback."
 
