@@ -737,6 +737,10 @@ def test_ask_cretskens_vague_first_turn_defaults_to_food_pairing_question():
     assert result.state["dish_follow_up_count"] == "1"
     assert result.state["wine_follow_up_count"] == "0"
     assert result.state["last_question"] == result.text
+    assert (
+        "0. Dish description (free text from customer): []"
+        in result.state["questionnaire"]
+    )
     assert len(question_llm.calls) == 1
     assert len(notulist_llm.calls) == 1
     assert len(summarizer_llm.calls) == 1

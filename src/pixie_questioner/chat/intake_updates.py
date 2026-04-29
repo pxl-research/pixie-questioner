@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
@@ -37,6 +39,20 @@ class IntakeUpdateResult:
     summary: str
 
 
+def _has_non_blank_dish_fields(questionnaire: str) -> bool:
+    for index in DISH_FIELD_INDICES:
+        match = re.search(
+            rf"(?m)^\s*{index}\.\s*[^:\n]*:[^\S\n]*(.*?)$",
+            questionnaire,
+        )
+        if match is None:
+            continue
+        value = match.group(1).strip().strip("[]").strip()
+        if value:
+            return True
+    return False
+
+
 async def apply_intake_updates(
     handler: ChatTurnHandler,
     current_state: ChatState,
@@ -53,15 +69,21 @@ async def apply_intake_updates(
         current_answer,
     )
     if current_state.last_question.strip() == INITIAL_QUESTION:
-        updated_questionnaire = ensure_initial_question_field(
-            updated_questionnaire,
-            current_answer,
-        )
-        if categorized_handoff_mode:
-            (
-                dish_questionnaire,
-                wine_questionnaire,
-            ) = _split_stage_questionnaires(updated_questionnaire)
+        should_backfill_initial_dish = True
+        if categorized_handoff_mode and not _has_non_blank_dish_fields(
+            updated_questionnaire
+        ):
+            should_backfill_initial_dish = False
+        if should_backfill_initial_dish:
+            updated_questionnaire = ensure_initial_question_field(
+                updated_questionnaire,
+                current_answer,
+            )
+            if categorized_handoff_mode:
+                (
+                    dish_questionnaire,
+                    wine_questionnaire,
+                ) = _split_stage_questionnaires(updated_questionnaire)
 
     updated_state = _state_with_updated_questionnaires(
         current_state,
