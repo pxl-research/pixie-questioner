@@ -315,9 +315,7 @@ def test_ask_collects_three_feedback_questions_after_recommendations() -> None:
         service.ask(current_answer="We eten gegrilde zeebaars", state=None)
     )
     assert first.response_type == "recommendations"
-    assert (
-        first.follow_up_question == "Hoe makkelijk vond je de assistent in gebruik?"
-    )
+    assert first.follow_up_question == "Hoe makkelijk vond je de assistent in gebruik?"
     assert first.quick_replies == [
         {"label": "1", "value": "1"},
         {"label": "2", "value": "2"},
