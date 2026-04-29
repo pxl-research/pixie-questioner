@@ -192,6 +192,8 @@ def _normalize_feedback_status(feedback_status: str) -> str:
 
 
 def _normalize_intake_route(intake_route: str) -> str:
+    if intake_route == INTAKE_ROUTE_GENERAL_WINE:
+        return INTAKE_ROUTE_FOOD_PAIRING
     if intake_route in VALID_INTAKE_ROUTES:
         return intake_route
     return INTAKE_ROUTE_UNKNOWN
@@ -222,8 +224,6 @@ def _infer_intake_stage(
     wine_follow_up_count: int,
 ) -> str:
     if intake_stage == INTAKE_STAGE_WINE:
-        return INTAKE_STAGE_WINE
-    if intake_route == INTAKE_ROUTE_GENERAL_WINE:
         return INTAKE_STAGE_WINE
     if intake_route == INTAKE_ROUTE_FOOD_PAIRING:
         if wine_follow_up_count > 0:

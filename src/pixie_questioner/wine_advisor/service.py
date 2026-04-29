@@ -15,9 +15,7 @@ from .llm_controller import TurnDecision
 from .retrieval import rank_catalog_records
 from .types import (
     ConversationTurn,
-    MEAL_MODE_DRINKING_ONLY,
     MEAL_MODE_PAIRING,
-    MEAL_MODE_UNKNOWN,
     PHASE_COMPLETED,
     PHASE_INTAKE,
     WineAdvisorResult,
@@ -286,12 +284,6 @@ class WineAdvisorService:
         phase = (
             raw_phase if raw_phase in {PHASE_INTAKE, PHASE_COMPLETED} else PHASE_INTAKE
         )
-        raw_meal_mode = state.get("meal_mode")
-        meal_mode = (
-            raw_meal_mode
-            if raw_meal_mode in {"pairing", "drinking_only", MEAL_MODE_UNKNOWN}
-            else MEAL_MODE_UNKNOWN
-        )
         last_question = state.get("last_question")
         working_context = state.get("working_context")
         return WineAdvisorState(
@@ -302,7 +294,7 @@ class WineAdvisorService:
                 if isinstance(last_question, str)
                 else ""
             ),
-            meal_mode=meal_mode,
+            meal_mode=MEAL_MODE_PAIRING,
             working_context=(
                 _truncate_text(working_context, self.max_working_context_chars)
                 if isinstance(working_context, str)
@@ -713,13 +705,8 @@ class WineAdvisorService:
         )
         if not normalized_context:
             raise RuntimeError("Working context cannot be empty.")
-        normalized_meal_mode: Literal["pairing", "drinking_only", "unknown"] = (
-            MEAL_MODE_UNKNOWN
-        )
-        if meal_mode == MEAL_MODE_PAIRING:
-            normalized_meal_mode = MEAL_MODE_PAIRING
-        elif meal_mode == MEAL_MODE_DRINKING_ONLY:
-            normalized_meal_mode = MEAL_MODE_DRINKING_ONLY
+        del meal_mode
+        normalized_meal_mode: Literal["pairing"] = MEAL_MODE_PAIRING
 
         parsed_state = WineAdvisorState(
             phase=PHASE_INTAKE,
@@ -733,19 +720,17 @@ class WineAdvisorService:
         )
         final_turn_count = self.max_turns
 
-        if normalized_meal_mode == MEAL_MODE_PAIRING:
-            pairing_candidates = rank_catalog_records(
-                self.catalog_records,
-                query=normalized_context,
-                limit=len(self._catalog_by_barcode),
-                min_score=1.0,
+        pairing_candidates = rank_catalog_records(
+            self.catalog_records,
+            query=normalized_context,
+            limit=len(self._catalog_by_barcode),
+            min_score=1.0,
+        )
+        candidate_count = len(pairing_candidates)
+        if candidate_count > 0:
+            normalized_context = (
+                f"Dish candidate wine count: {candidate_count}\n\n" + normalized_context
             )
-            candidate_count = len(pairing_candidates)
-            if candidate_count > 0:
-                normalized_context = (
-                    f"Dish candidate wine count: {candidate_count}\n\n"
-                    + normalized_context
-                )
 
         decision = await self.turn_controller.decide(
             current_answer=normalized_context,

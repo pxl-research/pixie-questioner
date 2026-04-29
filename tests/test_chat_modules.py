@@ -554,16 +554,15 @@ def test_intake_route_classifier_parses_labels_and_negation() -> None:
         llm=FakeLLM(["This is NOT GENERAL_WINE."]),
         system_prompt_template="{current_answer}",
     )
-    general_wine = LLMIntakeRouteClassifier(
-        llm=FakeLLM(["GENERAL_WINE"]),
-        system_prompt_template="{current_answer}",
-    )
-
     assert asyncio.run(food_pairing.classify("We eten gegrilde zalm")) == "food_pairing"
     assert asyncio.run(negated.classify("Hallo")) == "unknown"
+    second_negated = LLMIntakeRouteClassifier(
+        llm=FakeLLM(["This is NOT GENERAL_WINE."]),
+        system_prompt_template="{current_answer}",
+    )
     assert (
-        asyncio.run(general_wine.classify("Ik zoek iets om zo te drinken"))
-        == "general_wine"
+        asyncio.run(second_negated.classify("Ik zoek iets om zo te drinken"))
+        == "unknown"
     )
 
 

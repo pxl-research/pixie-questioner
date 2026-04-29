@@ -9,7 +9,6 @@ from typing import Protocol
 from ..llm_client import extract_llm_content, resolve_llm_client
 from .types import (
     INTAKE_ROUTE_FOOD_PAIRING,
-    INTAKE_ROUTE_GENERAL_WINE,
     INTAKE_ROUTE_UNKNOWN,
 )
 
@@ -25,7 +24,7 @@ class LLMIntakeRouteClassifier:
 
     def _parse_route_label(self, content: str) -> str | None:
         normalized = content.upper()
-        labels = re.findall(r"\b(FOOD_PAIRING|GENERAL_WINE|UNKNOWN)\b", normalized)
+        labels = re.findall(r"\b(FOOD_PAIRING|UNKNOWN)\b", normalized)
         if not labels:
             return None
         unique_labels = set(labels)
@@ -33,15 +32,12 @@ class LLMIntakeRouteClassifier:
             return None
         label = labels[0]
         if re.search(
-            r"\b(?:NOT|NO|NIET|GEEN|PAS|NE)\s+"
-            r"(?:FOOD_PAIRING|GENERAL_WINE|UNKNOWN)\b",
+            r"\b(?:NOT|NO|NIET|GEEN|PAS|NE)\s+" r"(?:FOOD_PAIRING|UNKNOWN)\b",
             normalized,
         ):
             return None
         if label == "FOOD_PAIRING":
             return INTAKE_ROUTE_FOOD_PAIRING
-        if label == "GENERAL_WINE":
-            return INTAKE_ROUTE_GENERAL_WINE
         return INTAKE_ROUTE_UNKNOWN
 
     async def classify(self, current_answer: str) -> str:

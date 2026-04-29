@@ -5,16 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
-from .chat.types import (
-    INTAKE_ROUTE_FOOD_PAIRING,
-    INTAKE_ROUTE_GENERAL_WINE,
-    PHASE_COMPLETED as CHAT_PHASE_COMPLETED,
-    ChatResult,
-)
+from .chat.types import PHASE_COMPLETED as CHAT_PHASE_COMPLETED, ChatResult
 from .wine_advisor.types import (
-    MEAL_MODE_DRINKING_ONLY,
     MEAL_MODE_PAIRING,
-    MEAL_MODE_UNKNOWN,
     WineAdvisorResult,
 )
 
@@ -450,12 +443,8 @@ class CretskensService:
         return self._extract_summary_text(advisor_state)
 
     def _meal_mode_for_intake_state(self, state: dict[str, Any]) -> str:
-        intake_route = state.get("intake_route")
-        if intake_route == INTAKE_ROUTE_FOOD_PAIRING:
-            return MEAL_MODE_PAIRING
-        if intake_route == INTAKE_ROUTE_GENERAL_WINE:
-            return MEAL_MODE_DRINKING_ONLY
-        return MEAL_MODE_UNKNOWN
+        del state
+        return MEAL_MODE_PAIRING
 
     def _build_working_context(self, intake_result: ChatResult) -> str:
         parts: list[str] = []

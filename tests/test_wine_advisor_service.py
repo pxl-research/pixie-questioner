@@ -497,13 +497,13 @@ def test_ask_recommendations_text_includes_recommended_wines() -> None:
     assert "Smaak: Kruidig" in result.text
 
 
-def test_ask_respects_controller_recommend_action_for_drinking_only() -> None:
+def test_ask_respects_controller_recommend_action_for_pairing() -> None:
     controller = StubController(
         [
             TurnDecision(
                 action="recommend",
                 question_text="",
-                meal_mode="drinking_only",
+                meal_mode="pairing",
                 query_hints="frisse witte wijn",
             )
         ]
@@ -959,7 +959,7 @@ def test_recommend_from_context_forces_recommendation_after_completed_intake() -
             TurnDecision(
                 action="question",
                 question_text="Welke stijl zoek je?",
-                meal_mode="drinking_only",
+                meal_mode="pairing",
                 query_hints="",
             )
         ]
@@ -981,7 +981,7 @@ def test_recommend_from_context_forces_recommendation_after_completed_intake() -
                 "7. Maximum budget in euro: 20\n"
                 "8. Gewenste geur/smaak (vrije tekst): fris"
             ),
-            meal_mode="drinking_only",
+            meal_mode="pairing",
         )
     )
 
@@ -989,7 +989,7 @@ def test_recommend_from_context_forces_recommendation_after_completed_intake() -
     assert result.state["phase"] == "completed"
     assert len(result.recommendations or []) >= 1
     assert len(ranker.calls) == 1
-    assert result.state["meal_mode"] == "drinking_only"
+    assert result.state["meal_mode"] == "pairing"
 
 
 def test_recommend_from_context_injects_candidate_count_for_pairing() -> None:
@@ -1032,7 +1032,7 @@ def test_ask_truncates_working_context_before_controller_call() -> None:
             TurnDecision(
                 action="question",
                 question_text="Welke kleur wijn heb je liefst?",
-                meal_mode="drinking_only",
+                meal_mode="pairing",
                 query_hints="",
             )
         ]

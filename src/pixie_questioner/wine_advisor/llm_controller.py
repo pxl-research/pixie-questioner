@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class _TurnDecisionPayload(BaseModel):
     action: Literal["question", "recommend"]
     question_text: str | None = None
-    meal_mode: Literal["pairing", "drinking_only", "unknown"] = "unknown"
+    meal_mode: Literal["pairing"] = "pairing"
     query_hints: str = ""
     decision_explanation: str = ""
 
@@ -34,7 +34,7 @@ class _TurnDecisionPayload(BaseModel):
 class TurnDecision:
     action: Literal["question", "recommend"]
     question_text: str
-    meal_mode: Literal["pairing", "drinking_only", "unknown"]
+    meal_mode: Literal["pairing"]
     query_hints: str
     explanation: str = ""
 
@@ -98,7 +98,7 @@ class LLMTurnController:
         working_context: str,
         turn_count: int,
         max_turns: int,
-        current_meal_mode: str = "unknown",
+        current_meal_mode: str = "pairing",
         last_question: str = "",
         conversation_history: str = "",
     ) -> TurnDecision:

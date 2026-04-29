@@ -9,12 +9,10 @@ PHASE_INTAKE = "intake"
 PHASE_COMPLETED = "completed"
 
 MEAL_MODE_PAIRING = "pairing"
-MEAL_MODE_DRINKING_ONLY = "drinking_only"
-MEAL_MODE_UNKNOWN = "unknown"
 
 ConversationRole = Literal["user", "assistant"]
 AdvisorPhase = Literal["intake", "completed"]
-MealMode = Literal["pairing", "drinking_only", "unknown"]
+MealMode = Literal["pairing"]
 
 
 @dataclass(frozen=True)
@@ -48,7 +46,7 @@ class WineAdvisorState:
     phase: AdvisorPhase = PHASE_INTAKE
     turn_count: int = 0
     last_question: str = ""
-    meal_mode: MealMode = MEAL_MODE_UNKNOWN
+    meal_mode: MealMode = MEAL_MODE_PAIRING
     working_context: str = ""
     chat_history: list[ConversationTurn] = field(default_factory=list)
     candidate_barcodes: list[str] = field(default_factory=list)

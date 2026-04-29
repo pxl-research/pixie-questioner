@@ -139,7 +139,7 @@ def test_raising_llm_ainvoke_yields_to_event_loop() -> None:
 def test_turn_controller_includes_stateful_context_in_prompt() -> None:
     llm = FakeLLM(
         [
-            '{"action":"question","question_text":"Wat is je budget?","meal_mode":"drinking_only","query_hints":"budget"}'
+            '{"action":"question","question_text":"Wat is je budget?","meal_mode":"pairing","query_hints":"budget"}'
         ]
     )
     controller = LLMTurnController(
@@ -156,7 +156,7 @@ def test_turn_controller_includes_stateful_context_in_prompt() -> None:
             working_context="Ik zoek een wijn",
             turn_count=2,
             max_turns=6,
-            current_meal_mode="drinking_only",
+            current_meal_mode="pairing",
             last_question="Wil je los drinken of bij eten?",
             conversation_history=(
                 "user: Ik zoek een wijn\n"
@@ -167,7 +167,7 @@ def test_turn_controller_includes_stateful_context_in_prompt() -> None:
     )
 
     prompt = llm.calls[0][0]["content"]
-    assert "mode=drinking_only" in prompt
+    assert "mode=pairing" in prompt
     assert "last=Wil je los drinken of bij eten?" in prompt
     assert "history=user: Ik zoek een wijn" in prompt
 
@@ -195,7 +195,7 @@ def test_turn_controller_retries_once_after_invalid_payload() -> None:
             [
                 "geen json payload",
                 (
-                    '{"action":"recommend","question_text":"","meal_mode":"drinking_only",'
+                    '{"action":"recommend","question_text":"","meal_mode":"pairing",'
                     '"query_hints":"fris fruitig"}'
                 ),
             ]
@@ -213,7 +213,7 @@ def test_turn_controller_retries_once_after_invalid_payload() -> None:
     )
 
     assert decision.action == "recommend"
-    assert decision.meal_mode == "drinking_only"
+    assert decision.meal_mode == "pairing"
     assert decision.query_hints == "fris fruitig"
 
 
