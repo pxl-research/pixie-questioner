@@ -21,7 +21,7 @@ class AzureOpenAILLM:
     ) -> None:
         self.model = None
         try:  # optional dependency
-            from langchain_openai import AzureChatOpenAI
+            from langchain_openai import AzureChatOpenAI, ChatOpenAI
         except Exception:
             logger.warning(
                 "Failed to import langchain_openai AzureChatOpenAI client.",
@@ -31,6 +31,18 @@ class AzureOpenAILLM:
             return
 
         normalized_max_tokens = max(int(max_tokens), 1)
+        if api_version == "v1":
+            # Azure v1 API: OpenAI-compatible, no dated api-version. Newer models
+            # (e.g. gpt-6-luna) 404 on the dated /deployments/ route.
+            self.model = ChatOpenAI(
+                base_url=f"{api_endpoint.rstrip('/')}/openai/v1/",
+                api_key=SecretStr(api_key),
+                model=model_version,
+                streaming=False,
+                request_timeout=request_timeout_seconds,
+                max_tokens=normalized_max_tokens,
+            )
+            return
         azure_client_kwargs: dict[str, Any] = {
             "openai_api_version": api_version,
             "azure_endpoint": api_endpoint,

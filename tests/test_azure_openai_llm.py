@@ -19,6 +19,7 @@ def test_azure_openai_llm_disables_streaming(monkeypatch) -> None:
 
     fake_module = types.ModuleType("langchain_openai")
     setattr(fake_module, "AzureChatOpenAI", FakeAzureChatOpenAI)
+    setattr(fake_module, "ChatOpenAI", object)
     monkeypatch.setitem(sys.modules, "langchain_openai", fake_module)
 
     llm = AzureOpenAILLM(
@@ -60,3 +61,20 @@ def test_azure_openai_llm_logs_optional_dependency_import_failures(
 
     assert llm.model is None
     assert "langchain_openai" in caplog.text
+
+
+def test_azure_openai_llm_uses_v1_endpoint_when_api_version_is_v1() -> None:
+    llm = AzureOpenAILLM(
+        api_version="v1",
+        api_endpoint="https://example.openai.azure.com/",
+        api_key="test-key",
+        model_version="gpt-6-luna",
+    )
+
+    assert llm.model is not None
+    assert str(llm.model.root_async_client.base_url) == (
+        "https://example.openai.azure.com/openai/v1/"
+    )
+    payload = llm.model._get_request_payload([{"role": "user", "content": "hi"}])
+    assert payload["model"] == "gpt-6-luna"
+    assert payload["max_completion_tokens"] == 450
