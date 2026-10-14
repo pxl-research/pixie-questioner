@@ -37,7 +37,7 @@ class AzureOpenAILLM:
             "openai_api_key": SecretStr(api_key),
             "deployment_name": model_version,
             "verbose": False,
-            "temperature": temperature,
+            # "temperature": temperature,
             "streaming": False,
             "request_timeout": request_timeout_seconds,
             "max_tokens": normalized_max_tokens,
