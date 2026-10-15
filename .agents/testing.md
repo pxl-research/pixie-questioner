@@ -8,9 +8,12 @@ Standard commands are in `AGENTS.md` § Execution & Validation; this file adds s
 ## Strategy
 
 1. **Smallest check first** — run a single test file or just lint if that covers the change
-2. **Health check always** — `curl http://localhost:8000/health` must return `{"status":"ok"}`
+2. **Health check for API surface changes** — `curl http://localhost:8000/health` must return `{"status":"ok"}`
 3. **Targeted over full suite** — full suite only when invariants may be impacted
-4. **Live LLM tests sparingly** — only for LLM behavior changes; never block on missing credentials
+4. **Live LLM tests locally are opt-in** — run them only for LLM behavior changes; never block local progress on missing credentials
+
+CI note:
+- `.github/workflows/ci.yml` enforces a `/health` startup check and runs the live-enabled suite for PRs and pushes to `main`.
 
 ---
 

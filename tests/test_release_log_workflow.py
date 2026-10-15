@@ -23,6 +23,15 @@ def _workflow_step() -> dict[str, Any]:
     return release_job["steps"][0]
 
 
+def _workflow_job_env() -> dict[str, Any]:
+    workflow = _load_workflow()
+    jobs = workflow["jobs"]
+    release_job = jobs["release"]
+    env = release_job["env"]
+    assert isinstance(env, dict)
+    return cast(dict[str, Any], env)
+
+
 def _workflow_script() -> str:
     step = _workflow_step()
     return cast(str, step["with"]["script"])
@@ -57,3 +66,14 @@ def test_release_log_workflow_seeds_versions_consistently() -> None:
     script = _workflow_script()
 
     assert "let highest = { major: 0, minor: 0, patch: 0, tag: 'v0.0.0' };" in script
+
+
+def test_release_log_workflow_uses_env_driven_project_configuration() -> None:
+    env = _workflow_job_env()
+    script = _workflow_script()
+
+    assert "PROJECT_V2_ID" in env
+    assert "PROJECT_FIELD_TARGET_RELEASE_ID" in env
+    assert "PROJECT_FIELD_SHIPPED_ID" in env
+    assert "PROJECT_SHIPPED_OPTION_YES_ID" in env
+    assert "requiredEnv('PROJECT_V2_ID')" in script

@@ -13,6 +13,11 @@ jobs:
   release:
     if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
+    env:
+      PROJECT_V2_ID: ${{ vars.PROJECT_V2_ID || 'PVT_kwDOB2OsP84BRN75' }}
+      PROJECT_FIELD_TARGET_RELEASE_ID: ${{ vars.PROJECT_FIELD_TARGET_RELEASE_ID || 'PVTF_lADOB2OsP84BRN75zg_HENk' }}
+      PROJECT_FIELD_SHIPPED_ID: ${{ vars.PROJECT_FIELD_SHIPPED_ID || 'PVTSSF_lADOB2OsP84BRN75zg_HET4' }}
+      PROJECT_SHIPPED_OPTION_YES_ID: ${{ vars.PROJECT_SHIPPED_OPTION_YES_ID || 'f0a9980b' }}
     steps:
       - name: Create release + bump tag + update project item
         uses: actions/github-script@v7
@@ -22,10 +27,17 @@ jobs:
             const {owner, repo} = context.repo;
             const pr = context.payload.pull_request;
 
-            const projectId = 'PVT_kwDOB2OsP84BRN75';
-            const targetReleaseFieldId = 'PVTF_lADOB2OsP84BRN75zg_HENk';
-            const shippedFieldId = 'PVTSSF_lADOB2OsP84BRN75zg_HET4';
-            const shippedYesOptionId = 'f0a9980b';
+            function requiredEnv(name) {
+              const value = (process.env[name] || '').trim();
+              if (!value) {
+                throw new Error(`Missing required workflow environment variable: ${name}`);
+              }
+              return value;
+            }
+            const projectId = requiredEnv('PROJECT_V2_ID');
+            const targetReleaseFieldId = requiredEnv('PROJECT_FIELD_TARGET_RELEASE_ID');
+            const shippedFieldId = requiredEnv('PROJECT_FIELD_SHIPPED_ID');
+            const shippedYesOptionId = requiredEnv('PROJECT_SHIPPED_OPTION_YES_ID');
 
             if (!pr.merge_commit_sha) {
               core.info('No merge commit sha; skipping release.');
